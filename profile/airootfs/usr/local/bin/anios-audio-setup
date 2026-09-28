@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# AniOS live: dựng dàn âm thanh của phiên và tự sửa các kiểu "câm" thường gặp.
+#
+# Các bước:
+#   1. Bật unit người dùng của PipeWire, pipewire-pulse và WirePlumber. Bước này
+#      là bắt buộc trên bản live: trạng thái "đã bật" của các unit đó trong ảnh
+#      phụ thuộc vào scriptlet `systemctl --global enable` của gói, mà scriptlet
+#      chỉ chạy trong chroot lúc pacstrap và hoàn toàn có thể không để lại
+#      symlink nào. Không có dàn âm thanh thì mọi ứng dụng đều câm.
+#   2. Nếu phiên không có systemd --user (đăng nhập ngoài logind), chạy thẳng
+#      pipewire, wireplumber và pipewire-pulse trong phiên.
+#   3. Nếu PipeWire đang chạy mà không thấy thiết bị xuất nào trong khi máy có
+#      card âm thanh (WirePlumber lỡ nhịp lúc khởi động), khởi động lại một lần.
+#   4. Ở phiên đầu tiên sau khi khởi động, bỏ trạng thái tắt tiếng/âm lượng 0%
+#      do BIOS để lại trên thiết bị xuất mặc định, và ghi chú khi thiết bị xuất
+#      mặc định là HDMI/DisplayPort trong khi máy còn thiết bị analog.
+#
+# Những gì cần người dùng biết được ghi vào
+# $XDG_RUNTIME_DIR/anios-audio-setup.state. Phiên Hyprland gọi
+# `anios-audio-setup --notify` để hiện chúng bằng hyprctl notify (không cần
+# thêm gói nào).
+#
+# Script luôn kết thúc với mã 0: đây là bước hỗ trợ phiên, không được phép làm
+# hỏng phiên khi card âm thanh chưa sẵn sàng hoặc không có card nào.
+set -u
+
+usage() {
+  cat <<'EOF'
+Sử dụng: anios-audio-setup [--notify] [--force]
+
+  --notify  hiện thông báo trong phiên Hyprland khi có điều cần biết
+  --force   khởi động lại dàn âm thanh và áp dụng lại mức âm lượng mặc định
+EOF
+}
+
+notify=0
+force=0
+for arg in "$@"; do
+  case "$arg" in
+    --notify) notify=1 ;;
+    --force) force=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Tùy chọn không hợp lệ: %s\n' "$arg" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+runtime="${XDG_RUNTIME_DIR:-/tmp}"
+log="$runtime/anios-audio-setup.log"
+state="$runtime/anios-audio-setup.state"
+marker="${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/anios/audio-defaults-applied"
+
+say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$log" 2>/dev/null || true; }
+note() { printf '%s\n' "$*" >>"$state" 2>/dev/null || true; }
+
+have_user_manager() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  systemctl --user show-environment >/dev/null 2>&1
+}
+
+wait_for_process() {
+  local name="$1" tries="${2:-25}" i
+  for ((i = 0; i < tries; i++)); do
+    pgrep -x "$name" >/dev/null 2>&1 && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+# Số thiết bị xuất mà máy chủ PulseAudio (pipewire-pulse) đang có. Trả về khác
+# 0 khi chưa kết nối được, để nơi gọi phân biệt "chưa biết" với "không có gì".
+sink_count() {
+  local list
+  list="$(pactl list short sinks 2>/dev/null)" || return 1
+  printf '%s\n' "$list" | grep -c '[^[:space:]]'
+  return 0
+}
+
+wait_for_default_sink() {
+  local i
+  for ((i = 0; i < 40; i++)); do
+    wpctl get-volume @DEFAULT_AUDIO_SINK@ >/dev/null 2>&1 && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+# --- 1. Dàn âm thanh qua systemd --user ------------------------------------
+audio_units=(pipewire.socket pipewire-pulse.socket pipewire.service pipewire-pulse.service wireplumber.service)
+have_manager=0
+have_user_manager && have_manager=1
+
+if ((have_manager)); then
+  systemctl --user start "${audio_units[@]}" >>"$log" 2>&1 ||
+    say "systemctl --user start ${audio_units[*]} thất bại"
+  if ((force)); then
+    say "chạy với --force: khởi động lại dàn âm thanh"
+    systemctl --user restart pipewire wireplumber pipewire-pulse >>"$log" 2>&1 ||
+      say "không khởi động lại được dàn âm thanh"
+  fi
+else
+  say "phiên không có systemd --user: chạy trực tiếp trong phiên"
+fi
+
+# --- 2. Dự phòng khi không có systemd --user ------------------------------
+if ! wait_for_process pipewire 25 && ((!have_manager)); then
+  if command -v pipewire >/dev/null 2>&1; then
+    say "khởi động trực tiếp pipewire"
+    setsid pipewire >>"$log" 2>&1 &
+    wait_for_process pipewire 25 || say "không khởi động được pipewire"
+  else
+    say "thiếu lệnh pipewire: gói pipewire chưa có trong ảnh"
+  fi
+fi
+
+if ((!have_manager)) && pgrep -x pipewire >/dev/null 2>&1; then
+  for daemon in wireplumber pipewire-pulse; do
+    wait_for_process "$daemon" 5 && continue
+    if command -v "$daemon" >/dev/null 2>&1; then
+      say "khởi động trực tiếp $daemon"
+      setsid "$daemon" >>"$log" 2>&1 &
+    fi
+  done
+fi
+
+# --- 3. Có card nhưng không có thiết bị xuất nào --------------------------
+card_present=0
+if [[ -r /proc/asound/cards ]] && grep -qE '^[[:space:]]*[0-9]+[[:space:]]+\[' /proc/asound/cards; then
+  card_present=1
+fi
+
+if ((card_present)) && command -v pactl >/dev/null 2>&1; then
+  sinks=""
+  for ((i = 0; i < 25; i++)); do
+    if sinks="$(sink_count)"; then
+      ((sinks > 0)) && break
+    else
+      sinks=""
+    fi
+    sleep 0.2
+  done
+
+  if [[ -n "$sinks" && "$sinks" -eq 0 ]]; then
+    say "card âm thanh có mặt nhưng chưa có thiết bị xuất nào"
+    if ((have_manager)); then
+      systemctl --user restart pipewire pipewire-pulse wireplumber >>"$log" 2>&1 ||
+        say "khởi động lại dàn âm thanh thất bại"
+    else
+      for daemon in pipewire-pulse wireplumber pipewire; do
+        pkill -x "$daemon" 2>/dev/null || true
+      done
+      sleep 1
+      setsid pipewire >>"$log" 2>&1 &
+      wait_for_process pipewire 25
+      setsid wireplumber >>"$log" 2>&1 &
+      setsid pipewire-pulse >>"$log" 2>&1 &
+    fi
+    sleep 2
+    if sinks="$(sink_count)" && [[ -n "$sinks" && "$sinks" -gt 0 ]]; then
+      say "đã thấy $sinks thiết bị xuất sau khi khởi động lại"
+    else
+      note "AniOS: có card âm thanh nhưng không có thiết bị xuất nào. Chạy 'anios-audio-check' để xem chi tiết."
+    fi
+  fi
+fi
+
+# --- 4. Trạng thái mặc định của card ở phiên đầu tiên sau khi khởi động ---
+# Tài khoản live dùng lại ảnh gốc ở mỗi lần khởi động, nên âm lượng/tắt tiếng
+# trong ~/.local/state chỉ có thể do người dùng vừa đặt trong chính lần khởi
+# động này. Vì vậy chỉ áp dụng một lần: lần đầu thì "sửa" trạng thái BIOS để
+# lại, các phiên sau tôn trọng lựa chọn của người dùng.
+if command -v wpctl >/dev/null 2>&1 && { ((force)) || [[ ! -e "$marker" ]]; }; then
+  if wait_for_default_sink; then
+    volume="$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || true)"
+    level="$(awk '{print $2}' <<<"$volume")"
+    muted=0
+    case "$volume" in
+      *MUTED*) muted=1 ;;
+    esac
+    if ((muted)) || [[ "$level" == "0" || "$level" == "0.00" ]]; then
+      # Mức 50% là điểm bắt đầu hợp lý cho loa phòng net; người dùng chỉnh lại
+      # bằng pavucontrol, phím âm lượng trên bàn phím hoặc `wpctl set-volume`.
+      wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.5 >>"$log" 2>&1 || true
+      ((muted)) && { wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 >>"$log" 2>&1 || true; }
+      say "thiết bị xuất mặc định đang câm (muted=${muted}, volume=${level:-?}): đặt lại 50%"
+      note "AniOS: card âm thanh đang tắt tiếng/âm lượng 0% nên đã tự bật lên 50%. Chỉnh lại bằng pavucontrol hoặc: wpctl set-volume @DEFAULT_AUDIO_SINK@ 80%"
+    fi
+
+    # Máy phòng net thường cắm loa vào jack 3.5mm, nhưng WirePlumber hay chọn
+    # HDMI/DisplayPort làm thiết bị mặc định khi màn hình nối bằng HDMI: máy
+    # "không có tiếng" dù mọi thứ vẫn chạy. Chỉ nhắc, không tự đổi, vì có máy
+    # dùng loa của màn hình.
+    if command -v pactl >/dev/null 2>&1; then
+      default_sink="$(pactl info 2>/dev/null | sed -n 's/^Default Sink: //p' | head -1)"
+      case "$default_sink" in
+        *hdmi* | *displayport* | *dp-*)
+          analog="$(pactl list short sinks 2>/dev/null | awk '$2 !~ /hdmi|displayport/ {print $1 " " $2; exit}')"
+          if [[ -n "$analog" ]]; then
+            say "thiết bị xuất mặc định là $default_sink, còn thiết bị analog: $analog"
+            note "AniOS: thiết bị xuất là HDMI/DisplayPort. Nếu máy dùng loa hoặc tai nghe jack 3.5mm, chạy 'wpctl set-default ${analog%% *}' rồi nghe thử lại."
+          fi
+          ;;
+      esac
+    fi
+  fi
+
+  mkdir -p -- "$(dirname -- "$marker")" 2>/dev/null || true
+  : >"$marker" 2>/dev/null || true
+fi
+
+# --- 5. Hiện ghi chú cho người dùng trong phiên Hyprland -------------------
+if ((notify)) && [[ -s "$state" ]]; then
+  if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      # 0 = cảnh báo (vàng). Nếu Hyprland đổi cú pháp thì chỉ mất thông báo,
+      # ghi chú vẫn nằm trong $log.
+      hyprctl notify 0 10000 "rgb(f9e2af)" "$line" >/dev/null 2>&1 || true
+    done <"$state"
+  fi
+  rm -f -- "$state" 2>/dev/null || true
+fi
+
+exit 0

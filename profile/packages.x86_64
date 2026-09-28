@@ -50,17 +50,27 @@ ntfs-3g
 exfatprogs
 dosfstools
 
-# Bộ nhớ, mạng, âm thanh, Bluetooth và thiết bị nhập liệu
+# Bộ nhớ, mạng, Bluetooth và thiết bị nhập liệu
 zram-generator
 networkmanager
 network-manager-applet
 wpa_supplicant
 bluez
 bluez-utils
+
+# Âm thanh: PipeWire làm máy chủ, WirePlumber làm trình quản lý phiên.
+# pipewire-audio là gói bắt buộc để PipeWire mở được card âm thanh: nó chứa
+# plugin SPA ALSA (libspa-alsa.so), bộ profile card và cấu hình ALSA trỏ về
+# PipeWire. Thiếu nó thì dàn âm thanh chạy nhưng không có thiết bị xuất nào.
+# alsa-utils mang aplay/alsamixer/speaker-test cho công cụ chẩn đoán anios-audio-check,
+# còn rtkit cho PipeWire lấy được lập lịch realtime (đỡ nổ tiếng khi chơi game).
 pipewire
+pipewire-audio
 pipewire-alsa
 pipewire-pulse
 wireplumber
+alsa-utils
+rtkit
 pavucontrol
 sof-firmware
 

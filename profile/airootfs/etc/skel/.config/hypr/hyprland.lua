@@ -18,9 +18,13 @@ hl.monitor({
 })
 
 -- Tự chạy khi vào phiên (thay cho exec-once của định dạng cũ).
+-- Dàn âm thanh chạy trước tiên: bật PipeWire + pipewire-pulse + WirePlumber,
+-- rồi sửa trạng thái tắt tiếng mặc định của card. `--notify` hiện cảnh báo
+-- ngay trên desktop (âm lượng 0%, thiết bị xuất đang là HDMI...) khi cần.
 -- fcitx5 + Unikey cho tiếng Việt (bật/tắt bằng Ctrl+Space), sau đó là thanh
 -- trạng thái, thông báo, mạng, polkit và hình nền AniOS.
 hl.on("hyprland.start", function()
+    hl.exec_cmd("/usr/local/bin/anios-audio-setup --notify")
     hl.exec_cmd("fcitx5 -d")
     hl.exec_cmd("waybar")
     hl.exec_cmd("mako")
@@ -108,6 +112,12 @@ end
 hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true })
 hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"), { locked = true })
 hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"), { locked = true })
+
+-- Không có tiếng: mở công cụ kiểm tra âm thanh trong foot (giữ cửa sổ lại để
+-- đọc kết quả). Công cụ này chỉ đọc trạng thái và phát thử một tiếng bíp; muốn
+-- sửa thì chạy `anios-audio-setup --force` trong cửa sổ đó.
+hl.bind(mainMod .. " + SHIFT + A",
+    hl.dsp.exec_cmd([[foot sh -c "/usr/local/bin/anios-audio-check; printf '\nNhấn Enter để đóng cửa sổ... '; read -r _"]]))
 
 -- Chụp màn hình: chọn vùng bằng slurp rồi đưa thẳng ảnh vào clipboard.
 hl.bind("Print", hl.dsp.exec_cmd([[grim -g "$(slurp)" - | wl-copy]]))
