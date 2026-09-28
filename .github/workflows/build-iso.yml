@@ -34,11 +34,16 @@ jobs:
     # pacstrap + mksquashfs + xorrisofs cần khá nhiều thời gian và đĩa.
     timeout-minutes: 120
     # Container Arch Linux: có sẵn pacman/git và chạy với quyền root cho mkarchiso.
-    # --privileged là bắt buộc: pacstrap mount /proc, /sys, /dev vào airootfs, mà
-    # container mặc định không có CAP_SYS_ADMIN nên sẽ fail với "permission denied".
+    #
+    # Cả hai option dưới đây đều bắt buộc cho pacstrap (nó mount /proc, /sys, /dev,
+    # /run vào airootfs trước khi chạy hook):
+    #   --privileged     cấp CAP_SYS_ADMIN cho mount; container mặc định không có.
+    #   --network=host   kernel gắn sysfs và devtmpfs với network namespace, nên
+    #                    container có netns riêng sẽ bị từ chối mount -t sys/dev
+    #                    dù đã có đủ capability.
     container:
       image: archlinux:base-devel
-      options: --privileged
+      options: --privileged --network=host
     defaults:
       run:
         shell: bash
@@ -77,20 +82,23 @@ jobs:
         run: ./scripts/check-profile.sh
 
       - name: Kiểm tra quyền mount của container
-        # pacstrap cần mount /proc, /sys, /dev vào airootfs. Thử trước để fail sớm
-        # với thông báo rõ ràng thay vì chờ tới giữa lúc pacstrap.
+        # pacstrap cần mount /proc, /sys, /dev, /run vào airootfs. Thử trước để
+        # fail sớm kèm thông báo trỏ đúng nguyên nhân thay vì chờ tới giữa pacstrap.
         run: |
+          echo "netns của container: $(readlink /proc/self/ns/net) (netns khởi tạo là net:[4026531840])"
+          grep -E '^Cap(Eff|Prm)' /proc/self/status
           probe="$(mktemp -d)"
           for fs in proc sys dev tmpfs; do
             mkdir -p "$probe/$fs"
-            if ! mount -t "$fs" "$fs" "$probe/$fs" 2>/dev/null; then
-              echo "::error::Không mount được filesystem $fs. Thiếu CAP_SYS_ADMIN — hãy thêm 'options: --privileged' vào container trong workflow"
+            if ! err="$(mount -t "$fs" "$fs" "$probe/$fs" 2>&1)"; then
+              echo "::error::mount -t $fs thất bại: ${err:-không rõ nguyên nhân}"
+              echo "::error::Cần 'options: --privileged --network=host'. Thiếu --privileged là mất CAP_SYS_ADMIN; thiếu --network=host thì kernel chặn mount sysfs và devtmpfs vì hai filesystem này gắn với network namespace."
               exit 1
             fi
             umount "$probe/$fs"
           done
           rm -rf "$probe"
-          echo "Container có quyền mount, sẵn sàng chạy pacstrap"
+          echo "Container đã mount được proc/sys/dev/tmpfs, sẵn sàng chạy pacstrap"
 
       - name: Dựng ISO
         run: |
