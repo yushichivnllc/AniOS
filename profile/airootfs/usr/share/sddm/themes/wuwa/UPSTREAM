@@ -1,0 +1,7 @@
+Theme adapted from Darkkal44/qylock, themes/wuwa.
+Upstream: https://github.com/Darkkal44/qylock/tree/main/themes/wuwa
+Source revision: f6561e2ceae33f26e5e660742a5df2f725cbe514
+Upstream license: GPL-3.0 (see LICENSE).
+
+AniOS changes: load the static fallback first, defer opening the background video,
+and retain the fallback if the video backend reports an error.

@@ -231,6 +231,12 @@ jobs:
             usr/share/anios/logo.txt \
             usr/share/sddm/themes/anios/Main.qml \
             usr/share/sddm/themes/anios/theme.conf \
+            usr/share/sddm/themes/wuwa/Main.qml \
+            usr/share/sddm/themes/wuwa/theme.conf \
+            usr/share/sddm/themes/wuwa/bg.mp4 \
+            usr/share/sddm/themes/wuwa/fallback.png \
+            usr/share/sddm/themes/wuwa/metadata.desktop \
+            usr/share/sddm/themes/wuwa/UPSTREAM \
             usr/share/anios/skel/.config/hypr/hyprland.conf \
             usr/share/anios/skel/.config/hypr/hyprlock.conf \
             home/anios/.config/hypr/hyprland.conf \
@@ -275,9 +281,13 @@ jobs:
           check_mode etc/sudoers.d/10-anios-live 440
 
           sddm_conf="$(unsquashfs -cat "$squashfs" etc/sddm.conf.d/10-anios-autologin.conf)"
-          grep -qxF 'Current=anios' <<<"$sddm_conf"
+          grep -qxF 'Current=wuwa' <<<"$sddm_conf"
           grep -qxF 'User=anios' <<<"$sddm_conf"
-          echo "SDDM dùng giao diện AniOS và tự đăng nhập tài khoản live"
+          unsquashfs -cat "$squashfs" usr/share/sddm/themes/wuwa/Main.qml |
+            grep -qF 'interval: 1200'
+          unsquashfs -cat "$squashfs" usr/share/sddm/themes/wuwa/Main.qml |
+            grep -qF 'onErrorOccurred: root.videoReady = false'
+          echo "SDDM dùng theme Wuthering Waves, có fallback video và tự đăng nhập tài khoản live"
           ARCH
 
       - name: Dọn container dựng Arch
