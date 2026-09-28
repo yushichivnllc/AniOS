@@ -1,11 +1,9 @@
 # PAM service chỉ dùng cho màn hình khoá của phiên live AniOS (hyprlock).
+# Dùng mật khẩu của tài khoản live thay vì pam_permit để màn hình khoá và sudo
+# cùng xác thực bằng mật khẩu AniOS được đặt lúc khởi động.
 #
-# Tài khoản live `anios` không có mật khẩu và đã có sudo NOPASSWD, nên màn hình
-# khoá không phải ranh giới bảo mật: nó chỉ giữ màn hình lại khi người dùng rời
-# máy. Dùng pam_permit để không bao giờ khoá người dùng ra khỏi phiên của chính
-# họ, và để không kích hoạt pam_faillock (mặc định khoá 10 phút sau 3 lần sai)
-# vốn không có ý nghĩa với một mật khẩu trống.
-#
-# KHÔNG dùng file này cho màn hình đăng nhập của hệ thống đã cài lên ổ đĩa.
-auth      sufficient pam_permit.so
-account   sufficient pam_permit.so
+# Dùng pam_unix trực tiếp để tránh pam_faillock của system-auth khoá tài khoản
+# live tạm thời sau vài lần nhập sai. Đây vẫn là môi trường live, không phải
+# cấu hình PAM để sao chép sang hệ thống đã cài lên ổ đĩa.
+auth      required pam_unix.so
+account   required pam_unix.so
