@@ -26,7 +26,14 @@ jobs:
           sddm.read(root / "etc/sddm.conf.d/10-anios-autologin.conf")
           assert sddm["Autologin"]["User"] == "anios"
           assert sddm["Autologin"]["Session"] == "anios"
-          assert sddm["Theme"]["Current"] == "anios"
+          assert sddm["Theme"]["Current"] == "wuwa"
+
+          wuwa_dir = root / "usr/share/sddm/themes/wuwa"
+          wuwa_conf = configparser.ConfigParser(interpolation=None)
+          wuwa_conf.read(wuwa_dir / "theme.conf")
+          assert wuwa_conf["General"]["background"] == "bg.mp4"
+          for asset in ("Main.qml", "bg.mp4", "fallback.png", "logo.png", "metadata.desktop", "UPSTREAM"):
+              assert (wuwa_dir / asset).is_file() and (wuwa_dir / asset).stat().st_size > 0
 
           theme_conf = configparser.ConfigParser(interpolation=None)
           theme_conf.read(root / "usr/share/sddm/themes/anios/theme.conf")
@@ -53,6 +60,17 @@ jobs:
           for required in ("import SddmComponents 2.0", "sddm.login(", "config.background",
                            "sessionModel", "userModel"):
               assert required in qml, f"SDDM theme is missing {required}"
+
+          wuwa_qml = (root / "usr/share/sddm/themes/wuwa/Main.qml").read_text()
+          wuwa_code = strip_qml(wuwa_qml)
+          for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
+              assert wuwa_code.count(opener) == wuwa_code.count(closer), \
+                  f"unbalanced {opener}{closer} in the Wuthering Waves theme"
+          for required in ('import QtMultimedia', 'fallback.png', 'interval: 1200',
+                           'bgVideoPlayer.source = Qt.resolvedUrl("bg.mp4")',
+                           'onErrorOccurred: root.videoReady = false',
+                           'sddm.login(uname, passIn.text, root.sessionIndex)'):
+              assert required in wuwa_qml, f"Wuthering Waves SDDM theme is missing {required}"
 
           # /etc/os-release là shell script; chỉ cần vài dòng định danh.
           os_release = (root / "etc/os-release").read_text().splitlines()

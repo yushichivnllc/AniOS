@@ -13,6 +13,8 @@ pass() { echo "OK: $*"; }
 # --- Danh sách gói ---------------------------------------------------------
 for package in \
   linux-zen steam hyprland networkmanager waybar sddm hyprlock \
+  qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-5compat \
+  gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
@@ -113,8 +115,8 @@ SDDM_CONFIG="$AIROOTFS/etc/sddm.conf.d/10-anios-autologin.conf"
 grep -qxF '[Autologin]' "$SDDM_CONFIG" || fail "SDDM autologin section is missing"
 grep -qxF 'User=anios' "$SDDM_CONFIG" || fail "SDDM must autologin the live user"
 grep -qxF 'Session=anios' "$SDDM_CONFIG" || fail "SDDM must start the AniOS Wayland session"
-grep -qxF 'Current=anios' "$SDDM_CONFIG" || fail "SDDM must use the AniOS theme"
-[[ -s "$AIROOTFS/usr/share/sddm/themes/anios/Main.qml" ]] || fail "SDDM theme Main.qml is missing"
+grep -qxF 'Current=wuwa' "$SDDM_CONFIG" || fail "SDDM must use the Wuthering Waves theme"
+[[ -s "$AIROOTFS/usr/share/sddm/themes/anios/Main.qml" ]] || fail "legacy AniOS SDDM theme Main.qml is missing"
 [[ -s "$AIROOTFS/usr/share/sddm/themes/anios/theme.conf" ]] || fail "SDDM theme.conf is missing"
 THEME_CONF="$AIROOTFS/usr/share/sddm/themes/anios/theme.conf"
 grep -qxF '[General]' "$THEME_CONF" || fail "SDDM theme.conf is missing its [General] section"
@@ -124,6 +126,25 @@ THEME_QML="$AIROOTFS/usr/share/sddm/themes/anios/Main.qml"
 grep -qxF 'import SddmComponents 2.0' "$THEME_QML" || fail "SDDM theme must import SddmComponents 2.0"
 grep -qF 'sddm.login(' "$THEME_QML" || fail "SDDM theme never calls sddm.login()"
 grep -qF 'config.background' "$THEME_QML" || fail "SDDM theme must read background from theme.conf"
+
+# Qylock Wuthering Waves theme uses Qt 6 multimedia. Load the static frame
+# first and defer MP4 decoding so a missing/slow codec cannot blank the greeter.
+WUWA_DIR="$AIROOTFS/usr/share/sddm/themes/wuwa"
+for file in Main.qml theme.conf metadata.desktop bg.mp4 fallback.png logo.png LICENSE UPSTREAM \
+  font/Orbitron-VariableFont_wght.ttf; do
+  [[ -s "$WUWA_DIR/$file" ]] || fail "Wuthering Waves SDDM theme asset is missing: $file"
+done
+WUWA_QML="$WUWA_DIR/Main.qml"
+grep -qF 'import QtMultimedia' "$WUWA_QML" || fail "Wuthering Waves theme must import Qt Multimedia"
+grep -qF 'source: Qt.resolvedUrl("fallback.png")' "$WUWA_QML" ||
+  fail "Wuthering Waves theme must show a static fallback background"
+grep -qF 'interval: 1200' "$WUWA_QML" || fail "Wuthering Waves video must be deferred until after greeter startup"
+grep -qF 'bgVideoPlayer.source = Qt.resolvedUrl("bg.mp4")' "$WUWA_QML" ||
+  fail "Wuthering Waves background video must use its installed asset"
+grep -qF 'onErrorOccurred: root.videoReady = false' "$WUWA_QML" ||
+  fail "Wuthering Waves theme must keep its fallback when video decoding fails"
+grep -qF 'sddm.login(uname, passIn.text, root.sessionIndex)' "$WUWA_QML" ||
+  fail "Wuthering Waves theme must submit credentials to SDDM"
 
 grep -qxF 'Exec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-sessions/anios.desktop" ||
   fail "AniOS SDDM session must start anios-session"

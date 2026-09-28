@@ -35,7 +35,7 @@ Script dùng profile `releng` của Archiso đang cài trên máy, đổi kernel
 
 ## Dựng ISO tự động bằng GitHub Actions
 
-Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, và đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, giao diện SDDM và cấu hình desktop có thật trong ảnh live) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
+Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, và đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves và cấu hình desktop có thật trong ảnh live) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
 
 Khi nào workflow chạy:
 
@@ -69,7 +69,7 @@ Lưu ý: mỗi lượt dựng mất khoảng 30–90 phút và vài chục GB du
 - Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải trong phiên chỉ nằm trong RAM/overlay tạm: hãy copy file cần giữ ra ổ ngoài trước khi tắt máy, hoặc cài hệ thống vào ổ đĩa nếu sử dụng thường xuyên.
 - Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
 - **Màn hình khoá chỉ để tránh chạm nhầm**, không phải ranh giới bảo mật: tài khoản live không có mật khẩu, nhấn Enter là mở lại được (`/etc/pam.d/anios-live` dùng `pam_permit` để không bao giờ khoá người dùng ra khỏi phiên của chính họ). Vì vậy đừng để dữ liệu quan trọng trong phiên live.
-- Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện giao diện AniOS; chọn phiên **AniOS (Hyprland)** rồi nhấn Enter (mật khẩu để trống) để vào lại. Tài khoản live được xoá mật khẩu lúc khởi động vì `systemd-sysusers` tạo tài khoản ở trạng thái "chưa đặt mật khẩu".
+- Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện theme **Wuthering Waves** của Qylock; chọn phiên **AniOS (Hyprland)** rồi nhấn Enter (mật khẩu để trống) để vào lại. Theme hiện khung nền tĩnh ngay, rồi mới khởi tạo video sau 1,2 giây; nếu thiếu codec video thì khung tĩnh vẫn giữ cho màn hình đăng nhập dùng được. Tài khoản live được xoá mật khẩu lúc khởi động vì `systemd-sysusers` tạo tài khoản ở trạng thái "chưa đặt mật khẩu".
 - Desktop mặc định tắt blur và animation để giảm tải GPU. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 
 ## Cài desktop Immaterial Impulse
@@ -91,7 +91,8 @@ Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; t
 
 ## Cấu trúc repository
 
-- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và giao diện đăng nhập AniOS, phiên Hyprland, Waybar, fcitx5, mạng và cấu hình phiên.
+- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland, Waybar, fcitx5, mạng và cấu hình phiên.
+- `profile/airootfs/usr/share/sddm/themes/wuwa/` — theme Qylock Wuthering Waves, mã nguồn giấy phép GPL-3.0; thông tin upstream và commit nguồn ở `UPSTREAM`.
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
 - `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware và tiện ích bổ sung vào Archiso `releng`.

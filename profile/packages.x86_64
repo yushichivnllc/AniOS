@@ -84,9 +84,16 @@ intel-media-driver
 quickshell
 matugen
 qt6-wayland
+qt6-declarative
 qt6-svg
 qt6-multimedia
+qt6-multimedia-ffmpeg
 qt6-5compat
+# Codecs requested by the Qylock Wuthering Waves SDDM background video
+gst-plugins-base
+gst-plugins-good
+gst-plugins-bad
+gst-plugins-ugly
 jq
 curl
 git
