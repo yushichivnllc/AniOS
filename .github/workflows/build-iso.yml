@@ -90,24 +90,75 @@ jobs:
         run: docker exec anios-iso-builder /workspace/scripts/check-profile.sh
 
       - name: Kiểm tra quyền mount của container
-        # pacstrap cần mount /proc, /sys, /dev, /run vào airootfs. Thử trước để
-        # fail sớm kèm thông báo trỏ đúng nguyên nhân thay vì chờ tới giữa pacstrap.
+        # Probe phải lặp lại đúng những gì pacstrap (hàm chroot_setup của
+        # arch-install-scripts) mount vào airootfs, kể cả tên filesystem type mà
+        # kernel đăng ký: "sysfs" chứ không phải "sys", "devtmpfs" chứ không phải
+        # "dev". Sai tên thì mount báo "unknown filesystem type" kể cả khi container
+        # có đủ quyền. Fail sớm ở đây kèm chẩn đoán thay vì chờ tới giữa pacstrap.
         run: |
-          docker exec -i anios-iso-builder bash -e -o pipefail -s <<'ARCH'
-          echo "netns của container: $(readlink /proc/self/ns/net) (netns khởi tạo là net:[4026531840])"
-          grep -E '^Cap(Eff|Prm)' /proc/self/status
+          # Inode của netns khởi tạo khác nhau theo phiên bản kernel (ví dụ
+          # net:[4026531833] trên runner Ubuntu, net:[4026531840] trên kernel khác)
+          # nên phải so với netns thật của runner, không hardcode con số.
+          host_netns="$(readlink /proc/self/ns/net)"
+          net_mode="$(docker inspect -f '{{ .HostConfig.NetworkMode }}' anios-iso-builder)"
+          is_privileged="$(docker inspect -f '{{ .HostConfig.Privileged }}' anios-iso-builder)"
+          echo "Runner: netns=$host_netns | Builder: network=$net_mode privileged=$is_privileged"
+          docker exec -i \
+            --env HOST_NETNS="$host_netns" \
+            --env HOST_NET_MODE="$net_mode" \
+            --env HOST_PRIVILEGED="$is_privileged" \
+            anios-iso-builder bash -e -o pipefail -s <<'ARCH'
+          container_netns="$(readlink /proc/self/ns/net)"
+          echo "Container: netns=$container_netns | network=${HOST_NET_MODE:-không rõ} privileged=${HOST_PRIVILEGED:-không rõ}"
+          if [[ -n "${HOST_NETNS:-}" && "$container_netns" != "$HOST_NETNS" ]]; then
+            # Không fatal: pacman ở bước trước đã tải gói thành công nên mạng của
+            # container vẫn thông, chỉ là không dùng chung netns với runner.
+            echo "::warning::Builder không dùng chung netns với runner (--network host chưa áp dụng)."
+          fi
+          grep -E '^(CapEff|Seccomp|NoNewPrivs)' /proc/self/status
+
           probe="$(mktemp -d)"
-          for fs in proc sys dev tmpfs; do
-            mkdir -p "$probe/$fs"
-            if ! err="$(mount -t "$fs" "$fs" "$probe/$fs" 2>&1)"; then
-              echo "::error::mount -t $fs thất bại: ${err:-không rõ nguyên nhân}"
-              echo "::error::Cần chạy builder với --privileged --network host."
-              exit 1
+          mounted=()
+          cleanup_probe() {
+            local target
+            for target in "${mounted[@]}"; do
+              umount --lazy "$target" 2>/dev/null || true
+            done
+            rm -rf -- "$probe"
+          }
+          trap cleanup_probe EXIT
+
+          fail=0
+          try_mount() {
+            local label="$1" source="$2" target err
+            shift 2
+            target="$probe/$label"
+            mkdir -p -- "$target"
+            if err="$(mount "$source" "$@" "$target" 2>&1)"; then
+              echo "OK   : mount $source $* -> $target"
+              mounted+=("$target")
+            else
+              echo "::error::mount $source $* -> $target thất bại: ${err:-không rõ nguyên nhân}"
+              fail=1
             fi
-            umount "$probe/$fs"
-          done
-          rm -rf "$probe"
-          echo "Container đã mount được proc/sys/dev/tmpfs, sẵn sàng chạy pacstrap"
+            return 0
+          }
+
+          # Đúng thứ tự và tham số pacstrap dùng khi dựng chroot.
+          try_mount proc   proc   -t proc     -o nosuid,noexec,nodev
+          try_mount sys    sys    -t sysfs    -o nosuid,noexec,nodev,ro
+          try_mount dev    dev    -t devtmpfs -o mode=0755,nosuid
+          try_mount devpts devpts -t devpts   -o mode=0620,gid=5,nosuid,noexec
+          try_mount shm    shm    -t tmpfs    -o mode=1777,nosuid,nodev
+          try_mount run    /run   --bind --make-private
+          try_mount tmp    tmp    -t tmpfs    -o mode=1777,strictatime,nodev,nosuid
+
+          if (( fail )); then
+            echo "::error::Container không mount đủ API filesystem mà pacstrap cần."
+            echo "::error::Nguyên nhân thường gặp: builder thiếu --privileged (đang là ${HOST_PRIVILEGED:-?}), seccomp/apparmor chặn mount, hoặc container nằm trong user namespace (devtmpfs không mount được ngoài init user namespace)."
+            exit 1
+          fi
+          echo "Container mount được proc/sysfs/devtmpfs/devpts/tmpfs và bind /run — pacstrap sẵn sàng chạy."
           ARCH
 
       - name: Dựng ISO
