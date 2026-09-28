@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+user=anios
+home="$(getent passwd "$user" | cut -d: -f6)"
+[[ -n "$home" && "$home" == /home/* ]] || { echo "Cannot resolve the AniOS live user's home directory" >&2; exit 1; }
+group="$(id -gn "$user")"
+
+install -d -m 0750 -o "$user" -g "$group" "$home"
+install -d -m 0755 -o "$user" -g "$group" /usr/share/anios/skel
+cp -a -n /usr/share/anios/skel/. "$home/"
+install -d -m 0755 -o "$user" -g "$group" \
+  "$home/Desktop" "$home/Documents" "$home/Downloads" "$home/Pictures" "$home/Videos" "$home/Games"
+find "$home/Desktop" -maxdepth 1 -type f -name '*.desktop' -exec chmod +x {} +
+chown -R "$user:$group" "$home"

@@ -1,0 +1,2 @@
+# The live environment has no persistent user data. Never reuse this policy on an installed system.
+anios ALL=(ALL:ALL) NOPASSWD: ALL

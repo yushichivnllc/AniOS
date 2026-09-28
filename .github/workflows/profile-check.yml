@@ -1,0 +1,25 @@
+name: AniOS profile checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax and profile structure
+        run: ./scripts/check-profile.sh
+      - name: Validate JSON and TOML configuration
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path("profile/airootfs")
+          json.loads((root / "usr/share/anios/skel/.config/waybar/config").read_text())
+          tomllib.loads((root / "etc/greetd/config.toml").read_text())
+          print("JSON and TOML configuration parse successfully")
+          PY

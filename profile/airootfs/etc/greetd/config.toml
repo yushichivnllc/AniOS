@@ -1,0 +1,10 @@
+[terminal]
+vt = 1
+
+[initial_session]
+command = "anios-session"
+user = "anios"
+
+[default_session]
+command = "tuigreet --time --remember --cmd anios-session"
+user = "greeter"
