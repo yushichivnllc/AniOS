@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if (( EUID == 0 )); then
+  echo "Do not run this installer as root; run it from the AniOS live user session." >&2
+  exit 1
+fi
+
+if ! command -v git >/dev/null 2>&1 || ! command -v foot >/dev/null 2>&1; then
+  echo "AniOS is missing git or Foot; this live image may be incomplete." >&2
+  exit 1
+fi
+
+repo_dir="${XDG_DATA_HOME:-$HOME/.local/share}/anios/immaterial-impulse"
+mkdir -p -- "$(dirname -- "$repo_dir")"
+
+if [[ ! -d "$repo_dir/.git" ]]; then
+  if [[ -e "$repo_dir" ]]; then
+    echo "Refusing to replace the existing non-Git directory: $repo_dir" >&2
+    exit 1
+  fi
+  echo "Downloading the upstream Immaterial Impulse desktop..."
+  git clone --depth 1 https://github.com/XephyLon/immaterial-impulse.git "$repo_dir"
+else
+  echo "Using the existing checkout at $repo_dir"
+fi
+
+cd -- "$repo_dir"
+echo "Starting the upstream guided installer. Review its package and configuration changes before accepting."
+exec ./setup install

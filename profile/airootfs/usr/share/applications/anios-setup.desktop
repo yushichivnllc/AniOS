@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Install Immaterial Impulse
+GenericName=Desktop Setup
+Comment=Install XephyLon's feature-rich Hyprland desktop (Internet required)
+Exec=foot -e anios-setup
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Settings;System;

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# A per-session D-Bus instance is needed by the Wayland portals and tray tools.
+exec dbus-run-session -- Hyprland "$@"

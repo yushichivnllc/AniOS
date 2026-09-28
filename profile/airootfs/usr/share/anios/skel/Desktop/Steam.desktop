@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Steam
+Comment=Play games with Steam
+Exec=steam %U
+Icon=steam
+Terminal=false
+Categories=Game;

@@ -1,0 +1,6 @@
+# Archiso output/work directories
+/out/
+/work/
+*.iso
+*.iso.sig
+*.sha256
