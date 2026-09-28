@@ -12,7 +12,7 @@ pass() { echo "OK: $*"; }
 
 # --- Danh sách gói ---------------------------------------------------------
 for package in \
-  linux-zen steam hyprland networkmanager waybar sddm hyprlock \
+  linux-zen shadow steam hyprland networkmanager waybar sddm hyprlock \
   qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-5compat \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
@@ -59,6 +59,12 @@ for declaration in \
   grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
     fail "build script does not declare file permission $declaration"
 done
+
+SUDOERS="$AIROOTFS/etc/sudoers.d/10-anios-live"
+[[ -s "$SUDOERS" ]] || fail "live sudoers policy is missing"
+grep -qxF 'anios ALL=(ALL:ALL) PASSWD: ALL' "$SUDOERS" ||
+  fail "sudo must require the live user's password"
+! grep -qF 'NOPASSWD' "$SUDOERS" || fail "live sudoers policy must not bypass password authentication"
 
 # Ensure each additional package is a single, uncommented package name.
 if grep -nEv '^[[:space:]]*($|#|[a-zA-Z0-9@._+-]+$)' "$ROOT_DIR/profile/packages.x86_64"; then
@@ -186,11 +192,18 @@ grep -qxF 'ExecStart=/usr/local/lib/anios/live-home-setup' "$LIVE_HOME_UNIT" ||
 LIVE_HOME_SETUP="$AIROOTFS/usr/local/lib/anios/live-home-setup"
 grep -qF '/usr/share/anios/skel' "$LIVE_HOME_SETUP" || fail "live-home-setup must use the AniOS skeleton"
 grep -qF 'chown -R' "$LIVE_HOME_SETUP" || fail "live-home-setup must give the live user ownership of its home"
-# sysusers đặt mật khẩu "chưa thiết lập" (không phải rỗng), mà system-auth chỉ
-# cho qua mật khẩu rỗng nhờ nullok; thiếu bước này thì sau khi thoát phiên,
-# người dùng không thể đăng nhập lại ở màn hình SDDM.
-grep -qF 'passwd -d' "$LIVE_HOME_SETUP" ||
-  fail "live-home-setup must clear the live user's password for the SDDM greeter"
+# Đặt mật khẩu sau khi sysusers tạo tài khoản, trước khi SDDM khởi động.
+grep -qF 'password=1111' "$LIVE_HOME_SETUP" ||
+  fail "live-home-setup must configure the requested live password"
+grep -qF 'chpasswd' "$LIVE_HOME_SETUP" ||
+  fail "live-home-setup must apply the live password"
+
+PAM_LIVE="$AIROOTFS/etc/pam.d/anios-live"
+[[ -s "$PAM_LIVE" ]] || fail "the AniOS PAM service for the lock screen is missing"
+grep -qF 'pam_unix.so' "$PAM_LIVE" ||
+  fail "the lock screen must authenticate with the live user's password"
+! grep -qF 'pam_permit.so' "$PAM_LIVE" ||
+  fail "the live lock screen must not bypass password authentication"
 
 # --- Cài sẵn dotfile ------------------------------------------------------
 SKEL="$AIROOTFS/usr/share/anios/skel"
@@ -214,16 +227,12 @@ grep -qF 'bind = $mainMod, D, exec, $menu' "$HYPR_CONF" || fail "Hyprland launch
 # hình chỉ có ý nghĩa khi file cấu hình đi kèm tồn tại.
 HYPRLOCK_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprlock.conf"
 [[ -s "$HYPRLOCK_CONF" ]] || fail "hyprlock.conf is missing; the lock keybind would do nothing"
-grep -qF 'ignore_empty_input = true' "$HYPRLOCK_CONF" ||
-  fail "the live lock screen must accept an empty password"
+grep -qF 'ignore_empty_input = false' "$HYPRLOCK_CONF" ||
+  fail "the live lock screen must require a password"
 grep -qF '/usr/share/anios/wallpaper.png' "$HYPRLOCK_CONF" ||
   fail "the lock screen must reuse the AniOS wallpaper"
 grep -qF 'pam:module = anios-live' "$HYPRLOCK_CONF" ||
   fail "the lock screen must use the AniOS PAM service"
-PAM_LIVE="$AIROOTFS/etc/pam.d/anios-live"
-[[ -s "$PAM_LIVE" ]] || fail "the AniOS PAM service for the lock screen is missing"
-grep -qF 'pam_permit.so' "$PAM_LIVE" ||
-  fail "the live lock screen must never lock the user out of their own session"
 
 # Unikey phải là bộ gõ mặc định, nếu không người dùng phải tự thêm vào fcitx5.
 FCITX_PROFILE="$AIROOTFS/usr/share/anios/skel/.config/fcitx5/profile"

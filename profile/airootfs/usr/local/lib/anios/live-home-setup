@@ -25,12 +25,14 @@ fi
 # trong phiên lại cần ghi vào ~/.config: chuyển toàn bộ home cho tài khoản live.
 chown -R "$user:$group" "$home"
 
-# systemd-sysusers tạo tài khoản với mật khẩu "chưa đặt" chứ không phải rỗng, và
-# PAM chỉ cho qua mật khẩu rỗng khi hash thật sự trống (nullok). Xoá mật khẩu để
-# nếu người dùng thoát phiên (Super+Shift+E) thì vẫn đăng nhập lại được ở màn
-# hình SDDM bằng cách nhấn Enter, thay vì bị kẹt ngoài desktop.
-passwd -d "$user" >/dev/null ||
-  echo "Could not clear the live user's password; SDDM may ask for one after logout." >&2
+# Đặt mật khẩu dùng chung cho đăng nhập SDDM, mở khoá hyprlock và sudo.
+# Đây là mật khẩu cố ý đơn giản cho tài khoản live tạm thời; không dùng lại
+# chính sách này cho hệ thống cài đặt hoặc dữ liệu riêng tư.
+password=1111
+printf '%s:%s\n' "$user" "$password" | chpasswd || {
+  echo "Could not set the live user's password; refusing to continue." >&2
+  exit 1
+}
 
 install -d -m 0755 -o "$user" -g "$group" \
   "$home/Desktop" "$home/Documents" "$home/Downloads" "$home/Pictures" "$home/Videos" "$home/Games"
