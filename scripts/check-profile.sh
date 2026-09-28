@@ -392,6 +392,37 @@ done
 [[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-imi.desktop" ]] || fail "the Immaterial Impulse Wayland session is missing"
 [[ -s "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
 
+# --- Overlay không được đè lên file do gói pacman sở hữu ------------------
+# mkarchiso chép profile/airootfs vào work/<arch>/airootfs TRƯỚC khi pacstrap cài
+# gói (docs/README.profile.rst của archiso). File overlay nào nằm sẵn ở đường dẫn
+# mà một gói sở hữu sẽ làm pacman dừng với:
+#   error: failed to commit transaction (conflicting files)
+#   <gói>: .../work/x86_64/airootfs/<đường dẫn> exists in filesystem
+#   ==> ERROR: Failed to install packages to new root
+# Ngoại lệ duy nhất là các file "backup" của gói (ví dụ /etc/passwd, /etc/shadow
+# của gói filesystem) mà chính archiso dựa vào để tạo tài khoản live.
+#
+# Với âm thanh: gói pipewire-alsa tự cài /etc/alsa/conf.d/99-pipewire-default.conf
+# (trỏ ALSA mặc định về PipeWire) và pipewire-audio tự cài
+# /etc/alsa/conf.d/50-pipewire.conf. AniOS không được ship lại những file đó —
+# chỉ cần hai gói này nằm trong manifest là bảo đảm đã đủ.
+for owned_path in \
+  etc/alsa/conf.d/99-pipewire-default.conf \
+  etc/alsa/conf.d/50-pipewire.conf \
+  usr/share/alsa/alsa.conf.d/50-pipewire.conf \
+  usr/share/alsa/alsa.conf.d/99-pipewire-default.conf \
+  usr/share/pipewire/pipewire.conf \
+  usr/share/pipewire/pipewire-pulse.conf \
+  usr/share/wireplumber/wireplumber.conf; do
+  [[ ! -e "$AIROOTFS/$owned_path" && ! -L "$AIROOTFS/$owned_path" ]] ||
+    fail "overlay must not ship $owned_path: a pacman package owns that path, so pacstrap aborts with 'conflicting files'. Put AniOS settings in a file no package owns (e.g. etc/alsa/conf.d/99-anios-*.conf) or drop it and rely on the package."
+done
+# Hai gói này chính là thứ bảo đảm ALSA trỏ về PipeWire trong ảnh live.
+for audio_package in pipewire-alsa pipewire-audio; do
+  grep -qxF "$audio_package" "$ROOT_DIR/profile/packages.x86_64" ||
+    fail "ALSA-to-PipeWire routing needs the $audio_package package in the manifest"
+done
+
 # --- Quyền của script dựng ISO -------------------------------------------
 [[ -x "$ROOT_DIR/scripts/build-iso.sh" ]] || fail "build script is not executable"
 [[ -x "$ROOT_DIR/scripts/check-profile.sh" ]] || fail "check script is not executable"

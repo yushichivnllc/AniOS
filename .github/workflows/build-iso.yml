@@ -413,6 +413,7 @@ jobs:
             usr/bin/wpctl usr/bin/pactl usr/bin/aplay usr/bin/speaker-test usr/bin/alsamixer \
             usr/lib/spa-0.2/alsa/libspa-alsa.so \
             usr/share/alsa/alsa.conf.d/50-pipewire.conf \
+            etc/alsa/conf.d/50-pipewire.conf \
             etc/alsa/conf.d/99-pipewire-default.conf; do
             if unsquashfs -cat "$squashfs" "$path" >/dev/null 2>&1; then
               echo "  OK    $path"
@@ -423,6 +424,22 @@ jobs:
           done
           (( ! missing )) ||
             { echo "::error::Ảnh live thiếu thành phần âm thanh"; exit 1; }
+
+          # 2b) Hai file ALSA vừa kiểm tra do gói pipewire-alsa và pipewire-audio tự
+          #     cài. Overlay của AniOS KHÔNG được ship lại chúng: mkarchiso chép
+          #     profile/airootfs vào work/ trước khi pacstrap cài gói, nên pacman sẽ
+          #     báo "failed to commit transaction (conflicting files)" và bản dựng
+          #     chết giữa chừng. Vì vậy bước này phải xác nhận nội dung file thật sự
+          #     trỏ ALSA về PipeWire, chứ không chỉ là file có tồn tại.
+          alsa_default="$(unsquashfs -cat "$squashfs" etc/alsa/conf.d/99-pipewire-default.conf 2>/dev/null || true)"
+          grep -q 'defaults.pcm.!card pipewire' <<<"$alsa_default" ||\
+            { echo "::error::/etc/alsa/conf.d/99-pipewire-default.conf trong ảnh live không trỏ PCM mặc định về PipeWire"; exit 1; }
+          grep -q 'defaults.ctl.!card pipewire' <<<"$alsa_default" ||\
+            { echo "::error::/etc/alsa/conf.d/99-pipewire-default.conf trong ảnh live không trỏ CTL mặc định về PipeWire"; exit 1; }
+          echo "  OK    ALSA default -> PipeWire (gói pipewire-alsa cài sẵn)"
+          unsquashfs -cat "$squashfs" etc/alsa/conf.d/50-pipewire.conf 2>/dev/null | grep -q 'pipewire' ||\
+            { echo "::error::/etc/alsa/conf.d/50-pipewire.conf trong ảnh live không định nghĩa thiết bị pipewire"; exit 1; }
+          echo "  OK    thiết bị ALSA pcm/ctl pipewire (gói pipewire-audio cài sẵn)"
 
           # 3) Gói âm thanh phải có mặt trong danh sách gói của ảnh live.
           for package in \
