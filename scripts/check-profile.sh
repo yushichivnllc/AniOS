@@ -17,7 +17,7 @@ for package in \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
-  xorg-xwayland ttf-nerd-fonts-symbols; do
+  xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
 ! grep -qxF linux "$ROOT_DIR/profile/packages.x86_64" || fail "manifest must not request the generic linux kernel"

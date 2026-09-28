@@ -115,6 +115,14 @@ for boot_dir in efiboot grub syslinux; do
   fi
 done
 
+# Mặc định Archiso chỉ cấp 256 MB RAM cho lớp ghi (cow) của hệ live, nên
+# `pacman -Syyu` hết chỗ giữa chừng. Tăng lên 4G (tmpfs chỉ dùng RAM khi cần).
+for boot_dir in efiboot grub syslinux; do
+  [[ -d "$BUILD_PROFILE/$boot_dir" ]] || continue
+  find "$BUILD_PROFILE/$boot_dir" -type f \( -name '*.conf' -o -name '*.cfg' \) -print0 |
+    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=4G/ }'
+done
+
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
 # Releng có cấu hình autologin root trên tty1 (getty@tty1.service.d/autologin.conf).
@@ -167,6 +175,15 @@ if [[ ! -f "$RUNTIME_PACMAN_CONF" ]]; then
   install -D -m 0644 "$BUILD_PROFILE/pacman.conf" "$RUNTIME_PACMAN_CONF"
 fi
 enable_multilib "$RUNTIME_PACMAN_CONF"
+
+# Mirrorlist của hệ live do reflector.service điền lúc khởi động; nếu reflector
+# lỗi (mạng chậm, timeout) file vẫn toàn dòng comment và pacman -Syyu báo
+# "no servers configured". Thêm mirror dự phòng sau Include cho mọi kho.
+sed -i -E '/^[[:space:]]*Include[[:space:]]*=[[:space:]]*\/etc\/pacman.d\/mirrorlist/ a\
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch\
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch' "$RUNTIME_PACMAN_CONF"
+grep -q 'geo.mirror.pkgbuild.com' "$RUNTIME_PACMAN_CONF" ||
+  { echo "Failed to add fallback mirrors to live pacman.conf" >&2; exit 1; }
 
 # Preserve Archiso's current boot modes and other profile settings, changing
 # only the identity strings that are stable across releng profile revisions.
