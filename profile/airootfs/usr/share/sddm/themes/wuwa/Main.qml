@@ -160,8 +160,10 @@ Rectangle {
                         id: userNameText
                         text: {
                             var n = ""
-                            if (typeof userModel !== "undefined") { n = userModel.data(userModel.index(root.userIndex, 0), Qt.UserRole + 1) || userModel.lastUser || "User" }
-                            else { n = "User" }
+                            if (typeof userModel !== "undefined" && userModel.count > 0) {
+                                n = userModel.data(userModel.index(root.userIndex, 0), Qt.UserRole + 1) || userModel.lastUser
+                            }
+                            if (!n || n === "User") { n = "anios" }
                             return n.toUpperCase()
                         }
                         font.family: mainFont.name; font.pixelSize: 14 * s; font.letterSpacing: 2 * s; font.bold: true; color: root.wWhite
@@ -307,7 +309,10 @@ Rectangle {
     // Action
     function doLogin() {
         var uname = ""
-        if (typeof userModel !== "undefined") { uname = userModel.data(userModel.index(root.userIndex, 0), Qt.UserRole + 1) || userModel.lastUser || "User" }
+        if (typeof userModel !== "undefined" && userModel.count > 0) {
+            uname = userModel.data(userModel.index(root.userIndex, 0), Qt.UserRole + 1) || userModel.lastUser
+        }
+        if (!uname || uname === "User") { uname = "anios" }
         if (typeof sddm !== "undefined") sddm.login(uname, passIn.text, root.sessionIndex)
     }
 
@@ -324,5 +329,9 @@ Rectangle {
     }
 
     Timer { interval: 300; running: true; onTriggered: passIn.forceActiveFocus() }
-    Component.onCompleted: keyboard.numLock = true
+    Component.onCompleted: {
+        if (typeof keyboard !== "undefined" && keyboard) {
+            keyboard.numLock = true
+        }
+    }
 }

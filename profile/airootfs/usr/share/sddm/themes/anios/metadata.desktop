@@ -1,0 +1,8 @@
+[SddmGreeterTheme]
+Name=AniOS
+Description=AniOS live SDDM theme
+Author=AniOS
+Type=sddm-theme
+MainScript=Main.qml
+ConfigFile=theme.conf
+QtVersion=6

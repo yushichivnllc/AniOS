@@ -1,0 +1,12 @@
+font=monospace 10
+background-color=#202431
+text-color=#d9deea
+border-color=#7aa2f7
+border-size=1
+border-radius=4
+padding=10
+margin=8
+width=320
+height=100
+default-timeout=5000
+max-visible=4

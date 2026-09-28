@@ -1,0 +1,8 @@
+set linenumbers
+set tabsize 4
+set tabstospaces
+set autoindent
+set mouse
+set smooth
+set constantshow
+include "/usr/share/nano/*.nanorc"
