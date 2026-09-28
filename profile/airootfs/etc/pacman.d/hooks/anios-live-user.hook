@@ -1,0 +1,30 @@
+# remove from airootfs!
+#
+# Chạy khi pacstrap cài đặt gói `shadow` trong lúc dựng ISO: tạo tài khoản
+# live `anios` (UID 1000) và đặt mật khẩu cố định 1111 vào /etc/passwd và
+# /etc/shadow, để mật khẩu nằm sẵn trong ảnh squashfs.
+#
+# Lý do: autologin của SDDM dùng stack PAM `sddm-autologin` (kết thúc bằng
+# pam_permit.so) nên luôn thành công kể cả khi tài khoản chưa có mật khẩu;
+# nhưng đăng nhập thủ công tại màn hình SDDM dùng stack `sddm`
+# (system-login -> system-auth -> pam_unix) và bắt buộc phải có hash thật
+# trong /etc/shadow. Nếu mật khẩu chỉ được đặt lúc khởi động bởi
+# anios-live-home.service và service đó gặp trục trặc, người dùng vẫn vào
+# được desktop qua autologin nhưng không bao giờ đăng nhập lại được
+# (SDDM báo access denied).
+#
+# Hook của releng zzzz99-remove-custom-hooks-from-airootfs.hook (được copy
+# cùng profile releng) sẽ xoá file hook này sau khi dựng xong, để nó không
+# chạy lại ở các thao tác pacman trong phiên live.
+
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = shadow
+
+[Action]
+Description = Baking the AniOS live user and its password into the image...
+When = PostTransaction
+Depends = shadow
+Exec = /usr/local/lib/anios/create-live-user
