@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=AniOS (Hyprland)
+Comment=Start the AniOS live desktop session
+Exec=/usr/local/bin/anios-session
+TryExec=/usr/local/bin/anios-session
+Type=Application
+DesktopNames=Hyprland

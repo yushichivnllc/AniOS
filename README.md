@@ -25,7 +25,7 @@ Script dùng profile `releng` của Archiso đang cài trên máy, bật kho `mu
 
 ## Dựng ISO tự động bằng GitHub Actions
 
-Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu, bên trong container `archlinux:base-devel`, và gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
+Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
 
 Khi nào workflow chạy:
 
@@ -51,7 +51,7 @@ Lưu ý: mỗi lượt dựng mất khoảng 30–90 phút và vài chục GB du
 
 ## Sử dụng phiên Live
 
-- AniOS tự đăng nhập vào tài khoản tạm `anios` và khởi chạy Hyprland. Tài khoản Live có quyền `sudo` không cần mật khẩu để tiện sử dụng; **không dùng phiên này với dữ liệu riêng tư hoặc trên mạng không đáng tin cậy**.
+- SDDM tự đăng nhập vào tài khoản Live tạm `anios` và khởi chạy phiên AniOS trên Hyprland. Tài khoản Live có quyền `sudo` không cần mật khẩu để tiện sử dụng; **không dùng phiên này với dữ liệu riêng tư hoặc trên mạng không đáng tin cậy**.
 - Kết nối Wi-Fi bằng biểu tượng mạng trên thanh trạng thái hoặc lệnh `nmtui`; kết nối dây do NetworkManager quản lý.
 - Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Trên USB Live thông thường, game và thiết lập không được lưu sau khi tắt máy; hãy dùng ổ ngoài có lưu trữ bền vững hoặc cài hệ thống vào ổ đĩa nếu sử dụng thường xuyên.
 - `Super+Return`: mở Foot; `Super+D`: mở launcher; `Super+Shift+E`: thoát phiên Hyprland.
@@ -76,7 +76,7 @@ Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; t
 
 ## Cấu trúc repository
 
-- `profile/airootfs/` — tài khoản Live, Hyprland, Waybar, mạng và cấu hình phiên.
+- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập, phiên Hyprland, Waybar, mạng và cấu hình phiên.
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware và tiện ích bổ sung vào Archiso `releng`.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời và chạy `mkarchiso`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile và cú pháp script ngoại tuyến.

@@ -11,15 +11,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check shell syntax and profile structure
         run: ./scripts/check-profile.sh
-      - name: Validate JSON and TOML configuration
+      - name: Validate JSON and SDDM configuration
         run: |
           python3 - <<'PY'
+          import configparser
           import json
           import pathlib
-          import tomllib
 
           root = pathlib.Path("profile/airootfs")
           json.loads((root / "usr/share/anios/skel/.config/waybar/config").read_text())
-          tomllib.loads((root / "etc/greetd/config.toml").read_text())
-          print("JSON and TOML configuration parse successfully")
+
+          sddm = configparser.ConfigParser(interpolation=None)
+          sddm.read(root / "etc/sddm.conf.d/10-anios-autologin.conf")
+          assert sddm["Autologin"]["User"] == "anios"
+          assert sddm["Autologin"]["Session"] == "anios"
+
+          session = configparser.ConfigParser(interpolation=None)
+          session.read(root / "usr/share/wayland-sessions/anios.desktop")
+          assert session["Desktop Entry"]["Exec"] == "/usr/local/bin/anios-session"
+          print("JSON, SDDM autologin, and Wayland session configuration parse successfully")
           PY
