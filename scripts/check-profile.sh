@@ -225,6 +225,31 @@ grep -qF 'password=1111' "$CREATE_LIVE_USER" ||
 grep -qF 'chpasswd' "$CREATE_LIVE_USER" ||
   fail "create-live-user must apply the live password"
 
+# CI phải xác thực hash 1111 trong ảnh bằng crypt(3), không phải bằng
+# "passwd --verify": lệnh đó không tồn tại trong shadow-utils (passwd chỉ in
+# usage rồi trả về khác 0) nên lần nào cũng kết luận oan "hash không khớp".
+VERIFY_HASH="$ROOT_DIR/scripts/verify-password-hash.sh"
+[[ -x "$VERIFY_HASH" ]] || fail "scripts/verify-password-hash.sh is missing or not executable"
+grep -qF 'verify-password-hash.sh' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
+  fail "build-iso.yml must check the baked live password hash with verify-password-hash.sh"
+if grep 'passwd --verify' "$ROOT_DIR/.github/workflows/build-iso.yml" |
+  grep -qvE '^[[:space:]]*#'; then
+  fail "build-iso.yml must not use the nonexistent 'passwd --verify' to check a password hash"
+fi
+
+# Tự thử công cụ với hash đã biết trước khi tin kết luận của nó: yescrypt là
+# thuật ngữ chpasswd/pam_unix mặc định của Arch, sha512crypt phòng khi đổi
+# ENCRYPT_METHOD. Đúng mật khẩu phải khớp, sai mật khẩu phải bị từ chối.
+for known_hash in \
+  '$y$j9T$LWdf6rcrA5jvaxJP.7eR9/$cx3quBmanR6NoFmB03LoPffZZSZW4fMy6MGy00NJMpA' \
+  '$6$Vn/DHPgFO9Ql.9Z2$pehy9I211lvlE2wHrwriKI2uLw/ugLmeZmB/VVt.df5pRMabxGgpGI9/4FuYUDvAWnIUf9zYtK0d/ynAMQz/J0'; do
+  "$VERIFY_HASH" 1111 "$known_hash" ||
+    fail "verify-password-hash.sh rejected a known-good hash of 1111 (needs a C compiler and libcrypt)"
+  if "$VERIFY_HASH" 2222 "$known_hash"; then
+    fail "verify-password-hash.sh accepted a wrong password"
+  fi
+done
+
 PAM_LIVE="$AIROOTFS/etc/pam.d/anios-live"
 [[ -s "$PAM_LIVE" ]] || fail "the AniOS PAM service for the lock screen is missing"
 grep -qF 'pam_unix.so' "$PAM_LIVE" ||

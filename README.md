@@ -35,7 +35,7 @@ Script dùng profile `releng` của Archiso đang cài trên máy, đổi kernel
 
 ## Dựng ISO tự động bằng GitHub Actions
 
-Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, và đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves và cấu hình desktop có thật trong ảnh live) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
+Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, và đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves, cấu hình desktop và hash mật khẩu `1111` trong `/etc/shadow` có thật trong ảnh live) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
 
 Khi nào workflow chạy:
 
@@ -99,6 +99,7 @@ Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; t
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey và tiện ích bổ sung vào Archiso `releng`.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, sao chép dotfile cho tài khoản live) và chạy `mkarchiso`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói, định danh AniOS, dotfile và cú pháp script ngoại tuyến.
+- `scripts/verify-password-hash.sh` — so mật khẩu với hash `crypt(3)` đọc ra từ ảnh (kể cả yescrypt); CI dùng để xác thực hash mật khẩu `1111` trong `/etc/shadow` của ảnh live.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live, xuất artifact và phát hành release.
 - `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request.
 
@@ -108,4 +109,4 @@ Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; t
 ./scripts/check-profile.sh
 ```
 
-Lệnh kiểm tra không cần Arch Linux. Để tạo và kiểm thử ISO vẫn cần máy Archiso (hoặc máy ảo Arch Linux). Nên boot thử ISO với từng GPU trước khi phát hành.
+Lệnh kiểm tra không cần Arch Linux, chỉ cần bash và trình biên dịch C có libcrypt (để tự thử `scripts/verify-password-hash.sh`). Để tạo và kiểm thử ISO vẫn cần máy Archiso (hoặc máy ảo Arch Linux). Nên boot thử ISO với từng GPU trước khi phát hành.

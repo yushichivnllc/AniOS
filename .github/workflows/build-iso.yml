@@ -318,17 +318,28 @@ jobs:
               ;;
           esac
           # Xác thực hash đúng là của 1111 (không chỉ có mặt một hash bất kỳ).
-          useradd -u 59999 -M -s /usr/sbin/nologin anios-hash-verify
-          usermod -p "$anios_hash" anios-hash-verify
-          if passwd --verify 1111 anios-hash-verify; then
-            echo "Hash mật khẩu anios trong ảnh live xác thực đúng 1111"
-          else
-            echo "::error::Hash mật khẩu anios trong ảnh live không khớp 1111"
-            userdel anios-hash-verify 2>/dev/null || true
+          #
+          # `passwd` của shadow-utils KHÔNG có chế độ kiểm tra mật khẩu với hash
+          # có sẵn ("passwd --verify" không tồn tại: lệnh in usage rồi trả về
+          # khác 0, nên lần nào cũng kết luận "không khớp"). Cách kiểm tra đúng
+          # là tính lại crypt(3) của libxcrypt — đúng hàm pam_unix dùng khi đăng
+          # nhập — rồi so với hash: scripts/verify-password-hash.sh làm đúng
+          # việc đó (tự thử với vector đã biết trước, nên công cụ hỏng sẽ dừng
+          # ngay tại đây thay vì kết luận oan cho hash trong ảnh).
+          verify=./scripts/verify-password-hash.sh
+          if ! "$verify" 1111 \
+            '$y$j9T$LWdf6rcrA5jvaxJP.7eR9/$cx3quBmanR6NoFmB03LoPffZZSZW4fMy6MGy00NJMpA'; then
+            echo "::error::verify-password-hash.sh không xác thực được vector thử đã biết"
             rm -f "$shadow_dump"
             exit 1
           fi
-          userdel anios-hash-verify
+          if "$verify" 1111 "$anios_hash"; then
+            echo "Hash mật khẩu anios trong ảnh live xác thực đúng 1111 (mã '${anios_hash:0:3}')"
+          else
+            echo "::error::Hash mật khẩu anios trong ảnh live không khớp 1111 (hash '${anios_hash}')"
+            rm -f "$shadow_dump"
+            exit 1
+          fi
           rm -f "$shadow_dump"
 
           # Hook build phải đã bị hook dọn dẹp zzzz99 của releng xoá khỏi ảnh,
