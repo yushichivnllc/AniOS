@@ -2,7 +2,7 @@
 
 AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland gọn nhẹ với kernel `linux-zen`, cài sẵn Steam và driver đồ họa mã nguồn mở phổ biến cho Intel/AMD. Dự án cũng có lựa chọn cài desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) chính chủ qua một shortcut sau khi vào desktop.
 
-> Repository này chứa **Archiso profile và script tạo ISO**, chưa kèm file ISO dựng sẵn. Cần một máy build chạy Arch Linux để tạo ảnh.
+> Repository này chứa **Archiso profile và script tạo ISO**. File ISO được dựng tự động bằng [GitHub Actions](#dựng-iso-tự-động-bằng-github-actions), hoặc dựng tay trên máy Arch Linux.
 
 ## Tạo ISO Live
 
@@ -22,6 +22,32 @@ sudo ./scripts/build-iso.sh --output /duong-dan/iso --work /duong-dan/work
 ```
 
 Script dùng profile `releng` của Archiso đang cài trên máy, bật kho `multilib` chính thức để cài Steam, rồi thêm cấu hình AniOS. Cần Internet để tải các gói Arch. ISO hoàn chỉnh sẽ có dung lượng vài GB; nên dùng USB ít nhất 8 GB và kiểm tra ISO trước khi phát hành.
+
+## Dựng ISO tự động bằng GitHub Actions
+
+Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu, bên trong container `archlinux:base-devel`, và gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
+
+Khi nào workflow chạy:
+
+| Khi nào | Kết quả |
+| --- | --- |
+| Tab **Actions → Build AniOS ISO → Run workflow** | Dựng ISO ngay; bật tuỳ chọn `publish` để tạo release `nightly` |
+| Đẩy tag, ví dụ `git tag v1.0.0 && git push origin v1.0.0` | Dựng ISO và tạo release `AniOS v1.0.0` |
+| Lịch hằng tuần (Chủ nhật 18:23 UTC) | Dựng lại để ISO bám theo kho gói rolling của Arch, cập nhật release `nightly` |
+
+Cách lấy file ISO:
+
+- **Artifact**: mở lần chạy tương ứng, cuộn xuống mục **Artifacts**, tải `anios-iso` (gồm file ISO, file `.sha256` và danh sách gói). Artifact được giữ 30 ngày.
+- **Release**: có ở lượt chạy theo tag hoặc `nightly`. GitHub chỉ nhận tệp đính kèm nhỏ hơn 2 GB, nên khi ISO nặng hơn thì workflow chỉ đính kèm checksum, danh sách gói và ghi link tải artifact trong phần mô tả release.
+
+Kiểm tra file sau khi tải:
+
+```bash
+sha256sum -c anios-<ngay>-x86_64.iso.sha256
+sudo dd if=anios-<ngay>-x86_64.iso of=/dev/sdX bs=4M status=progress conv=fsync
+```
+
+Lưu ý: mỗi lượt dựng mất khoảng 30–90 phút và vài chục GB dung lượng đĩa tuỳ tốc độ tải gói Arch. Muốn dựng khi có push vào nhánh chính, thêm `branches: [main]` vào mục `push` của workflow (dưới `tags:`). ISO do CI dựng vẫn nên boot thử trên máy thật, đặc biệt với từng model GPU, trước khi đưa vào quán.
 
 ## Sử dụng phiên Live
 
@@ -54,6 +80,8 @@ Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; t
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware và tiện ích bổ sung vào Archiso `releng`.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời và chạy `mkarchiso`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile và cú pháp script ngoại tuyến.
+- `.github/workflows/build-iso.yml` — dựng ISO tự động, xuất artifact và phát hành release.
+- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request.
 
 ## Kiểm tra nhanh
 

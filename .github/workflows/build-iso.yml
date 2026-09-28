@@ -1,0 +1,225 @@
+# Dựng ISO AniOS tự động bằng Archiso trong container Arch Linux.
+# Kết quả được lưu thành artifact của workflow và (tuỳ chọn) đính kèm vào GitHub Release.
+name: Build AniOS ISO
+
+on:
+  # Đẩy tag, ví dụ v1.0.0 -> dựng ISO rồi tạo release "AniOS v1.0.0"
+  push:
+    tags:
+      - 'v*'
+  # Chạy tay: tab Actions -> Build AniOS ISO -> Run workflow
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Công bố bản dựng thành release "nightly"'
+        type: boolean
+        default: false
+  # Dựng lại hằng tuần để ISO bám theo kho gói rolling của Arch
+  schedule:
+    - cron: '23 18 * * 0' # Chủ nhật, 18:23 UTC
+
+# Cần quyền ghi nội dung để tạo/cập nhật GitHub Release.
+permissions:
+  contents: write
+
+# Không huỷ bản đang chạy: mỗi lần dựng mất hàng chục phút và nhiều GB dung lượng.
+concurrency:
+  group: build-iso-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Dựng ISO
+    runs-on: ubuntu-latest
+    # pacstrap + mksquashfs + xorrisofs cần khá nhiều thời gian và đĩa.
+    timeout-minutes: 120
+    # Container Arch Linux: có sẵn pacman/git và chạy với quyền root cho mkarchiso.
+    container:
+      image: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Giải phóng dung lượng đĩa
+        # Ảnh runner mặc định để lại rất ít chỗ trống; đổi lấy khoảng 25 GB cho lượt dựng ISO.
+        run: |
+          df -h /
+          rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                 /usr/local/.ghcup /usr/local/share/boost /usr/share/swift
+          df -h /
+
+      - name: Cài archiso và công cụ dựng ISO
+        # archiso kéo theo pacman, mkinitcpio-archiso, xorriso...; các gói còn lại là
+        # host tool mà mkarchiso yêu cầu (mksquashfs, mkfs.fat, mmd/mcopy, xorriso).
+        run: |
+          packages=(archiso squashfs-tools dosfstools mtools libisoburn git)
+          pacman-key --init 2>/dev/null || true
+          pacman-key --populate archlinux 2>/dev/null || true
+          if ! pacman -Syu --noconfirm --needed "${packages[@]}"; then
+            # Ảnh container có thể cũ hơn kho mirror, khiến pacman báo lỗi chữ ký.
+            echo "::warning::Cài thất bại, đang làm mới archlinux-keyring rồi thử lại"
+            pacman -Sy --noconfirm --needed archlinux-keyring
+            pacman-key --populate archlinux 2>/dev/null || true
+            pacman -Syu --noconfirm --needed "${packages[@]}"
+          fi
+          # Profile releng mà scripts/build-iso.sh dùng làm nền tảng.
+          test -d /usr/share/archiso/configs/releng
+          pacman -Q archiso squashfs-tools libisoburn
+
+      - name: Kiểm tra profile
+        run: ./scripts/check-profile.sh
+
+      - name: Dựng ISO
+        run: |
+          df -h "$GITHUB_WORKSPACE"
+          ./scripts/build-iso.sh --output "$GITHUB_WORKSPACE/out" --work "$GITHUB_WORKSPACE/work"
+
+      - name: Kiểm tra ISO vừa dựng
+        # Xác nhận đúng kernel zen, có boot record El Torito (BIOS/UEFI) và ghi checksum.
+        run: |
+          iso="out/$(basename "$(ls -1 out/*.iso)")"
+          ls -lh "$iso"
+          if (( $(stat -c %s "$iso") < 1000000000 )); then
+            echo "::error::ISO quá nhỏ, nhiều khả năng dựng lỗi"
+            exit 1
+          fi
+          ( cd out && sha256sum "$(basename "$iso")" >"$(basename "$iso").sha256" )
+          cat "out/$(basename "$iso").sha256"
+
+          # Boot record của ISO (El Torito cho BIOS và UEFI).
+          xorriso -indev "$iso" -report_el_torito plain >out/iso-el-torito.txt
+          cat out/iso-el-torito.txt
+
+          # ISO phải boot linux-zen, không được còn entry trỏ tới kernel generic.
+          xorriso -indev "$iso" -ls /arch/boot/x86_64 >out/iso-boot-dir.txt
+          grep -E 'vmlinuz|initramfs' out/iso-boot-dir.txt
+          grep -q 'vmlinuz-linux-zen' out/iso-boot-dir.txt
+          if grep -qE '(vmlinuz|initramfs)-linux(\.img)?$' out/iso-boot-dir.txt; then
+            echo "::error::ISO vẫn còn entry boot trỏ tới kernel generic"
+            exit 1
+          fi
+
+          # Danh sách gói để đối chiếu phiên bản.
+          xorriso -indev "$iso" -osirrox on -extract /arch/pkglist.x86_64.txt \
+            "$GITHUB_WORKSPACE/out/anios-pkglist.txt"
+          echo "Số gói trong live image: $(wc -l <out/anios-pkglist.txt)"
+          grep -q '^linux-zen ' out/anios-pkglist.txt
+
+      - name: Lưu ISO làm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anios-iso
+          path: |
+            out/*.iso
+            out/*.sha256
+            out/anios-pkglist.txt
+            out/iso-el-torito.txt
+          # ISO đã nén sẵn, nén thêm chỉ tốn thời gian.
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Kiểm tra điều kiện phát hành
+        id: gate
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == true }}
+        run: |
+          if [[ "$IS_TAG" == 'true' || "$PUBLISH" == 'true' || "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
+            echo "release=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "release=false" >>"$GITHUB_OUTPUT"
+            echo "Bản dựng này chỉ lưu artifact, không tạo release."
+          fi
+
+      - name: Chuẩn bị nội dung release
+        id: meta
+        if: steps.gate.outputs.release == 'true'
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          iso="out/$(basename "$(ls -1 out/*.iso)")"
+          name_iso="$(basename "$iso")"
+          sha="$(cut -d' ' -f1 "out/$name_iso.sha256")"
+          size_h="$(numfmt --to=iec-i --suffix=B --format='%.1f' "$(stat -c %s "$iso")")"
+          packages="$(wc -l <out/anios-pkglist.txt)"
+
+          if [[ "$IS_TAG" == 'true' ]]; then
+            tag="$GITHUB_REF_NAME"
+            title="AniOS $GITHUB_REF_NAME"
+            prerelease=false
+            latest=true
+          else
+            tag=nightly
+            title="AniOS nightly ($(date -u +%Y-%m-%d))"
+            prerelease=true
+            latest=false
+          fi
+
+          # GitHub chỉ nhận tệp đính kèm dưới 2 GB qua API, ISO thường nặng hơn.
+          files=""
+          if (( $(stat -c %s "$iso") <= 2 * 1024 * 1024 * 1024 - 1 )); then
+            files="$iso"$'\n'
+            iso_note="Tệp ISO nằm trong phần đính kèm của release này."
+          else
+            iso_note="ISO nặng hơn giới hạn 2 GB của tệp đính kèm release. Tải bản artifact tại $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (mục Artifacts, tên anios-iso)."
+          fi
+          files+="out/$name_iso.sha256"$'\n'"out/anios-pkglist.txt"$'\n'"out/iso-el-torito.txt"
+
+          {
+            echo "tag=$tag"
+            echo "title=$title"
+            echo "prerelease=$prerelease"
+            echo "make_latest=$latest"
+            echo 'files<<ANIOS_ASSETS'
+            printf '%s\n' "$files"
+            echo 'ANIOS_ASSETS'
+          } >>"$GITHUB_OUTPUT"
+
+          {
+            echo "### AniOS \`${GITHUB_SHA:0:7}\`"
+            echo
+            echo "Commit: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+            echo
+            echo "$iso_note"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| File | \`$name_iso\` |"
+            echo "| Dung lượng | $size_h |"
+            echo "| SHA256 | \`$sha\` |"
+            echo "| Số gói | $packages |"
+            echo "| Kernel | \`linux-zen\` |"
+            echo
+            echo "Kiểm tra file sau khi tải:"
+            echo
+            echo '```bash'
+            echo "sha256sum -c $name_iso.sha256"
+            echo '```'
+            echo
+            echo "Ghi ra USB (thay \`/dev/sdX\` bằng ổ USB của bạn):"
+            echo
+            echo '```bash'
+            echo "sudo dd if=$name_iso of=/dev/sdX bs=4M status=progress conv=fsync"
+            echo '```'
+            echo
+            echo "Sau khi boot, AniOS tự đăng nhập tài khoản live \`anios\` và mở Hyprland. Trên USB thường, game và thiết lập không được giữ lại sau khi tắt máy."
+          } >release-notes.md
+
+      - name: Cập nhật GitHub Release
+        if: steps.gate.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.title }}
+          body_path: release-notes.md
+          files: ${{ steps.meta.outputs.files }}
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          make_latest: ${{ steps.meta.outputs.make_latest }}
+          fail_on_unmatched_files: true
