@@ -25,6 +25,16 @@ done
 ! grep -qxF linux "$ROOT_DIR/profile/packages.x86_64" || fail "manifest must not request the generic linux kernel"
 ! grep -qxF greetd "$ROOT_DIR/profile/packages.x86_64" || fail "greetd must be removed when using SDDM"
 ! grep -qxF greetd-tuigreet "$ROOT_DIR/profile/packages.x86_64" || fail "greetd-tuigreet must be removed when using SDDM"
+# wlogout is AUR-only, so pacstrap cannot resolve it from the official Arch
+# repositories. The Quickshell session screen already provides the logout menu.
+! grep -qxF wlogout "$ROOT_DIR/profile/packages.x86_64" || fail "wlogout is AUR-only; use the built-in Quickshell session menu"
+KEYBINDS="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/keybinds.lua"
+for keybinds in "$KEYBINDS" "$AIROOTFS/etc/skel/.config/hypr/hyprland/keybinds.lua"; do
+  grep -qF 'hl.dsp.global("quickshell:sessionToggle")' "$keybinds" ||
+    fail "Ctrl+Alt+Delete must open the built-in Quickshell session menu: $keybinds"
+  ! grep -qF 'wlogout' "$keybinds" ||
+    fail "keybinds must not depend on the AUR-only wlogout package: $keybinds"
+done
 
 # Pin the build script's stock-Archiso kernel path rewrite, including fallback images.
 rewritten="$(printf '%s\n' 'linux /arch/boot/x86_64/vmlinuz-linux' 'initrd /arch/boot/x86_64/initramfs-linux.img' 'initrd /arch/boot/x86_64/initramfs-linux-fallback.img' | sed -E 's/(vmlinuz|initramfs)-linux(-fallback)?([.]|[[:space:]]|$)/\1-linux-zen\2\3/g')"
@@ -249,7 +259,6 @@ for dotfile in \
   .config/matugen/config.toml \
   .config/immaterial-impulse/config.json \
   .config/starship.toml \
-  .config/wlogout/layout \
   .config/Kvantum/kvantum.kvconfig \
   .local/share/icons/immaterial-impulse.png; do
   [[ -s "$SKEL/$dotfile" ]] || fail "cài sẵn dotfile bị thiếu: $dotfile"

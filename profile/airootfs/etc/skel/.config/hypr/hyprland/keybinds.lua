@@ -42,7 +42,6 @@ hl.bind("SUPER + U", hl.dsp.global("quickshell:dropShelfSummon"),
 -- also switch layout. Binds match modifiers exactly. No-op with one layout.
 hl.bind("SUPER + Space", hl.dsp.exec_cmd("hyprctl switchxkblayout all next"),
     { description = "Input: Next keyboard layout" })
-hl.bind("CTRL + ALT + Delete", hl.dsp.exec_cmd(qsIsAlive .. " || pkill wlogout || wlogout -p layer-shell"))
 hl.bind("SHIFT + SUPER + ALT + Slash", hl.dsp.exec_cmd("qs -p $HOME/.config/quickshell/$qsConfig/welcome.qml"))
 
 hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd(qsIpcCall .. " brightness increment || brightnessctl s 5%+"),

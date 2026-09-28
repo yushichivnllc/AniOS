@@ -117,7 +117,6 @@ hl.layer_rule({ match = { namespace = "launcher" }, blur = true})
 hl.layer_rule({ match = { namespace = "launcher" }, ignore_alpha = 0.5})
 hl.layer_rule({ match = { namespace = "notifications" }, blur = true})
 hl.layer_rule({ match = { namespace = "notifications" }, ignore_alpha = 0.69})
-hl.layer_rule({ match = { namespace = "logout_dialog" }, blur = true}) -- wlogout
 
 -- ags
 hl.layer_rule({ match = { namespace = "sideleft.*" }, animation = "slide left"})
