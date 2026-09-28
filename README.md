@@ -41,6 +41,7 @@ Khi nào workflow chạy:
 
 | Khi nào | Kết quả |
 | --- | --- |
+| Mở PR có thay đổi trong `profile/`, `scripts/` hoặc chính workflow này | Dựng thử ISO và kiểm tra ảnh live ngay trên PR, chỉ lưu artifact, không tạo release |
 | Tab **Actions → Build AniOS ISO → Run workflow** | Dựng ISO ngay; bật tuỳ chọn `publish` để tạo release `nightly` |
 | Đẩy tag, ví dụ `git tag v1.0.0 && git push origin v1.0.0` | Dựng ISO và tạo release `AniOS v1.0.0` |
 | Lịch hằng tuần (Chủ nhật 18:23 UTC) | Dựng lại để ISO bám theo kho gói rolling của Arch, cập nhật release `nightly` |

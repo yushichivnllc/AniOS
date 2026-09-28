@@ -7,6 +7,13 @@ on:
   push:
     tags:
       - 'v*'
+  # Thay đổi profile/script trong pull request: dựng thử ISO để bắt lỗi trước
+  # khi merge (không tạo release, chỉ lưu artifact).
+  pull_request:
+    paths:
+      - 'profile/**'
+      - 'scripts/**'
+      - '.github/workflows/build-iso.yml'
   # Chạy tay: tab Actions -> Build AniOS ISO -> Run workflow
   workflow_dispatch:
     inputs:
