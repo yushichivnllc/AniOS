@@ -1,0 +1,15 @@
+[Unit]
+Description=AniOS live audio setup (PipeWire, pipewire-pulse, WirePlumber)
+Documentation=man:pipewire(1)
+# Chạy sau khi ba unit âm thanh đã được nạp; script tự kiểm tra lại trạng thái
+# thật (tiến trình, thiết bị xuất, âm lượng) nên không phụ thuộc thứ tự này.
+After=pipewire.service pipewire-pulse.service wireplumber.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/anios-audio-setup
+# Script luôn trả về 0 và chỉ ghi log: card âm thanh chưa sẵn sàng không được
+# làm phiên đăng nhập báo lỗi.
+
+[Install]
+WantedBy=default.target

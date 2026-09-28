@@ -17,7 +17,8 @@ for package in \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
-  xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip; do
+  xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
+  pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils rtkit; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
 ! grep -qxF linux "$ROOT_DIR/profile/packages.x86_64" || fail "manifest must not request the generic linux kernel"
@@ -55,6 +56,8 @@ for declaration in \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
+  '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
+  '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
@@ -267,6 +270,73 @@ for hypr_lua in \
     lua -e "assert(loadfile('$hypr_lua'))" || fail "Lua syntax error in $hypr_lua"
   fi
 done
+
+# --- Âm thanh của phiên live ---------------------------------------------
+# Ảnh live không tự có dàn âm thanh chạy sẵn: unit người dùng của PipeWire chỉ
+# được bật nhờ scriptlet `systemctl --global enable` của gói, mà scriptlet đó
+# chạy trong chroot lúc pacstrap và hoàn toàn có thể không để lại symlink nào.
+# Vì vậy chính profile phải bật sẵn chúng, nếu không phiên live câm hoàn toàn.
+USER_UNITS="$AIROOTFS/etc/systemd/user"
+AUDIO_DROPIN="$USER_UNITS/default.target.d/10-anios-audio.conf"
+[[ -s "$AUDIO_DROPIN" ]] ||
+  fail "the live audio default.target drop-in is missing: etc/systemd/user/default.target.d/10-anios-audio.conf"
+for want in pipewire.service pipewire-pulse.service wireplumber.service anios-audio-setup.service; do
+  grep -q "Wants=.*${want}" "$AUDIO_DROPIN" ||
+    fail "the audio drop-in must pull in ${want}"
+done
+grep -qxF 'After=pipewire.service pipewire-pulse.service wireplumber.service' "$AUDIO_DROPIN" ||
+  fail "the audio drop-in must start after the PipeWire units"
+
+check_unit_link() {
+  local link="$USER_UNITS/$1" want="$2"
+  [[ -L "$link" ]] ||
+    fail "missing enabled audio user unit: etc/systemd/user/$1"
+  [[ "$(readlink "$link")" == "$want" ]] ||
+    fail "etc/systemd/user/$1 points at $(readlink "$link") instead of $want"
+}
+check_unit_link "default.target.wants/pipewire.service" "/usr/lib/systemd/user/pipewire.service"
+check_unit_link "default.target.wants/pipewire-pulse.service" "/usr/lib/systemd/user/pipewire-pulse.service"
+check_unit_link "default.target.wants/anios-audio-setup.service" "/etc/systemd/user/anios-audio-setup.service"
+check_unit_link "sockets.target.wants/pipewire.socket" "/usr/lib/systemd/user/pipewire.socket"
+check_unit_link "sockets.target.wants/pipewire-pulse.socket" "/usr/lib/systemd/user/pipewire-pulse.socket"
+check_unit_link "pipewire.service.wants/wireplumber.service" "/usr/lib/systemd/user/wireplumber.service"
+# Alias mà pipewire-pulse.service mong đợi (Wants=pipewire-session-manager.service).
+check_unit_link "pipewire-session-manager.service" "/usr/lib/systemd/user/wireplumber.service"
+
+AUDIO_UNIT="$USER_UNITS/anios-audio-setup.service"
+[[ -s "$AUDIO_UNIT" ]] || fail "the AniOS live audio setup user unit is missing"
+grep -qxF 'ExecStart=/usr/local/bin/anios-audio-setup' "$AUDIO_UNIT" ||
+  fail "the audio setup unit must run anios-audio-setup"
+grep -qxF 'WantedBy=default.target' "$AUDIO_UNIT" ||
+  fail "the audio setup unit must be started with the user session"
+
+AUDIO_SETUP="$AIROOTFS/usr/local/bin/anios-audio-setup"
+AUDIO_CHECK="$AIROOTFS/usr/local/bin/anios-audio-check"
+[[ -x "$AUDIO_SETUP" ]] || fail "anios-audio-setup must be executable"
+[[ -x "$AUDIO_CHECK" ]] || fail "anios-audio-check must be executable"
+grep -qF 'systemctl --user start' "$AUDIO_SETUP" ||
+  fail "anios-audio-setup must start the PipeWire user units"
+grep -qF 'pgrep -x pipewire' "$AUDIO_SETUP" ||
+  fail "anios-audio-setup must fall back to running PipeWire without systemd --user"
+grep -qF 'wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.5' "$AUDIO_SETUP" ||
+  fail "anios-audio-setup must lift the default sink out of its muted default state"
+grep -qF -- '--notify' "$AUDIO_SETUP" ||
+  fail "anios-audio-setup must support --notify for the desktop session"
+grep -qF -- '--force' "$AUDIO_SETUP" ||
+  fail "anios-audio-setup must support --force to rebuild the audio stack"
+grep -qF 'speaker-test' "$AUDIO_CHECK" ||
+  fail "anios-audio-check must be able to play a test tone"
+grep -qF 'anios-audio-setup --force' "$AUDIO_CHECK" ||
+  fail "anios-audio-check must point users at anios-audio-setup --force"
+
+# Dàn âm thanh phải được dựng ngay khi vào phiên, và người dùng phải có đường
+# chẩn đoán trong desktop chứ không chỉ trong tài liệu.
+grep -qF '/usr/local/bin/anios-audio-setup --notify' "$HYPR_CONF" ||
+  fail "Hyprland must start the AniOS audio setup when the session begins"
+grep -qF 'anios-audio-check' "$HYPR_CONF" ||
+  fail "Hyprland must offer a shortcut for the audio check tool"
+grep -qF 'anios-audio-check' "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ||
+  fail "the live desktop readme must document anios-audio-check"
 
 # hyprlock thoát ngay nếu không tìm thấy hyprlock.conf, nên phím tắt khoá màn
 # hình chỉ có ý nghĩa khi file cấu hình đi kèm tồn tại.

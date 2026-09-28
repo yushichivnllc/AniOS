@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# AniOS live: kiểm tra âm thanh của đang chạy và chỉ ra chỗ hỏng.
+#
+# Công cụ này chỉ đọc trạng thái (và phát thử một tiếng bíp), không sửa gì, nên
+# chạy được cả khi dàn âm thanh chưa khởi động. Muốn sửa thì chạy
+# `anios-audio-setup --force`.
+#
+# Trong phiên desktop, phím tắt Super+Shift+A mở công cụ này trong foot.
+set -u
+
+if [[ -t 1 ]]; then
+  bold=$'\033[1m'
+  green=$'\033[32m'
+  yellow=$'\033[33m'
+  red=$'\033[31m'
+  reset=$'\033[0m'
+else
+  bold= green= yellow= red= reset=
+fi
+
+usage() {
+  cat <<'EOF'
+Sử dụng: anios-audio-check [--no-test]
+
+  --no-test  không phát thử tiếng bíp ở bước cuối
+EOF
+}
+
+play_test=1
+for arg in "$@"; do
+  case "$arg" in
+    --no-test) play_test=0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Tùy chọn không hợp lệ: %s\n' "$arg" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+problems=0
+title() { printf '\n%s%s%s\n' "$bold" "$*" "$reset"; }
+ok() { printf '  %sOK%s    %s\n' "$green" "$reset" "$*"; }
+info() { printf '        %s\n' "$*"; }
+warn() {
+  printf '  %sCHÚ Ý%s %s\n' "$yellow" "$reset" "$*"
+  problems=$((problems + 1))
+}
+fail() {
+  printf '  %sLỖI%s   %s\n' "$red" "$reset" "$*"
+  problems=$((problems + 1))
+}
+
+log="${XDG_RUNTIME_DIR:-/tmp}/anios-audio-setup.log"
+
+printf '%sAniOS — kiểm tra âm thanh%s\n' "$bold" "$reset"
+printf 'Tài khoản: %s · Máy: %s · Nhật ký: %s\n' "$(id -un)" "$(uname -n)" "$log"
+
+# --- 1. Card âm thanh nhìn từ nhân ----------------------------------------
+title '1/5 Card âm thanh (ALSA)'
+if [[ -r /proc/asound/cards ]] && grep -qE '^[[:space:]]*[0-9]+[[:space:]]+\[' /proc/asound/cards; then
+  ok "nhân thấy card âm thanh:"
+  while IFS= read -r line; do info "$line"; done <"/proc/asound/cards"
+else
+  fail 'nhân không thấy card âm thanh nào'
+  info 'Kiểm tra: BIOS/UEFI có đang bật "HD Audio"/"Onboard Audio" không;'
+  info 'máy ảo phải được cấu hình thêm thiết bị âm thanh (ví dụ -device intel-hda).'
+fi
+if command -v aplay >/dev/null 2>&1; then
+  info 'aplay -l:'
+  aplay -l 2>&1 | sed -n '1,12p' | while IFS= read -r line; do info "$line"; done
+else
+  warn 'thiếu aplay (gói alsa-utils): không liệt kê được thiết bị phát'
+fi
+
+# --- 2. Dàn âm thanh của PipeWire -----------------------------------------
+title '2/5 Dàn âm thanh PipeWire (systemd --user)'
+have_user_manager=0
+if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+  have_user_manager=1
+fi
+
+for unit in pipewire.socket pipewire-pulse.socket pipewire.service pipewire-pulse.service wireplumber.service; do
+  if ((have_user_manager)); then
+    state="$(systemctl --user is-active "$unit" 2>/dev/null || true)"
+    case "$state" in
+      active) ok "$unit: active" ;;
+      activating) warn "$unit: $state (đang khởi động, thử lại sau vài giây)" ;;
+      *) warn "$unit: ${state:-không rõ}" ;;
+    esac
+  fi
+done
+
+if ! pgrep -x pipewire >/dev/null 2>&1; then
+  fail 'tiến trình pipewire không chạy'
+  info 'Cách sửa nhanh: anios-audio-setup --force'
+else
+  ok "pipewire đang chạy: $(pgrep -x pipewire | tr '\n' ' ')"
+fi
+for daemon in wireplumber pipewire-pulse; do
+  if pgrep -x "$daemon" >/dev/null 2>&1; then
+    ok "$daemon đang chạy: $(pgrep -x "$daemon" | tr '\n' ' ')"
+  else
+    warn "$daemon không chạy"
+    info "Thiếu $daemon thì ứng dụng không thấy thiết bị âm thanh nào."
+    info 'Cách sửa nhanh: anios-audio-setup --force'
+  fi
+done
+if ((have_user_manager)); then
+  info 'Unit bật sẵn trong ảnh live (symlink + drop-in):'
+  info '  /etc/systemd/user/default.target.d/10-anios-audio.conf'
+  info '  /etc/systemd/user/{default.target.wants,sockets.target.wants}/pipewire*'
+else
+  warn 'không kết nối được systemd --user (phiên không qua logind?)'
+fi
+
+# --- 3. Máy chủ âm thanh kiểu PulseAudio ----------------------------------
+title '3/5 Máy chủ âm thanh (pipewire-pulse)'
+if command -v pactl >/dev/null 2>&1 && pactl info >/tmp/anios-audio-pactl.txt 2>&1; then
+  ok 'kết nối được tới máy chủ âm thanh:'
+  grep -E '^(Server Name|Server Version|Default Sink|Default Source|Server Default Sink|Server Default Source):' \
+    /tmp/anios-audio-pactl.txt | while IFS= read -r line; do info "$line"; done
+  default_sink="$(sed -n 's/^Default Sink: //p' /tmp/anios-audio-pactl.txt | head -1)"
+else
+  default_sink=''
+  if command -v pactl >/dev/null 2>&1; then
+    fail 'không kết nối được tới máy chủ âm thanh'
+    sed -n '1,5p' /tmp/anios-audio-pactl.txt 2>/dev/null | while IFS= read -r line; do info "$line"; done
+    info 'Ứng dụng sẽ báo "Connection refused" và không có tiếng.'
+  else
+    fail 'thiếu pactl (gói libpulse, đi kèm pipewire-pulse)'
+  fi
+  info 'Cách sửa nhanh: anios-audio-setup --force'
+fi
+rm -f /tmp/anios-audio-pactl.txt 2>/dev/null || true
+
+# --- 4. Thiết bị xuất và mức âm lượng -------------------------------------
+title '4/5 Thiết bị xuất và âm lượng'
+if [[ -n "$default_sink" ]]; then
+  if command -v wpctl >/dev/null 2>&1; then
+    volume="$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || true)"
+    case "$volume" in
+      *MUTED*)
+        warn "thiết bị xuất mặc định ĐANG TẮT TIẾNG ($volume)"
+        info 'Bật lại: wpctl set-mute @DEFAULT_AUDIO_SINK@ 0'
+        ;;
+      '') warn 'không đọc được âm lượng thiết bị xuất mặc định' ;;
+      *) ok "âm lượng thiết bị xuất mặc định: $volume" ;;
+    esac
+  fi
+  case "$default_sink" in
+    *hdmi* | *displayport* | *dp-*)
+      analog="$(pactl list short sinks 2>/dev/null | awk '$2 !~ /hdmi|displayport/ {print $1 " " $2; exit}')"
+      if [[ -n "$analog" ]]; then
+        warn "thiết bị xuất mặc định là HDMI/DisplayPort: $default_sink"
+        info "Nếu máy dùng loa hoặc tai nghe jack 3.5mm, đổi sang: wpctl set-default ${analog%% *}"
+      fi
+      ;;
+  esac
+fi
+if command -v pactl >/dev/null 2>&1; then
+  sinks="$(pactl list short sinks 2>/dev/null || true)"
+  if [[ -n "$sinks" ]]; then
+    ok 'các thiết bị xuất đang có (dấu * là mặc định):'
+    while IFS= read -r line; do
+      mark=' '
+      [[ "$line" == *"$default_sink"* ]] && mark='*'
+      info "$mark $line"
+    done <<<"$sinks"
+  else
+    warn 'máy chủ âm thanh không có thiết bị xuất nào'
+    info 'WirePlumber chưa dựng được node cho card: anios-audio-setup --force'
+  fi
+fi
+if command -v amixer >/dev/null 2>&1 && [[ -r /proc/asound/cards ]]; then
+  card="$(awk '/^[[:space:]]*[0-9]+[[:space:]]+\[/ {print $1; exit}' /proc/asound/cards)"
+  if [[ -n "${card:-}" ]]; then
+    info "mixer phần cứng của card $card (kênh [off] là đang tắt tiếng):"
+    for control in Master Speaker Headphone PCM 'Auto-Mute Mode'; do
+      line="$(amixer -c "$card" sget "$control" 2>/dev/null | sed -n '2p' || true)"
+      [[ -n "$line" ]] && info "  $control: $line"
+    done
+    info 'Bật/tắt các kênh bằng alsamixer, ví dụ: alsamixer -c '"$card"
+  fi
+fi
+
+# --- 5. Phát thử -----------------------------------------------------------
+title '5/5 Phát thử'
+if ((play_test)) && command -v speaker-test >/dev/null 2>&1; then
+  info 'Đang phát một tiếng bíp ngắn (nếu tiếng bíp này kêu, phần mềm đã đúng'
+  info 'và vấn đề chỉ còn ở loa/tai nghe hoặc mức âm lượng thực tế).'
+  if timeout 12 speaker-test -t sine -f 440 -l 1 -c 2 >/dev/null 2>&1; then
+    ok 'đã phát xong tiếng thử'
+  else
+    warn 'không phát được tiếng thử (thiết bị bận hoặc không mở được)'
+  fi
+elif ((play_test)); then
+  warn 'thiếu speaker-test (gói alsa-utils) nên bỏ qua bước phát thử'
+else
+  info 'đã bỏ qua bước phát thử (--no-test)'
+fi
+
+# --- Kết luận --------------------------------------------------------------
+title 'Kết luận'
+if ((problems == 0)); then
+  printf '  Không thấy lỗi trong dàn âm thanh. Nếu vẫn không nghe thấy gì:\n'
+  printf '    - kiểm tra loa/tai nghe, thử cổng khác, xem công tắc âm lượng của loa;\n'
+  printf '    - mở pavucontrol, xem tab Output Devices và thanh mức âm lượng;\n'
+  printf '    - mở alsamixer và bật các kênh đang [off].\n'
+else
+  printf '  Có %d điểm cần xử lý (xem các dòng CHÚ Ý/LỖI ở trên).\n' "$problems"
+  printf '  Theo thứ tự nên thử:\n'
+  printf '    1. anios-audio-setup --force     (dựng lại dàn âm thanh)\n'
+  printf '    2. pavucontrol                   (chọn đúng thiết bị xuất)\n'
+  printf '    3. alsamixer -c 0                (bật kênh đang [off])\n'
+fi
+printf '\nNhật ký chi tiết của bước dựng âm thanh: %s\n' "$log"
+[[ -f "$log" ]] && printf 'Xem: tail -n 40 %s\n' "$log"
+
+exit 0
