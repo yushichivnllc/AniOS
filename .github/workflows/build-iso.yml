@@ -241,20 +241,31 @@ jobs:
           # mkarchiso chép airootfs bằng cp --no-preserve=mode, nên nếu quên
           # khai báo trong file_permissions thì script mất bit thực thi và
           # SDDM không khởi chạy được phiên AniOS.
+          #
+          # Trích đúng bốn tệp ra đĩa rồi hỏi `stat` cho chắc: định dạng của
+          # `unsquashfs -ll` không phải là API ổn định, còn quyền tệp thì có.
+          perm_dump=out/anios-permissions
+          rm -rf "$perm_dump"
+          unsquashfs -q -no-progress -d "$perm_dump" "$squashfs" \
+            usr/local/bin/anios-session \
+            usr/local/bin/anios-setup \
+            usr/local/lib/anios/live-home-setup \
+            etc/sudoers.d/10-anios-live ||
+            { echo "::error::Không trích được các tệp cần kiểm tra quyền"; exit 1; }
+
           check_mode() {
             local path="$1" want="$2" mode
-            mode="$(unsquashfs -ll "$squashfs" "$path" 2>/dev/null |
-              awk -v p="$path" 'index($0, p) { m = $1 } END { print m }')"
+            mode="$(stat -c '%a' "$perm_dump/$path" 2>/dev/null)"
             if [[ "$mode" != "$want" ]]; then
               echo "::error::$path có quyền '$mode', cần '$want'"
               exit 1
             fi
             echo "  OK $path $mode"
           }
-          check_mode usr/local/bin/anios-session -rwxr-xr-x
-          check_mode usr/local/bin/anios-setup -rwxr-xr-x
-          check_mode usr/local/lib/anios/live-home-setup -rwxr-xr-x
-          check_mode etc/sudoers.d/10-anios-live -r--r-----
+          check_mode usr/local/bin/anios-session 755
+          check_mode usr/local/bin/anios-setup 755
+          check_mode usr/local/lib/anios/live-home-setup 755
+          check_mode etc/sudoers.d/10-anios-live 440
 
           sddm_conf="$(unsquashfs -cat "$squashfs" etc/sddm.conf.d/10-anios-autologin.conf)"
           grep -qxF 'Current=anios' <<<"$sddm_conf"
@@ -373,7 +384,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag: ${{ steps.meta.outputs.tag }}
+          # softprops/action-gh-release dùng `tag_name`, không phải `tag`.
+          tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.title }}
           body_path: release-notes.md
           files: ${{ steps.meta.outputs.files }}
