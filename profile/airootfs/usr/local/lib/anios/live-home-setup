@@ -1,15 +1,37 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Với tài khoản live, "sao chép skel nếu chưa có" của systemd-tmpfiles không đủ:
+# overlay airootfs khiến /home và /etc vẫn là ảnh gốc, nên phải đồng bộ theo
+# cách chỉ thêm file còn thiếu bằng rsync --ignore-existing. Nhờ vậy lần chạy
+# sau chỉ bù các mục còn thiếu mà không ghi đè gì người dùng đã sửa.
+
 user=anios
 home="$(getent passwd "$user" | cut -d: -f6)"
 [[ -n "$home" && "$home" == /home/* ]] || { echo "Cannot resolve the AniOS live user's home directory" >&2; exit 1; }
 group="$(id -gn "$user")"
+skel=/usr/share/anios/skel
 
 install -d -m 0750 -o "$user" -g "$group" "$home"
-install -d -m 0755 -o "$user" -g "$group" /usr/share/anios/skel
-cp -a -n /usr/share/anios/skel/. "$home/"
+
+# Kiểu dấu chấm để .config, .bashrc... nằm ngay trong $home chứ không sinh thư mục con.
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --ignore-existing "$skel/./" "$home/"
+else
+  cp -a -n "$skel/." "$home/"
+fi
+
+# Bản sao skel nằm trong ảnh nén của hệ thống live thuộc về root, mà ứng dụng
+# trong phiên lại cần ghi vào ~/.config: chuyển toàn bộ home cho tài khoản live.
+chown -R "$user:$group" "$home"
+
+# systemd-sysusers tạo tài khoản với mật khẩu "chưa đặt" chứ không phải rỗng, và
+# PAM chỉ cho qua mật khẩu rỗng khi hash thật sự trống (nullok). Xoá mật khẩu để
+# nếu người dùng thoát phiên (Super+Shift+E) thì vẫn đăng nhập lại được ở màn
+# hình SDDM bằng cách nhấn Enter, thay vì bị kẹt ngoài desktop.
+passwd -d "$user" >/dev/null ||
+  echo "Could not clear the live user's password; SDDM may ask for one after logout." >&2
+
 install -d -m 0755 -o "$user" -g "$group" \
   "$home/Desktop" "$home/Documents" "$home/Downloads" "$home/Pictures" "$home/Videos" "$home/Games"
 find "$home/Desktop" -maxdepth 1 -type f -name '*.desktop' -exec chmod +x {} +
-chown -R "$user:$group" "$home"

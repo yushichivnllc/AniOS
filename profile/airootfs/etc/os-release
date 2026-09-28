@@ -1,0 +1,14 @@
+# Bản sắc AniOS hiển thị cho người dùng (fastfetch, hostnamectl, ứng dụng GTK).
+# ID giữ là "arch" để các công cụ Arch Linux (AUR helper, mkinitcpio, archiso)
+# vẫn nhận đúng hệ nền; NAME/PRETTY_NAME mới là thứ người dùng nhìn thấy.
+NAME="AniOS"
+PRETTY_NAME="AniOS (Arch Linux based, Hyprland live gaming desktop)"
+ID=arch
+ID_LIKE=arch
+BUILD_ID=rolling
+ANSI_COLOR="38;2;122;162;247"
+HOME_URL="https://github.com/yushichivnllc/AniOS"
+DOCUMENTATION_URL="https://github.com/yushichivnllc/AniOS#readme"
+SUPPORT_URL="https://github.com/yushichivnllc/AniOS/issues"
+BUG_REPORT_URL="https://github.com/yushichivnllc/AniOS/issues"
+LOGO=anios
