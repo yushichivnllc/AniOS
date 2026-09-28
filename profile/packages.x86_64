@@ -1,11 +1,11 @@
-# AniOS desktop and booted live kernel
+# Kernel và định danh bản dựng của AniOS (đặt tên AniOS nằm trong airootfs)
 linux-zen
 linux-zen-headers
 intel-ucode
 amd-ucode
 archlinux-keyring
 
-# Hyprland: deliberately minimal, low-effects live desktop
+# Hyprland: desktop tối giản, ít hiệu ứng cho máy phòng net
 hyprland
 sddm
 xdg-desktop-portal
@@ -16,7 +16,9 @@ foot
 fuzzel
 mako
 swaybg
+hyprlock
 thunar
+thunar-volman
 file-roller
 xdg-user-dirs
 xdg-utils
@@ -24,8 +26,25 @@ polkit-gnome
 noto-fonts
 noto-fonts-emoji
 ttf-dejavu
+# Biểu tượng trên Waybar và các app dùng Nerd Font
+ttf-nerd-fonts-symbols
 
-# Memory and network, audio, Bluetooth, and common input
+# Gõ tiếng Việt: fcitx5 + Unikey (bật/tắt bằng Ctrl+Space)
+fcitx5
+fcitx5-unikey
+fcitx5-configtool
+fcitx5-gtk
+fcitx5-qt
+
+# Ổ đĩa và thiết bị ngoài: tự mount USB khi cắm vào (Thunar, udisks2)
+udisks2
+gvfs
+gvfs-mtp
+ntfs-3g
+exfatprogs
+dosfstools
+
+# Bộ nhớ, mạng, âm thanh, Bluetooth và thiết bị nhập liệu
 zram-generator
 networkmanager
 network-manager-applet
@@ -39,8 +58,10 @@ wireplumber
 pavucontrol
 sof-firmware
 
-# Steam and gaming support (including Steam's 32-bit libraries)
+# Steam và hỗ trợ chơi game (kèm thư viện 32-bit của Steam)
 steam
+# XWayland để game chỉ có bản X11 vẫn chạy được trong phiên Hyprland
+xorg-xwayland
 gamemode
 lib32-gamemode
 gamescope
@@ -59,7 +80,7 @@ lib32-vulkan-nouveau
 libva-intel-driver
 intel-media-driver
 
-# Utilities and upstream Immaterial Impulse prerequisites available in repos
+# Tiện ích và thành phần cần cho Immaterial Impulse có sẵn trong repo
 quickshell
 matugen
 qt6-wayland
@@ -79,3 +100,8 @@ slurp
 brightnessctl
 playerctl
 
+# Thông tin hệ thống khi mở TTY cứu hộ và khi cần chẩn đoán GPU
+fastfetch
+mesa-utils
+vulkan-tools
+libva-utils

@@ -7,6 +7,13 @@ on:
   push:
     tags:
       - 'v*'
+  # Thay đổi profile/script trong pull request: dựng thử ISO để bắt lỗi trước
+  # khi merge (không tạo release, chỉ lưu artifact).
+  pull_request:
+    paths:
+      - 'profile/**'
+      - 'scripts/**'
+      - '.github/workflows/build-iso.yml'
   # Chạy tay: tab Actions -> Build AniOS ISO -> Run workflow
   workflow_dispatch:
     inputs:
@@ -202,6 +209,77 @@ jobs:
           grep -q '^sddm ' out/anios-pkglist.txt
           ARCH
 
+      - name: Kiểm tra định danh và giao diện AniOS trong ảnh live
+        # Đọc thẳng airootfs.sfs để chắc chắn bản sắc "AniOS" và giao diện đăng
+        # nhập có mặt trong ảnh live, không chỉ nằm trong repository.
+        run: |
+          docker exec -i anios-iso-builder bash -e -o pipefail -s <<'ARCH'
+          iso="out/$(basename "$(ls -1 out/*.iso)")"
+          xorriso -indev "$iso" -osirrox on -extract /arch/x86_64/airootfs.sfs out/airootfs.sfs
+          ls -lh out/airootfs.sfs
+
+          squashfs=out/airootfs.sfs
+          os_release="$(unsquashfs -cat "$squashfs" etc/os-release)"
+          grep -qxF 'NAME="AniOS"' <<<"$os_release"
+          grep -qxF 'ID=arch' <<<"$os_release"
+          grep -q '^IMAGE_ID=anios$' <<<"$os_release"
+          echo "os-release: $(grep -E '^(NAME|PRETTY_NAME|ID|IMAGE_ID|IMAGE_VERSION)=' <<<"$os_release" | tr '\n' ' ')"
+
+          # Đọc thẳng từng file trong ảnh nén: thiếu file hay sai nội dung đều đỏ.
+          for path in \
+            usr/share/anios/wallpaper.png \
+            usr/share/anios/logo.txt \
+            usr/share/sddm/themes/anios/Main.qml \
+            usr/share/sddm/themes/anios/theme.conf \
+            usr/share/anios/skel/.config/hypr/hyprland.conf \
+            usr/share/anios/skel/.config/hypr/hyprlock.conf \
+            home/anios/.config/hypr/hyprland.conf \
+            home/anios/Desktop/README.txt; do
+            unsquashfs -cat "$squashfs" "$path" >/dev/null ||
+              { echo "::error::Thiếu $path trong ảnh live"; exit 1; }
+          done
+          echo "Ảnh live có wallpaper, logo, giao diện SDDM AniOS và cấu hình desktop"
+
+          unsquashfs -cat "$squashfs" usr/share/sddm/themes/anios/theme.conf |
+            grep -qxF 'background=/usr/share/anios/wallpaper.png'
+          unsquashfs -cat "$squashfs" usr/share/anios/skel/.config/hypr/hyprland.conf |
+            grep -qF 'swaybg -i /usr/share/anios/wallpaper.png'
+
+          # mkarchiso chép airootfs bằng cp --no-preserve=mode, nên nếu quên
+          # khai báo trong file_permissions thì script mất bit thực thi và
+          # SDDM không khởi chạy được phiên AniOS.
+          #
+          # Trích đúng bốn tệp ra đĩa rồi hỏi `stat` cho chắc: định dạng của
+          # `unsquashfs -ll` không phải là API ổn định, còn quyền tệp thì có.
+          perm_dump=out/anios-permissions
+          rm -rf "$perm_dump"
+          unsquashfs -q -no-progress -d "$perm_dump" "$squashfs" \
+            usr/local/bin/anios-session \
+            usr/local/bin/anios-setup \
+            usr/local/lib/anios/live-home-setup \
+            etc/sudoers.d/10-anios-live ||
+            { echo "::error::Không trích được các tệp cần kiểm tra quyền"; exit 1; }
+
+          check_mode() {
+            local path="$1" want="$2" mode
+            mode="$(stat -c '%a' "$perm_dump/$path" 2>/dev/null)"
+            if [[ "$mode" != "$want" ]]; then
+              echo "::error::$path có quyền '$mode', cần '$want'"
+              exit 1
+            fi
+            echo "  OK $path $mode"
+          }
+          check_mode usr/local/bin/anios-session 755
+          check_mode usr/local/bin/anios-setup 755
+          check_mode usr/local/lib/anios/live-home-setup 755
+          check_mode etc/sudoers.d/10-anios-live 440
+
+          sddm_conf="$(unsquashfs -cat "$squashfs" etc/sddm.conf.d/10-anios-autologin.conf)"
+          grep -qxF 'Current=anios' <<<"$sddm_conf"
+          grep -qxF 'User=anios' <<<"$sddm_conf"
+          echo "SDDM dùng giao diện AniOS và tự đăng nhập tài khoản live"
+          ARCH
+
       - name: Dọn container dựng Arch
         if: always()
         run: docker rm --force anios-iso-builder || true
@@ -313,7 +391,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag: ${{ steps.meta.outputs.tag }}
+          # softprops/action-gh-release dùng `tag_name`, không phải `tag`.
+          tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.title }}
           body_path: release-notes.md
           files: ${{ steps.meta.outputs.files }}

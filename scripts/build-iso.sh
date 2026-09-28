@@ -89,7 +89,53 @@ for boot_dir in efiboot grub syslinux; do
   fi
 done
 
+# Menu khởi động là thứ đầu tiên người dùng nhìn thấy, nên nó cũng mang tên
+# AniOS thay vì tên của profile releng.
+for boot_dir in efiboot grub syslinux; do
+  if [[ -d "$BUILD_PROFILE/$boot_dir" ]]; then
+    find "$BUILD_PROFILE/$boot_dir" -type f \
+      \( -name '*.conf' -o -name '*.cfg' \) -print0 |
+      xargs -0r sed -i -E \
+        -e 's/Arch Linux install medium/AniOS Live/g' \
+        -e 's/Arch Linux live medium/AniOS Live/g' \
+        -e 's/^(MENU TITLE )Arch Linux$/\1AniOS/'
+  fi
+done
+for boot_dir in efiboot grub syslinux; do
+  [[ -d "$BUILD_PROFILE/$boot_dir" ]] || continue
+  if grep -R -nE 'Arch Linux (install|live) medium' "$BUILD_PROFILE/$boot_dir"; then
+    echo "A boot menu entry still carries Arch Linux wording in $boot_dir" >&2
+    exit 1
+  fi
+  # Nếu releng đổi cách đặt tên mục menu, sed ở trên không còn khớp: dừng lại
+  # để người bảo trì cập nhật quy tắc thay vì phát hành ISO thiếu thương hiệu.
+  if ! grep -R -q 'AniOS' "$BUILD_PROFILE/$boot_dir"; then
+    echo "Boot menu in $boot_dir does not mention AniOS; update the rebranding rules in build-iso.sh" >&2
+    exit 1
+  fi
+done
+
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
+
+# Ảnh thương hiệu nằm ngoài airootfs để repository gọn: wallpaper cho desktop và
+# màn hình đăng nhập, splash cho menu khởi động Syslinux của profile releng.
+for asset in "$ROOT_DIR/profile/branding/wallpaper.png" \
+  "$ROOT_DIR/profile/branding/syslinux-splash.png"; do
+  [[ -s "$asset" ]] ||
+    { echo "Missing AniOS artwork: $asset (run scripts/make-branding-assets.sh)" >&2; exit 1; }
+done
+install -D -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
+  "$BUILD_PROFILE/airootfs/usr/share/anios/wallpaper.png"
+if [[ -d "$BUILD_PROFILE/syslinux" ]]; then
+  install -m 0644 -- "$ROOT_DIR/profile/branding/syslinux-splash.png" \
+    "$BUILD_PROFILE/syslinux/splash.png"
+fi
+
+# Tài khoản live đã có sẵn cấu hình đọc được ngay trong ảnh nén: nếu
+# anios-live-home.service gặp trục trặc, desktop vẫn khởi động bình thường.
+install -d -m 0755 -- "$BUILD_PROFILE/airootfs/home/anios"
+cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
+  "$BUILD_PROFILE/airootfs/home/anios/"
 
 # Steam is in Arch's official multilib repository. Enable it only in the
 # temporary build profile; the live image's own pacman.conf is configured too.
@@ -123,10 +169,27 @@ sed -i \
   -e 's/^iso_version=.*/iso_version="$(date +%Y.%m.%d)"/' \
   "$BUILD_PROFILE/profiledef.sh"
 
-chmod 0440 "$BUILD_PROFILE/airootfs/etc/sudoers.d/10-anios-live"
-chmod 0755 "$BUILD_PROFILE/airootfs/usr/local/bin/anios-setup" \
-  "$BUILD_PROFILE/airootfs/usr/local/bin/anios-session" \
-  "$BUILD_PROFILE/airootfs/usr/local/lib/anios/live-home-setup"
+# mkarchiso chép airootfs bằng `cp --no-preserve=ownership,mode`, nên bit thực
+# thi của script và quyền 0440 của file sudoers bị mất trong chroot. Muốn giữ
+# thì phải khai báo lại trong file_permissions của profile (đúng như releng
+# làm cho /etc/shadow hay /usr/local/bin/choose-mirror).
+insert_permission() {
+  local path="$1" permissions="$2"
+  sed -i "/^file_permissions=(/a\\  [\"${path}\"]=\"${permissions}\"" "$BUILD_PROFILE/profiledef.sh"
+}
+insert_permission "/etc/sudoers.d/10-anios-live" "0:0:440"
+insert_permission "/usr/local/bin/anios-setup" "0:0:755"
+insert_permission "/usr/local/bin/anios-session" "0:0:755"
+insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
+
+for entry in \
+  '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
+  '["/usr/local/bin/anios-setup"]="0:0:755"' \
+  '["/usr/local/bin/anios-session"]="0:0:755"' \
+  '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
+  grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||
+    { echo "Failed to declare file_permissions entry: $entry" >&2; exit 1; }
+done
 
 printf 'Building AniOS ISO\n  Profile: %s\n  Work:    %s\n  Output:  %s\n' "$BUILD_PROFILE" "$WORK_DIR" "$OUT_DIR"
 mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$BUILD_PROFILE"

@@ -11,12 +11,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check shell syntax and profile structure
         run: ./scripts/check-profile.sh
-      - name: Validate JSON and SDDM configuration
+      - name: Validate JSON, SDDM theme, and session configuration
         run: |
           python3 - <<'PY'
           import configparser
           import json
           import pathlib
+          import re
 
           root = pathlib.Path("profile/airootfs")
           json.loads((root / "usr/share/anios/skel/.config/waybar/config").read_text())
@@ -25,9 +26,38 @@ jobs:
           sddm.read(root / "etc/sddm.conf.d/10-anios-autologin.conf")
           assert sddm["Autologin"]["User"] == "anios"
           assert sddm["Autologin"]["Session"] == "anios"
+          assert sddm["Theme"]["Current"] == "anios"
+
+          theme_conf = configparser.ConfigParser(interpolation=None)
+          theme_conf.read(root / "usr/share/sddm/themes/anios/theme.conf")
+          assert theme_conf["General"]["background"] == "/usr/share/anios/wallpaper.png"
 
           session = configparser.ConfigParser(interpolation=None)
           session.read(root / "usr/share/wayland-sessions/anios.desktop")
           assert session["Desktop Entry"]["Exec"] == "/usr/local/bin/anios-session"
-          print("JSON, SDDM autologin, and Wayland session configuration parse successfully")
+          assert session["Desktop Entry"]["TryExec"] == "/usr/local/bin/anios-session"
+
+          # QML không có parser sẵn trong Python, nên chỉ kiểm tra những lỗi
+          # hay gặp khi sửa tay: ngoặc lệch và thiếu khai báo bắt buộc.
+          qml = (root / "usr/share/sddm/themes/anios/Main.qml").read_text()
+
+          def strip_qml(text):
+              text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+              text = re.sub(r"//[^\n]*", "", text)
+              return re.sub(r'"(?:\\.|[^"\\])*"', '""', text)
+
+          code = strip_qml(qml)
+          for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
+              assert code.count(opener) == code.count(closer), \
+                  f"unbalanced {opener}{closer} in the SDDM theme"
+          for required in ("import SddmComponents 2.0", "sddm.login(", "config.background",
+                           "sessionModel", "userModel"):
+              assert required in qml, f"SDDM theme is missing {required}"
+
+          # /etc/os-release là shell script; chỉ cần vài dòng định danh.
+          os_release = (root / "etc/os-release").read_text().splitlines()
+          assert 'NAME="AniOS"' in os_release
+          assert 'ID=arch' in os_release
+          assert any(line.startswith('PRETTY_NAME="AniOS (') for line in os_release)
+          print("JSON, SDDM theme, Wayland session, and AniOS identity parse successfully")
           PY

@@ -4,6 +4,16 @@ AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính
 
 > Repository này chứa **Archiso profile và script tạo ISO**. File ISO được dựng tự động bằng [GitHub Actions](#dựng-iso-tự-động-bằng-github-actions), hoặc dựng tay trên máy Arch Linux.
 
+## AniOS và Arch Linux
+
+AniOS là **bản phối lại của Arch Linux**, không phải một hệ điều hành khác. Cách đặt tên được giữ đúng theo hướng dẫn của Arch:
+
+- **Bên ngoài là AniOS**: menu khởi động, `/etc/os-release` (`NAME="AniOS"`), `/etc/issue`, `/etc/motd`, wallpaper và giao diện đăng nhập SDDM đều mang tên AniOS, kèm dòng giới thiệu "Arch Linux based" để người dùng biết hệ nền.
+- **Bên trong là Arch Linux**: `ID=arch` và `ID_LIKE=arch` trong `/etc/os-release` không đổi, nên các công cụ Arch vẫn hoạt động đúng — `pacman`, AUR helper, `mkinitcpio`, `archiso`, script cài đặt của upstream đều nhận ra hệ nền và không bị nhầm với bản phân phối khác.
+- **Logo/màn hình khởi động** do AniOS tự làm (xem `profile/branding/`), không dùng tài nguyên của Arch hay của dự án khác.
+
+Nói ngắn gọn: mọi thứ người dùng nhìn thấy là AniOS, còn những gì hệ thống cần để chạy là Arch Linux nguyên bản.
+
 ## Tạo ISO Live
 
 Trên máy build Arch Linux x86_64 đã cập nhật đầy đủ:
@@ -21,16 +31,17 @@ ISO được đặt trong `out/`, file tạm ở `work/`. Có thể chọn đư�
 sudo ./scripts/build-iso.sh --output /duong-dan/iso --work /duong-dan/work
 ```
 
-Script dùng profile `releng` của Archiso đang cài trên máy, bật kho `multilib` chính thức để cài Steam, rồi thêm cấu hình AniOS. Cần Internet để tải các gói Arch. ISO hoàn chỉnh sẽ có dung lượng vài GB; nên dùng USB ít nhất 8 GB và kiểm tra ISO trước khi phát hành.
+Script dùng profile `releng` của Archiso đang cài trên máy, đổi kernel sang `linux-zen` trong mọi mục menu (Syslinux, GRUB, systemd-boot, loopback), dán ảnh thương hiệu AniOS vào `syslinux/splash.png` và `usr/share/anios/wallpaper.png`, bật kho `multilib` chính thức để cài Steam, rồi thêm cấu hình AniOS. Cần Internet để tải các gói Arch. ISO hoàn chỉnh sẽ có dung lượng vài GB; nên dùng USB ít nhất 8 GB và kiểm tra ISO trước khi phát hành.
 
 ## Dựng ISO tự động bằng GitHub Actions
 
-Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
+Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, và đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, giao diện SDDM và cấu hình desktop có thật trong ảnh live) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
 
 Khi nào workflow chạy:
 
 | Khi nào | Kết quả |
 | --- | --- |
+| Mở PR có thay đổi trong `profile/`, `scripts/` hoặc chính workflow này | Dựng thử ISO và kiểm tra ảnh live ngay trên PR, chỉ lưu artifact, không tạo release |
 | Tab **Actions → Build AniOS ISO → Run workflow** | Dựng ISO ngay; bật tuỳ chọn `publish` để tạo release `nightly` |
 | Đẩy tag, ví dụ `git tag v1.0.0 && git push origin v1.0.0` | Dựng ISO và tạo release `AniOS v1.0.0` |
 | Lịch hằng tuần (Chủ nhật 18:23 UTC) | Dựng lại để ISO bám theo kho gói rolling của Arch, cập nhật release `nightly` |
@@ -53,8 +64,12 @@ Lưu ý: mỗi lượt dựng mất khoảng 30–90 phút và vài chục GB du
 
 - SDDM tự đăng nhập vào tài khoản Live tạm `anios` và khởi chạy phiên AniOS trên Hyprland. Tài khoản Live có quyền `sudo` không cần mật khẩu để tiện sử dụng; **không dùng phiên này với dữ liệu riêng tư hoặc trên mạng không đáng tin cậy**.
 - Kết nối Wi-Fi bằng biểu tượng mạng trên thanh trạng thái hoặc lệnh `nmtui`; kết nối dây do NetworkManager quản lý.
-- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Trên USB Live thông thường, game và thiết lập không được lưu sau khi tắt máy; hãy dùng ổ ngoài có lưu trữ bền vững hoặc cài hệ thống vào ổ đĩa nếu sử dụng thường xuyên.
-- `Super+Return`: mở Foot; `Super+D`: mở launcher; `Super+Shift+E`: thoát phiên Hyprland.
+- **Gõ tiếng Việt**: fcitx5 + Unikey được bật sẵn, nhấn `Ctrl+Space` để chuyển giữa chế độ gõ tiếng Việt và tiếng Anh. Telex là kiểu gõ mặc định; đổi kiểu gõ trong `fcitx5-configtool`.
+- **Cắm USB/ổ cứng ngoài**: udisks2 + gvfs tự mount, ổ hiện trong Thunar và trên thanh trạng thái, hỗ trợ NTFS/exFAT/FAT32.
+- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải trong phiên chỉ nằm trong RAM/overlay tạm: hãy copy file cần giữ ra ổ ngoài trước khi tắt máy, hoặc cài hệ thống vào ổ đĩa nếu sử dụng thường xuyên.
+- Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
+- **Màn hình khoá chỉ để tránh chạm nhầm**, không phải ranh giới bảo mật: tài khoản live không có mật khẩu, nhấn Enter là mở lại được (`/etc/pam.d/anios-live` dùng `pam_permit` để không bao giờ khoá người dùng ra khỏi phiên của chính họ). Vì vậy đừng để dữ liệu quan trọng trong phiên live.
+- Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện giao diện AniOS; chọn phiên **AniOS (Hyprland)** rồi nhấn Enter (mật khẩu để trống) để vào lại. Tài khoản live được xoá mật khẩu lúc khởi động vì `systemd-sysusers` tạo tài khoản ở trạng thái "chưa đặt mật khẩu".
 - Desktop mặc định tắt blur và animation để giảm tải GPU. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 
 ## Cài desktop Immaterial Impulse
@@ -70,17 +85,19 @@ Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; t
 ## Phần cứng và hiệu năng
 
 - AniOS nhắm đến máy **x86_64**. Không hệ điều hành nào có thể bảo đảm game tương thích hoặc chạy nhanh trên mọi cấu hình; hiệu năng tùy thuộc CPU, GPU, RAM, tản nhiệt, trò chơi và driver. `linux-zen` được chọn để ưu tiên độ phản hồi, **không bảo đảm FPS cao hơn**.
-- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam. Driver NVIDIA proprietary không được cài sẵn; các card NVIDIA đời cũ có thể cần driver và cấu hình kernel riêng. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
-- Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` để kiểm tra log.
-- Hệ thống Live chạy từ ảnh nén trong RAM và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
+- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Driver NVIDIA proprietary không được cài sẵn; các card NVIDIA đời cũ có thể cần driver và cấu hình kernel riêng. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
+- Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
+- Hệ thống Live chạy từ ảnh nén trong RAM (zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
 
 ## Cấu trúc repository
 
-- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập, phiên Hyprland, Waybar, mạng và cấu hình phiên.
+- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và giao diện đăng nhập AniOS, phiên Hyprland, Waybar, fcitx5, mạng và cấu hình phiên.
+- `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
+- `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware và tiện ích bổ sung vào Archiso `releng`.
-- `scripts/build-iso.sh` — dựng profile Archiso tạm thời và chạy `mkarchiso`.
-- `scripts/check-profile.sh` — kiểm tra cấu trúc profile và cú pháp script ngoại tuyến.
-- `.github/workflows/build-iso.yml` — dựng ISO tự động, xuất artifact và phát hành release.
+- `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, bản sao skel cho tài khoản live) và chạy `mkarchiso`.
+- `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói, định danh AniOS và cú pháp script ngoại tuyến.
+- `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live, xuất artifact và phát hành release.
 - `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request.
 
 ## Kiểm tra nhanh

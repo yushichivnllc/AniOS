@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# A per-session D-Bus instance is needed by the Wayland portals and tray tools.
+# Phiên AniOS chạy qua dbus-run-session để Wayland portal, tray và fcitx5 có
+# một D-Bus riêng cho tài khoản live.
+#
+# Biến môi trường bộ gõ được đặt ở đây (không đặt trong /etc/environment) để
+# chỉ ảnh hưởng tới phiên đăng nhập của người dùng: greeter của SDDM chạy dưới
+# tài khoản `sddm` và không nên nạp module nhập liệu của fcitx5.
+export GTK_IM_MODULE=fcitx
+export QT_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx
+export SDL_IM_MODULE=fcitx
+
 exec dbus-run-session -- Hyprland "$@"

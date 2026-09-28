@@ -2,60 +2,210 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+AIROOTFS="$ROOT_DIR/profile/airootfs"
+BRANDING="$ROOT_DIR/profile/branding"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "OK: $*"; }
 
 [[ -s "$ROOT_DIR/profile/packages.x86_64" ]] || fail "package manifest is missing or empty"
-[[ -d "$ROOT_DIR/profile/airootfs" ]] || fail "airootfs overlay is missing"
+[[ -d "$AIROOTFS" ]] || fail "airootfs overlay is missing"
 
-for package in linux-zen steam hyprland networkmanager waybar sddm; do
+# --- Danh sách gói ---------------------------------------------------------
+for package in \
+  linux-zen steam hyprland networkmanager waybar sddm hyprlock \
+  fcitx5 fcitx5-unikey udisks2 thunar-volman gvfs rsync fastfetch \
+  xorg-xwayland ttf-nerd-fonts-symbols; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
 ! grep -qxF linux "$ROOT_DIR/profile/packages.x86_64" || fail "manifest must not request the generic linux kernel"
+! grep -qxF greetd "$ROOT_DIR/profile/packages.x86_64" || fail "greetd must be removed when using SDDM"
+! grep -qxF greetd-tuigreet "$ROOT_DIR/profile/packages.x86_64" || fail "greetd-tuigreet must be removed when using SDDM"
 
 # Pin the build script's stock-Archiso kernel path rewrite, including fallback images.
 rewritten="$(printf '%s\n' 'linux /arch/boot/x86_64/vmlinuz-linux' 'initrd /arch/boot/x86_64/initramfs-linux.img' 'initrd /arch/boot/x86_64/initramfs-linux-fallback.img' | sed -E 's/(vmlinuz|initramfs)-linux(-fallback)?([.]|[[:space:]]|$)/\1-linux-zen\2\3/g')"
 expected="$(printf '%s\n' 'linux /arch/boot/x86_64/vmlinuz-linux-zen' 'initrd /arch/boot/x86_64/initramfs-linux-zen.img' 'initrd /arch/boot/x86_64/initramfs-linux-zen-fallback.img')"
 [[ "$rewritten" == "$expected" ]] || fail "boot-entry rewrite does not select linux-zen"
 
+# Pin luôn quy tắc đổi tên mục menu khởi động của build script.
+rebranded="$(printf '%s\n' \
+  'MENU TITLE Arch Linux' \
+  'MENU LABEL Arch Linux install medium (%ARCH%, BIOS)' \
+  'MENU LABEL Arch Linux live medium (%ARCH%, NFS)' \
+  'title    Arch Linux install medium (%ARCH%, UEFI)' \
+  'menuentry "Arch Linux install medium (%ARCH%, BIOS)"' |
+  sed -E \
+    -e 's/Arch Linux install medium/AniOS Live/g' \
+    -e 's/Arch Linux live medium/AniOS Live/g' \
+    -e 's/^(MENU TITLE )Arch Linux$/\1AniOS/')"
+expected="$(printf '%s\n' \
+  'MENU TITLE AniOS' \
+  'MENU LABEL AniOS Live (%ARCH%, BIOS)' \
+  'MENU LABEL AniOS Live (%ARCH%, NFS)' \
+  'title    AniOS Live (%ARCH%, UEFI)' \
+  'menuentry "AniOS Live (%ARCH%, BIOS)"')"
+[[ "$rebranded" == "$expected" ]] || fail "boot-menu rebranding does not produce AniOS labels"
+
+# mkarchiso chép airootfs bằng `cp --no-preserve=mode`: bit thực thi chỉ sống
+# sót nếu build script khai báo lại trong file_permissions.
+for declaration in \
+  '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
+  '["/usr/local/bin/anios-session"]="0:0:755"' \
+  '["/usr/local/bin/anios-setup"]="0:0:755"' \
+  '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
+  grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
+    fail "build script does not declare file permission $declaration"
+done
+
 # Ensure each additional package is a single, uncommented package name.
 if grep -nEv '^[[:space:]]*($|#|[a-zA-Z0-9@._+-]+$)' "$ROOT_DIR/profile/packages.x86_64"; then
   fail "invalid line in package manifest"
 fi
 
+# --- Cú pháp shell --------------------------------------------------------
 while IFS= read -r -d '' script; do
   bash -n "$script" || fail "shell syntax error: $script"
-done < <(find "$ROOT_DIR/scripts" "$ROOT_DIR/profile/airootfs/usr/local" -type f -print0 2>/dev/null)
+done < <(find "$ROOT_DIR/scripts" "$AIROOTFS/usr/local" -type f -print0 2>/dev/null)
 
+# --- Danh tính AniOS ------------------------------------------------------
+OS_RELEASE="$AIROOTFS/etc/os-release"
+[[ -s "$OS_RELEASE" ]] || fail "AniOS identity file is missing: etc/os-release"
+grep -qxF 'NAME="AniOS"' "$OS_RELEASE" || fail 'os-release must name the distribution "AniOS"'
+grep -qxF 'PRETTY_NAME="AniOS (Arch Linux based, Hyprland live gaming desktop)"' "$OS_RELEASE" ||
+  fail "os-release PRETTY_NAME must introduce AniOS without hiding the Arch base"
+grep -qxF 'ID=arch' "$OS_RELEASE" || fail "os-release ID must stay arch so Arch tooling keeps working"
+grep -qxF 'ID_LIKE=arch' "$OS_RELEASE" || fail "os-release ID_LIKE must stay arch"
+for key in HOME_URL SUPPORT_URL BUG_REPORT_URL; do
+  grep -qE "^${key}=\"https://" "$OS_RELEASE" || fail "os-release is missing $key"
+done
+grep -qF 'Arch Linux' "$AIROOTFS/etc/issue" || fail "console login banner must mention the Arch Linux base"
+grep -qF 'AniOS' "$AIROOTFS/etc/issue" || fail "console login banner must show the AniOS name"
+grep -qF 'AniOS' "$AIROOTFS/etc/motd" || fail "motd must show the AniOS name"
+[[ -s "$AIROOTFS/usr/share/anios/logo.txt" ]] || fail "fastfetch logo is missing"
+
+# --- Ảnh thương hiệu ------------------------------------------------------
+for asset in wallpaper.png syslinux-splash.png; do
+  asset_path="$BRANDING/$asset"
+  [[ -s "$asset_path" ]] ||
+    fail "branding asset is missing: profile/branding/$asset (run scripts/make-branding-assets.sh)"
+  [[ "$(head -c 8 -- "$asset_path" | od -An -tx1 | tr -d ' \n')" == 89504e470d0a1a0a ]] ||
+    fail "profile/branding/$asset is not a PNG file"
+done
+if command -v identify >/dev/null 2>&1; then
+  geometry="$(identify -format '%wx%h' "$BRANDING/syslinux-splash.png")"
+  [[ "$geometry" == "640x480" ]] || fail "syslinux splash must be 640x480, found $geometry"
+  geometry="$(identify -format '%wx%h' "$BRANDING/wallpaper.png")"
+  [[ "$geometry" == "2560x1440" ]] || fail "live wallpaper must be 2560x1440, found $geometry"
+fi
+
+# --- SDDM, phiên live và giao diện đăng nhập ------------------------------
 for file in \
-  "$ROOT_DIR/profile/airootfs/etc/sddm.conf.d/10-anios-autologin.conf" \
-  "$ROOT_DIR/profile/airootfs/usr/share/wayland-sessions/anios.desktop" \
-  "$ROOT_DIR/profile/airootfs/etc/NetworkManager/conf.d/20-anios-wifi.conf" \
-  "$ROOT_DIR/profile/airootfs/etc/systemd/sysusers.d/anios.conf" \
-  "$ROOT_DIR/profile/airootfs/etc/tmpfiles.d/anios.conf"; do
+  "$AIROOTFS/etc/sddm.conf.d/10-anios-autologin.conf" \
+  "$AIROOTFS/etc/NetworkManager/conf.d/20-anios-wifi.conf" \
+  "$AIROOTFS/etc/systemd/sysusers.d/anios.conf" \
+  "$AIROOTFS/etc/tmpfiles.d/anios.conf" \
+  "$AIROOTFS/etc/systemd/zram-generator.conf" \
+  "$AIROOTFS/etc/sysctl.d/90-anios-live.conf" \
+  "$AIROOTFS/usr/share/wayland-sessions/anios.desktop"; do
   [[ -s "$file" ]] || fail "expected configuration missing: ${file#"$ROOT_DIR/"}"
 done
 
-SDDM_CONFIG="$ROOT_DIR/profile/airootfs/etc/sddm.conf.d/10-anios-autologin.conf"
+SDDM_CONFIG="$AIROOTFS/etc/sddm.conf.d/10-anios-autologin.conf"
 grep -qxF '[Autologin]' "$SDDM_CONFIG" || fail "SDDM autologin section is missing"
 grep -qxF 'User=anios' "$SDDM_CONFIG" || fail "SDDM must autologin the live user"
 grep -qxF 'Session=anios' "$SDDM_CONFIG" || fail "SDDM must start the AniOS Wayland session"
-grep -qxF 'Exec=/usr/local/bin/anios-session' \
-  "$ROOT_DIR/profile/airootfs/usr/share/wayland-sessions/anios.desktop" ||
-  fail "AniOS SDDM session must start anios-session"
+grep -qxF 'Current=anios' "$SDDM_CONFIG" || fail "SDDM must use the AniOS theme"
+[[ -s "$AIROOTFS/usr/share/sddm/themes/anios/Main.qml" ]] || fail "SDDM theme Main.qml is missing"
+[[ -s "$AIROOTFS/usr/share/sddm/themes/anios/theme.conf" ]] || fail "SDDM theme.conf is missing"
+THEME_CONF="$AIROOTFS/usr/share/sddm/themes/anios/theme.conf"
+grep -qxF '[General]' "$THEME_CONF" || fail "SDDM theme.conf is missing its [General] section"
+grep -qxF 'background=/usr/share/anios/wallpaper.png' "$THEME_CONF" ||
+  fail "SDDM theme must use the AniOS live wallpaper"
+THEME_QML="$AIROOTFS/usr/share/sddm/themes/anios/Main.qml"
+grep -qxF 'import SddmComponents 2.0' "$THEME_QML" || fail "SDDM theme must import SddmComponents 2.0"
+grep -qF 'sddm.login(' "$THEME_QML" || fail "SDDM theme never calls sddm.login()"
+grep -qF 'config.background' "$THEME_QML" || fail "SDDM theme must read background from theme.conf"
 
-DISPLAY_MANAGER="$ROOT_DIR/profile/airootfs/etc/systemd/system/display-manager.service"
+grep -qxF 'Exec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-sessions/anios.desktop" ||
+  fail "AniOS SDDM session must start anios-session"
+grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-sessions/anios.desktop" ||
+  fail "AniOS SDDM session must advertise anios-session as TryExec"
+[[ -x "$AIROOTFS/usr/local/bin/anios-session" ]] || fail "anios-session must be executable"
+[[ -x "$AIROOTFS/usr/local/bin/anios-setup" ]] || fail "anios-setup must be executable"
+[[ -x "$AIROOTFS/usr/local/lib/anios/live-home-setup" ]] || fail "live-home-setup must be executable"
+
+DISPLAY_MANAGER="$AIROOTFS/etc/systemd/system/display-manager.service"
 [[ -L "$DISPLAY_MANAGER" ]] || fail "display-manager service symlink is missing"
 [[ "$(readlink "$DISPLAY_MANAGER")" == /usr/lib/systemd/system/sddm.service ]] ||
   fail "display-manager must point to sddm.service"
-[[ -L "$ROOT_DIR/profile/airootfs/etc/systemd/system/graphical.target.wants/sddm.service" ]] ||
+[[ -L "$AIROOTFS/etc/systemd/system/graphical.target.wants/sddm.service" ]] ||
   fail "sddm.service is not enabled for graphical.target"
-[[ ! -L "$ROOT_DIR/profile/airootfs/etc/systemd/system/graphical.target.wants/greetd.service" ]] ||
-  fail "greetd must not be enabled alongside SDDM"
-! grep -qxF greetd "$ROOT_DIR/profile/packages.x86_64" || fail "greetd must be removed when using SDDM"
-! grep -qxF greetd-tuigreet "$ROOT_DIR/profile/packages.x86_64" || fail "greetd-tuigreet must be removed when using SDDM"
-[[ ! -e "$ROOT_DIR/profile/airootfs/etc/greetd/config.toml" ]] ||
-  fail "stale greetd configuration must be removed"
+[[ ! -e "$AIROOTFS/etc/greetd/config.toml" ]] || fail "stale greetd configuration must be removed"
+
+# /home/anios nằm trên lớp ghi tạm của hệ thống live, nên tài khoản live cần một
+# unit nhỏ chạy trước SDDM để chép skel còn thiếu và chuyển quyền sở hữu.
+LIVE_HOME_UNIT="$AIROOTFS/etc/systemd/system/anios-live-home.service"
+[[ -s "$LIVE_HOME_UNIT" ]] || fail "anios-live-home.service is missing"
+grep -qxF 'Before=sddm.service' "$LIVE_HOME_UNIT" || fail "the live home setup must run before SDDM"
+grep -qxF 'ExecStart=/usr/local/lib/anios/live-home-setup' "$LIVE_HOME_UNIT" ||
+  fail "the live home service must run live-home-setup"
+[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-live-home.service" ]] ||
+  fail "anios-live-home.service is not enabled"
+LIVE_HOME_SETUP="$AIROOTFS/usr/local/lib/anios/live-home-setup"
+grep -qF '/usr/share/anios/skel' "$LIVE_HOME_SETUP" || fail "live-home-setup must use the AniOS skeleton"
+grep -qF 'chown -R' "$LIVE_HOME_SETUP" || fail "live-home-setup must give the live user ownership of its home"
+# sysusers đặt mật khẩu "chưa thiết lập" (không phải rỗng), mà system-auth chỉ
+# cho qua mật khẩu rỗng nhờ nullok; thiếu bước này thì sau khi thoát phiên,
+# người dùng không thể đăng nhập lại ở màn hình SDDM.
+grep -qF 'passwd -d' "$LIVE_HOME_SETUP" ||
+  fail "live-home-setup must clear the live user's password for the SDDM greeter"
+
+# --- Cấu hình desktop -----------------------------------------------------
+HYPR_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.conf"
+grep -qF '/usr/share/anios/wallpaper.png' "$HYPR_CONF" || fail "Hyprland must set the AniOS wallpaper"
+grep -qF 'fcitx5 -d' "$HYPR_CONF" || fail "Hyprland must start fcitx5 for Vietnamese input"
+grep -qF 'bind = $mainMod SHIFT, L, exec, hyprlock' "$HYPR_CONF" || fail "Hyprland must offer the lock screen"
+grep -qF 'exec-once = waybar' "$HYPR_CONF" || fail "Hyprland must start the status bar"
+grep -qF 'bind = $mainMod, D, exec, $menu' "$HYPR_CONF" || fail "Hyprland launcher keybind is missing"
+
+# hyprlock thoát ngay nếu không tìm thấy hyprlock.conf, nên phím tắt khoá màn
+# hình chỉ có ý nghĩa khi file cấu hình đi kèm tồn tại.
+HYPRLOCK_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprlock.conf"
+[[ -s "$HYPRLOCK_CONF" ]] || fail "hyprlock.conf is missing; the lock keybind would do nothing"
+grep -qF 'ignore_empty_input = true' "$HYPRLOCK_CONF" ||
+  fail "the live lock screen must accept an empty password"
+grep -qF '/usr/share/anios/wallpaper.png' "$HYPRLOCK_CONF" ||
+  fail "the lock screen must reuse the AniOS wallpaper"
+grep -qF 'pam:module = anios-live' "$HYPRLOCK_CONF" ||
+  fail "the lock screen must use the AniOS PAM service"
+PAM_LIVE="$AIROOTFS/etc/pam.d/anios-live"
+[[ -s "$PAM_LIVE" ]] || fail "the AniOS PAM service for the lock screen is missing"
+grep -qF 'pam_permit.so' "$PAM_LIVE" ||
+  fail "the live lock screen must never lock the user out of their own session"
+
+# Unikey phải là bộ gõ mặc định, nếu không người dùng phải tự thêm vào fcitx5.
+FCITX_PROFILE="$AIROOTFS/usr/share/anios/skel/.config/fcitx5/profile"
+[[ -s "$FCITX_PROFILE" ]] || fail "the fcitx5 profile for the live user is missing"
+grep -qxF 'DefaultIM=unikey' "$FCITX_PROFILE" || fail "Unikey must be the default input method"
+grep -qxF 'Name=unikey' "$FCITX_PROFILE" || fail "the Unikey input method is not registered in fcitx5"
+
+# Bộ gõ chỉ được bật trong phiên của người dùng, không đặt ở /etc/environment:
+# greeter SDDM chạy dưới tài khoản riêng và không nên nạp module fcitx5.
+SESSION_WRAPPER="$AIROOTFS/usr/local/bin/anios-session"
+grep -qF 'dbus-run-session' "$SESSION_WRAPPER" || fail "the session must run inside dbus-run-session"
+for assignment in \
+  'export GTK_IM_MODULE=fcitx' \
+  'export QT_IM_MODULE=fcitx' \
+  'export XMODIFIERS=@im=fcitx' \
+  'export SDL_IM_MODULE=fcitx'; do
+  grep -qxF "$assignment" "$SESSION_WRAPPER" || fail "anios-session is missing: $assignment"
+done
+[[ ! -e "$AIROOTFS/etc/environment" ]] ||
+  fail "input-method variables must not leak into the SDDM greeter via /etc/environment"
+
+[[ -s "$AIROOTFS/usr/share/applications/anios-setup.desktop" ]] || fail "the Immaterial Impulse shortcut is missing"
+[[ -s "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
+
+# --- Quyền của script dựng ISO -------------------------------------------
 [[ -x "$ROOT_DIR/scripts/build-iso.sh" ]] || fail "build script is not executable"
 [[ -x "$ROOT_DIR/scripts/check-profile.sh" ]] || fail "check script is not executable"
 
