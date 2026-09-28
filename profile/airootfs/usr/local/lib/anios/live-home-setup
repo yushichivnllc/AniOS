@@ -28,6 +28,11 @@ chown -R "$user:$group" "$home"
 # Đặt mật khẩu dùng chung cho đăng nhập SDDM, mở khoá hyprlock và sudo.
 # Đây là mật khẩu cố ý đơn giản cho tài khoản live tạm thời; không dùng lại
 # chính sách này cho hệ thống cài đặt hoặc dữ liệu riêng tư.
+#
+# Hash mật khẩu đã được "nướng" vào /etc/shadow từ lúc build (pacman hook
+# anios-live-user.hook), nên đăng nhập SDDM bằng tay không phụ thuộc service
+# này có chạy thành công hay không. Bước dưới đây đặt lại mật khẩu như một
+# lớp dự phòng (cũng đảm bảo sudo và hyprlock luôn dùng đúng mật khẩu).
 password=1111
 printf '%s:%s\n' "$user" "$password" | chpasswd || {
   echo "Could not set the live user's password; refusing to continue." >&2

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Tạo (nếu chưa có) tài khoản live `anios` và đặt lại mật khẩu cố định cho nó.
+#
+# Chạy lúc DÙNG ISO (được gọi bởi pacman hook anios-live-user.hook khi pacstrap
+# cài gói shadow) để hash mật khẩu 1111 nằm sẵn trong /etc/shadow trước khi
+# tạo ảnh squashfs. Nhờ vậy việc đăng nhập thủ công vào SDDM không phụ thuộc
+# vào việc anios-live-home.service có chạy thành công lúc khởi động hay không.
+#
+# Service anios-live-home.service vẫn đặt lại mật khẩu này ở mỗi lần khởi động
+# như một lớp dự phòng; hai cách đặt đều cho ra cùng một mật khẩu.
+set -eu
+
+user=anios
+password=1111
+
+# Lúc dựng ISO, /etc/passwd của chroot mới chỉ có root (từ gói filesystem);
+# lúc đó chính script này tạo tài khoản live. Ở lần chạy sau (nếu có),
+# systemd-sysusers với etc/systemd/sysusers.d/anios.conf đảm nhận việc tạo
+# tài khoản, nên chỉ cần kiểm tra và bỏ qua.
+if ! getent passwd "$user" >/dev/null 2>&1; then
+    # -M: không tự tạo thư mục home; /home/anios đã có sẵn dotfile được copy
+    #     từ airootfs lúc build, anios-live-home.service sẽ đồng bộ lại ở boot.
+    useradd -u 1000 -M -d /home/anios -s /bin/bash -c "AniOS Live User" "$user"
+fi
+
+# Luôn đặt lại mật khẩu: nếu hash trống hoặc bị khoá (!, *), pam_unix sẽ
+# từ chối mọi mật khẩu và SDDM báo access denied.
+printf '%s:%s\n' "$user" "$password" | chpasswd

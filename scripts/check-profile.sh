@@ -55,6 +55,7 @@ for declaration in \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
+  '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
     fail "build script does not declare file permission $declaration"
@@ -197,6 +198,32 @@ grep -qF 'password=1111' "$LIVE_HOME_SETUP" ||
   fail "live-home-setup must configure the requested live password"
 grep -qF 'chpasswd' "$LIVE_HOME_SETUP" ||
   fail "live-home-setup must apply the live password"
+
+# --- Mật khẩu 1111 có sẵn trong ảnh từ lúc build --------------------------
+# Đăng nhập thủ công SDDM (stack PAM `sddm` -> pam_unix) đòi hỏi /etc/shadow
+# phải có hash mật khẩu, trong khi autologin (stack `sddm-autologin` ->
+# pam_permit) thì không. Vì vậy mật khẩu phải được "nướng" vào ảnh lúc build
+# bằng pacman hook, không được phụ thuộc duy nhất vào service lúc khởi động:
+# nếu service hỏng, autologin vẫn đưa người dùng vào desktop nhưng đăng nhập
+# lại bằng tay sẽ luôn bị báo access denied.
+BUILD_HOOK="$AIROOTFS/etc/pacman.d/hooks/anios-live-user.hook"
+[[ -s "$BUILD_HOOK" ]] || fail "anios-live-user.hook is missing"
+grep -qF 'remove from airootfs' "$BUILD_HOOK" ||
+  fail "anios-live-user.hook must carry the releng marker so it is removed after the build"
+grep -qxF 'Target = shadow' "$BUILD_HOOK" ||
+  fail "anios-live-user.hook must trigger when the shadow package is installed"
+grep -qxF 'When = PostTransaction' "$BUILD_HOOK" ||
+  fail "anios-live-user.hook must run after the pacman transaction"
+grep -qxF 'Exec = /usr/local/lib/anios/create-live-user' "$BUILD_HOOK" ||
+  fail "anios-live-user.hook must run create-live-user"
+CREATE_LIVE_USER="$AIROOTFS/usr/local/lib/anios/create-live-user"
+[[ -x "$CREATE_LIVE_USER" ]] || fail "create-live-user must be executable"
+grep -qF 'useradd -u 1000' "$CREATE_LIVE_USER" ||
+  fail "create-live-user must create the live user with standard UID 1000"
+grep -qF 'password=1111' "$CREATE_LIVE_USER" ||
+  fail "create-live-user must configure the requested live password"
+grep -qF 'chpasswd' "$CREATE_LIVE_USER" ||
+  fail "create-live-user must apply the live password"
 
 PAM_LIVE="$AIROOTFS/etc/pam.d/anios-live"
 [[ -s "$PAM_LIVE" ]] || fail "the AniOS PAM service for the lock screen is missing"

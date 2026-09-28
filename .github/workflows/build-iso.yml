@@ -293,6 +293,51 @@ jobs:
           unsquashfs -cat "$squashfs" usr/share/sddm/themes/wuwa/Main.qml |
             grep -qF 'onErrorOccurred: root.videoReady = false'
           echo "SDDM dùng theme Wuthering Waves, có fallback video và tự đăng nhập tài khoản live"
+
+          # Mật khẩu 1111 phải được nướng vào /etc/shadow từ lúc build (pacman
+          # hook anios-live-user.hook). Autologin SDDM đi qua stack
+          # `sddm-autologin` (pam_permit) nên luôn vào được desktop; nhưng
+          # đăng nhập lại bằng tay đi qua stack `sddm` (pam_unix) và chỉ
+          # nhận đúng hash thật. Thiếu hash = người dùng không bao giờ đăng
+          # nhập lại được (access denied) kể cả khi service lúc boot có chạy.
+          shadow_dump="$(mktemp)"
+          unsquashfs -cat "$squashfs" etc/shadow >"$shadow_dump"
+          anios_line="$(grep '^anios:' "$shadow_dump" || true)"
+          if [[ -z "$anios_line" ]]; then
+            echo "::error::etc/shadow trong ảnh live không có tài khoản anios"
+            rm -f "$shadow_dump"
+            exit 1
+          fi
+          anios_hash="${anios_line#anios:}"; anios_hash="${anios_hash%%:*}"
+          case "$anios_hash" in
+            \$*) ;;
+            *)
+              echo "::error::Mật khẩu anios trong etc/shadow không phải hash ('${anios_hash}'); SDDM sẽ báo access denied"
+              rm -f "$shadow_dump"
+              exit 1
+              ;;
+          esac
+          # Xác thực hash đúng là của 1111 (không chỉ có mặt một hash bất kỳ).
+          useradd -u 59999 -M -s /usr/sbin/nologin anios-hash-verify
+          usermod -p "$anios_hash" anios-hash-verify
+          if passwd --verify 1111 anios-hash-verify; then
+            echo "Hash mật khẩu anios trong ảnh live xác thực đúng 1111"
+          else
+            echo "::error::Hash mật khẩu anios trong ảnh live không khớp 1111"
+            userdel anios-hash-verify 2>/dev/null || true
+            rm -f "$shadow_dump"
+            exit 1
+          fi
+          userdel anios-hash-verify
+          rm -f "$shadow_dump"
+
+          # Hook build phải đã bị hook dọn dẹp zzzz99 của releng xoá khỏi ảnh,
+          # nếu không nó sẽ chạy lại ở mọi thao tác pacman trong phiên live.
+          if unsquashfs -ll "$squashfs" | grep -q 'anios-live-user.hook'; then
+            echo "::error::anios-live-user.hook còn nằm trong ảnh live"
+            exit 1
+          fi
+          echo "Mật khẩu 1111 có sẵn trong ảnh; hook build đã được dọn sạch"
           ARCH
 
       - name: Dọn container dựng Arch
