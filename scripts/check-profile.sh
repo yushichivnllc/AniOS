@@ -15,7 +15,8 @@ for package in \
   linux-zen steam hyprland networkmanager waybar sddm hyprlock \
   qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-5compat \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
-  fcitx5 fcitx5-unikey udisks2 thunar-volman gvfs rsync fastfetch \
+  fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
+  udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
@@ -53,6 +54,7 @@ for declaration in \
   '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
+  '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
     fail "build script does not declare file permission $declaration"
@@ -152,6 +154,7 @@ grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-se
   fail "AniOS SDDM session must advertise anios-session as TryExec"
 [[ -x "$AIROOTFS/usr/local/bin/anios-session" ]] || fail "anios-session must be executable"
 [[ -x "$AIROOTFS/usr/local/bin/anios-setup" ]] || fail "anios-setup must be executable"
+[[ -x "$AIROOTFS/usr/local/bin/anios-switch-im" ]] || fail "anios-switch-im must be executable"
 [[ -x "$AIROOTFS/usr/local/lib/anios/live-home-setup" ]] || fail "live-home-setup must be executable"
 
 DISPLAY_MANAGER="$AIROOTFS/etc/systemd/system/display-manager.service"
@@ -162,10 +165,19 @@ DISPLAY_MANAGER="$AIROOTFS/etc/systemd/system/display-manager.service"
   fail "sddm.service is not enabled for graphical.target"
 [[ ! -e "$AIROOTFS/etc/greetd/config.toml" ]] || fail "stale greetd configuration must be removed"
 
+# Fixes for SDDM: UID 1000, MinimumUid, non-conflicting tty1
+grep -qxF 'u anios 1000 "AniOS Live User" /home/anios /bin/bash' "$AIROOTFS/etc/systemd/sysusers.d/anios.conf" ||
+  fail "anios user must have standard UID 1000 for SDDM greeter discovery"
+grep -qxF 'MinimumUid=500' "$SDDM_CONFIG" || fail "SDDM must accept users with UID >= 500"
+grep -qF 'getty@tty1.service.d' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must remove releng getty autologin so SDDM can use tty1"
+
 # /home/anios nằm trên lớp ghi tạm của hệ thống live, nên tài khoản live cần một
 # unit nhỏ chạy trước SDDM để chép skel còn thiếu và chuyển quyền sở hữu.
 LIVE_HOME_UNIT="$AIROOTFS/etc/systemd/system/anios-live-home.service"
 [[ -s "$LIVE_HOME_UNIT" ]] || fail "anios-live-home.service is missing"
+[[ -s "$AIROOTFS/usr/lib/systemd/system/anios-live-home.service" ]] ||
+  fail "anios-live-home.service must exist in /usr/lib/systemd/system"
 grep -qxF 'Before=sddm.service' "$LIVE_HOME_UNIT" || fail "the live home setup must run before SDDM"
 grep -qxF 'ExecStart=/usr/local/lib/anios/live-home-setup' "$LIVE_HOME_UNIT" ||
   fail "the live home service must run live-home-setup"
@@ -179,6 +191,16 @@ grep -qF 'chown -R' "$LIVE_HOME_SETUP" || fail "live-home-setup must give the li
 # người dùng không thể đăng nhập lại ở màn hình SDDM.
 grep -qF 'passwd -d' "$LIVE_HOME_SETUP" ||
   fail "live-home-setup must clear the live user's password for the SDDM greeter"
+
+# --- Cài sẵn dotfile ------------------------------------------------------
+SKEL="$AIROOTFS/usr/share/anios/skel"
+for dotfile in \
+  .bashrc .bash_profile .profile .gitconfig .vimrc .nanorc \
+  .config/kitty/kitty.conf .config/fish/config.fish \
+  .config/fastfetch/config.jsonc .config/MangoHud/MangoHud.conf \
+  .config/gamemode.ini; do
+  [[ -s "$SKEL/$dotfile" ]] || fail "cài sẵn dotfile bị thiếu: $dotfile"
+done
 
 # --- Cấu hình desktop -----------------------------------------------------
 HYPR_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.conf"

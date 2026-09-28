@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Tiện ích chuyển đổi bộ gõ giữa ibus và fcitx5
+set -Eeuo pipefail
+
+usage() {
+  echo "Sử dụng: anios-switch-im [ibus|fcitx5]"
+  echo "  ibus   : Kích hoạt IBus (ibus-unikey)"
+  echo "  fcitx5 : Kích hoạt Fcitx5 (fcitx5-unikey)"
+  exit 1
+}
+
+(($# == 1)) || usage
+
+choice="$1"
+case "$choice" in
+  ibus)
+    pkill -x fcitx5 2>/dev/null || true
+    ibus-daemon -drxR
+    echo "Đã chuyển sang bộ gõ IBus (ibus-unikey)"
+    ;;
+  fcitx5)
+    pkill -x ibus-daemon 2>/dev/null || true
+    fcitx5 -d --replace
+    echo "Đã chuyển sang bộ gõ Fcitx5 (fcitx5-unikey)"
+    ;;
+  *)
+    usage
+    ;;
+esac

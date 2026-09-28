@@ -117,6 +117,11 @@ done
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
+# Releng có cấu hình autologin root trên tty1 (getty@tty1.service.d/autologin.conf).
+# Xoá cấu hình này để tty1 không bị agetty chiếm dụng, giúp SDDM khởi chạy
+# bình thường trên VT1 mà không bị xung đột.
+rm -rf -- "$BUILD_PROFILE/airootfs/etc/systemd/system/getty@tty1.service.d"
+
 # Ảnh thương hiệu nằm ngoài airootfs để repository gọn: wallpaper cho desktop và
 # màn hình đăng nhập, splash cho menu khởi động Syslinux của profile releng.
 for asset in "$ROOT_DIR/profile/branding/wallpaper.png" \
@@ -136,6 +141,10 @@ fi
 install -d -m 0755 -- "$BUILD_PROFILE/airootfs/home/anios"
 cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
   "$BUILD_PROFILE/airootfs/home/anios/"
+
+install -d -m 0755 -- "$BUILD_PROFILE/airootfs/etc/skel"
+cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
+  "$BUILD_PROFILE/airootfs/etc/skel/"
 
 # Steam is in Arch's official multilib repository. Enable it only in the
 # temporary build profile; the live image's own pacman.conf is configured too.
@@ -180,12 +189,14 @@ insert_permission() {
 insert_permission "/etc/sudoers.d/10-anios-live" "0:0:440"
 insert_permission "/usr/local/bin/anios-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-session" "0:0:755"
+insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
 insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
 
 for entry in \
   '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
+  '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||
     { echo "Failed to declare file_permissions entry: $entry" >&2; exit 1; }

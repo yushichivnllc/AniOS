@@ -1,0 +1,25 @@
+* {
+  border: none;
+  border-radius: 0;
+  font-family: "DejaVu Sans", "Symbols Nerd Font", sans-serif;
+  font-size: 12px;
+  min-height: 0;
+}
+window#waybar {
+  background: rgba(23, 26, 34, 0.96);
+  color: #d9deea;
+}
+#workspaces button {
+  padding: 0 9px;
+  color: #9aa4bd;
+  background: transparent;
+}
+#workspaces button.active {
+  color: #171a22;
+  background: #7aa2f7;
+}
+#window, #network, #pulseaudio, #tray, #clock {
+  padding: 0 9px;
+}
+#clock { color: #c0caf5; }
+#network.disconnected, #pulseaudio.muted { color: #f7768e; }

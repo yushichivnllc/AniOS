@@ -1,0 +1,7 @@
+[init]
+    defaultBranch = main
+[color]
+    ui = auto
+[core]
+    editor = nano
+    autocrlf = input

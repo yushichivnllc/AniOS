@@ -29,7 +29,9 @@ ttf-dejavu
 # Biểu tượng trên Waybar và các app dùng Nerd Font
 ttf-nerd-fonts-symbols
 
-# Gõ tiếng Việt: fcitx5 + Unikey (bật/tắt bằng Ctrl+Space)
+# Gõ tiếng Việt: IBus + Unikey và fcitx5
+ibus
+ibus-unikey
 fcitx5
 fcitx5-unikey
 fcitx5-configtool
@@ -60,8 +62,10 @@ sof-firmware
 
 # Steam và hỗ trợ chơi game (kèm thư viện 32-bit của Steam)
 steam
-# XWayland để game chỉ có bản X11 vẫn chạy được trong phiên Hyprland
+# XWayland và driver màn hình cơ bản cho SDDM / fallback
 xorg-xwayland
+xf86-video-fbdev
+xf86-video-vesa
 gamemode
 lib32-gamemode
 gamescope
