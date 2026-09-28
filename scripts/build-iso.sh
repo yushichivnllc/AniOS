@@ -4,13 +4,21 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT_DIR/out"
 WORK_DIR="$ROOT_DIR/work"
+CLEAN_WORK=0
+SKIP_CHECKS=0
+# Giữ nguyên tham số gốc để khi tự gọi lại bằng sudo không mất tuỳ chọn nào.
+ORIG_ARGS=("$@")
 
 usage() {
   cat <<'EOF'
-Usage: sudo ./scripts/build-iso.sh [--output DIR] [--work DIR]
+Usage: sudo ./scripts/build-iso.sh [--output DIR] [--work DIR] [--clean] [--skip-checks]
 
 Build AniOS from Archiso's installed releng profile. Requires an up-to-date
 Arch Linux x86_64 host, archiso, network access, and root privileges.
+
+  --clean        delete the work directory first, so the image is built from
+                 scratch instead of reusing a previous airootfs
+  --skip-checks  do not run scripts/check-profile.sh before building
 EOF
 }
 
@@ -26,6 +34,14 @@ while (($#)); do
       WORK_DIR="$2"
       shift 2
       ;;
+    --clean)
+      CLEAN_WORK=1
+      shift
+      ;;
+    --skip-checks)
+      SKIP_CHECKS=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -40,7 +56,7 @@ done
 
 if [[ $EUID -ne 0 ]]; then
   if command -v sudo >/dev/null 2>&1; then
-    exec sudo -- "$0" --output "$OUT_DIR" --work "$WORK_DIR"
+    exec sudo -- "$0" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
   fi
   echo "Run this script as root (mkarchiso needs elevated privileges)." >&2
   exit 1
@@ -56,7 +72,65 @@ for required in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/airootfs"
   [[ -e "$required" ]] || { echo "Missing AniOS profile component: $required" >&2; exit 1; }
 done
 
+# Chặn lỗi profile ngay trên máy dựng thay vì chờ tới giữa lượt dựng ISO hàng
+# chục phút (CI cũng chạy đúng script này ở bước riêng).
+if (( ! SKIP_CHECKS )); then
+  bash "$ROOT_DIR/scripts/check-profile.sh"
+fi
+
+# --clean: dựng lại từ đầu. mkarchiso tái sử dụng work dir (các file đánh dấu
+# base._make_* khiến bước đã chạy bị bỏ qua), nên đây là cách chắc chắn nhất để
+# loại bỏ mọi tàn dư của profile cũ.
+if (( CLEAN_WORK )); then
+  if [[ -z "$WORK_DIR" || "$WORK_DIR" == / || "$WORK_DIR" == "$ROOT_DIR" ]]; then
+    echo "Refusing to delete work directory: $WORK_DIR" >&2
+    exit 2
+  fi
+  echo "Removing work directory: $WORK_DIR"
+  rm -rf -- "$WORK_DIR"
+fi
+
 mkdir -p -- "$OUT_DIR" "$WORK_DIR"
+
+# mkarchiso chép profile/airootfs vào work/<arch>/airootfs TRƯỚC khi pacstrap cài
+# gói. Vì vậy một file overlay nằm ở đường dẫn do gói pacman sở hữu sẽ khiến
+# pacman dừng với "failed to commit transaction (conflicting files)".
+#
+# Danh sách dưới đây là những đường dẫn từng nằm trong overlay của AniOS nhưng
+# lại thuộc sở hữu của gói, và đã được gỡ khỏi profile. Nếu work dir được dùng
+# lại thì bản sao của lần dựng trước vẫn còn đó, không gói nào sở hữu, và lượt
+# dựng kế tiếp chết đúng chỗ đó — nên phải dọn trước. Chỉ xoá khi pacman DB trong
+# airootfs xác nhận file chưa thuộc gói nào; nếu gói đã cài file đó rồi thì xoá
+# sẽ làm hỏng ảnh.
+removed_overlay_paths=(
+  'etc/alsa/conf.d/99-pipewire-default.conf' # gói pipewire-alsa tự cài file này
+)
+
+# $1: thư mục airootfs, $2: đường dẫn tuyệt đối bên trong ảnh
+airootfs_package_owns() {
+  local root="$1" rel="${2#/}"
+  [[ -d "$root/var/lib/pacman/local" ]] || return 1
+  grep -qsxF -- "$rel" "$root"/var/lib/pacman/local/*/files
+}
+
+cleanup_removed_overlay_paths() {
+  local airootfs rel target
+  for airootfs in "$WORK_DIR"/*/airootfs; do
+    [[ -d "$airootfs" ]] || continue
+    for rel in "${removed_overlay_paths[@]}"; do
+      target="$airootfs/$rel"
+      [[ -e "$target" || -L "$target" ]] || continue
+      if airootfs_package_owns "$airootfs" "/$rel"; then
+        echo "Keeping $rel (already owned by a package installed in $airootfs)"
+      else
+        echo "Removing stale overlay file left by an older build: $target"
+        rm -f -- "$target"
+      fi
+    done
+  done
+}
+cleanup_removed_overlay_paths
+
 BUILD_PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/anios-profile.XXXXXX")"
 cleanup() { rm -rf -- "$BUILD_PROFILE"; }
 trap cleanup EXIT
@@ -228,4 +302,39 @@ for entry in \
 done
 
 printf 'Building AniOS ISO\n  Profile: %s\n  Work:    %s\n  Output:  %s\n' "$BUILD_PROFILE" "$WORK_DIR" "$OUT_DIR"
-mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$BUILD_PROFILE"
+
+# mkarchiso in lỗi của pacman lẫn trong hàng chục nghìn dòng tải gói, nên giữ lại
+# log để khi thất bại còn chỉ đúng nguyên nhân và cách sửa.
+build_log="$WORK_DIR/mkarchiso.log"
+echo "  Log:     $build_log"
+
+report_file_conflicts() {
+  local log="$1"
+  grep -q 'exists in filesystem' "$log" 2>/dev/null || return 0
+  cat >&2 <<'EOF'
+
+The build stopped because files in the airootfs overlay collide with files owned
+by pacman packages. mkarchiso copies profile/airootfs into work/<arch>/airootfs
+BEFORE pacstrap installs packages, so pacman refuses to overwrite a file that no
+package owns:
+
+EOF
+  grep -E '^[^[:space:]]+: .* exists in filesystem$' "$log" | sed 's/^/  /' >&2 || true
+  cat >&2 <<'EOF'
+
+Fix: keep AniOS settings in a file no package owns -- for example
+etc/alsa/conf.d/99-anios-*.conf instead of etc/alsa/conf.d/99-pipewire-default.conf,
+which pipewire-alsa installs itself -- then rebuild. If the file is only a leftover
+from an older build inside a reused work directory, rebuild with --clean.
+EOF
+}
+
+set +e
+mkarchiso -v -w "$WORK_DIR" -o "$OUT_DIR" "$BUILD_PROFILE" 2>&1 | tee -- "$build_log"
+build_status=${PIPESTATUS[0]}
+set -e
+
+if (( build_status != 0 )); then
+  report_file_conflicts "$build_log"
+  exit "$build_status"
+fi

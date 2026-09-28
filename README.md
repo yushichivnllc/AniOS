@@ -33,6 +33,35 @@ sudo ./scripts/build-iso.sh --output /duong-dan/iso --work /duong-dan/work
 
 Script dùng profile `releng` của Archiso đang cài trên máy, đổi kernel sang `linux-zen` trong mọi mục menu (Syslinux, GRUB, systemd-boot, loopback), dán ảnh thương hiệu AniOS vào `syslinux/splash.png` và `usr/share/anios/wallpaper.png`, bật kho `multilib` chính thức để cài Steam, rồi thêm cấu hình AniOS. Cần Internet để tải các gói Arch. ISO hoàn chỉnh sẽ có dung lượng vài GB; nên dùng USB ít nhất 8 GB và kiểm tra ISO trước khi phát hành.
 
+Tuỳ chọn hữu ích:
+
+```bash
+# Dựng sạch, bỏ mọi tàn dư của lần dựng trước trong work/
+sudo ./scripts/build-iso.sh --clean
+
+# Bỏ qua bước kiểm tra profile (chỉ dùng khi đã hiểu rõ lý do)
+sudo ./scripts/build-iso.sh --skip-checks
+```
+
+### Lỗi `failed to commit transaction (conflicting files)`
+
+Nếu bản dựng dừng với thông báo dạng:
+
+```text
+error: failed to commit transaction (conflicting files)
+pipewire-alsa: .../work/x86_64/airootfs/etc/alsa/conf.d/99-pipewire-default.conf exists in filesystem
+Errors occurred, no packages were upgraded.
+==> ERROR: Failed to install packages to new root
+```
+
+thì nguyên nhân là `profile/airootfs/` đang chứa file nằm ở **đường dẫn mà một gói pacman sở hữu**. `mkarchiso` chép overlay vào `work/<arch>/airootfs` *trước* khi `pacstrap` cài gói, nên pacman từ chối ghi đè file không thuộc gói nào và huỷ toàn bộ transaction. Cách sửa:
+
+- **Đổi tên file** sang đường dẫn không gói nào sở hữu, ví dụ `etc/alsa/conf.d/99-anios-pipewire.conf` thay vì `etc/alsa/conf.d/99-pipewire-default.conf`.
+- **Hoặc bỏ hẳn file** nếu gói đã cung cấp sẵn: ALSA trỏ về PipeWire là do gói `pipewire-alsa` tự cài `/etc/alsa/conf.d/99-pipewire-default.conf` (và `pipewire-audio` cài `/etc/alsa/conf.d/50-pipewire.conf`), nên chỉ cần hai gói đó có trong `profile/packages.x86_64`.
+- Nếu file là **tàn dư của lần dựng trước** trong `work/` được dùng lại, dựng sạch bằng `sudo ./scripts/build-iso.sh --clean` (hoặc `sudo rm -rf work`). `build-iso.sh` cũng tự dọn những đường dẫn đã biết là xung đột.
+
+Ngoại lệ: `/etc/passwd`, `/etc/shadow`, `/etc/issue`... là file "backup" của gói `filesystem` nên pacman cho phép overlay ghi đè — chính archiso dựa vào đó để tạo tài khoản live. `scripts/check-profile.sh` chặn trước nhóm lỗi này cho các đường dẫn đã biết, và `build-iso.sh` in chẩn đoán kèm log `work/mkarchiso.log` khi bản dựng hỏng.
+
 ## Dựng ISO tự động bằng GitHub Actions
 
 Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, và đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves và cấu hình desktop có thật trong ảnh live) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
