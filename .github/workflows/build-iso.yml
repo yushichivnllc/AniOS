@@ -317,18 +317,40 @@ jobs:
               exit 1
               ;;
           esac
-          # Xác thực hash đúng là của 1111 (không chỉ có mặt một hash bất kỳ).
-          useradd -u 59999 -M -s /usr/sbin/nologin anios-hash-verify
-          usermod -p "$anios_hash" anios-hash-verify
-          if passwd --verify 1111 anios-hash-verify; then
+          # Xác thực hash đúng là của 1111 (không chỉ có mặt một hash bất kỳ):
+          # tính lại crypt(1111, hash) bằng libxcrypt — đúng cơ chế pam_unix
+          # dùng khi SDDM xác minh mật khẩu — rồi so với hash trong ảnh.
+          # Biên dịch chương trình xác minh nhỏ bằng gcc (base-devel luôn có)
+          # và liên kết -lcrypt (libxcrypt, luôn có cùng glibc).
+          # (Không dùng `passwd --verify`: passwd của Arch không có option đó,
+          # lệnh sai này luôn thất bại dù hash đúng.)
+          cat > /tmp/anios-hash-verify.c <<'CEOF'
+          #include <stdio.h>
+          #include <string.h>
+
+          /* Prototype thay cho crypt.h để không phụ thuộc vị trí header. */
+          char *crypt(const char *key, const char *setting);
+
+          int main(int argc, char **argv) {
+              char *recomputed;
+              if (argc != 3)
+                  return 2;
+              recomputed = crypt(argv[1], argv[2]);
+              if (recomputed == NULL)
+                  return 1;
+              return strcmp(recomputed, argv[2]) == 0 ? 0 : 1;
+          }
+          CEOF
+          gcc -O2 -o /tmp/anios-hash-verify /tmp/anios-hash-verify.c -lcrypt
+          if /tmp/anios-hash-verify 1111 "$anios_hash"; then
             echo "Hash mật khẩu anios trong ảnh live xác thực đúng 1111"
           else
             echo "::error::Hash mật khẩu anios trong ảnh live không khớp 1111"
-            userdel anios-hash-verify 2>/dev/null || true
+            rm -f /tmp/anios-hash-verify /tmp/anios-hash-verify.c
             rm -f "$shadow_dump"
             exit 1
           fi
-          userdel anios-hash-verify
+          rm -f /tmp/anios-hash-verify /tmp/anios-hash-verify.c
           rm -f "$shadow_dump"
 
           # Hook build phải đã bị hook dọn dẹp zzzz99 của releng xoá khỏi ảnh,
