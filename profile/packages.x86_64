@@ -7,8 +7,7 @@ archlinux-keyring
 
 # Hyprland: deliberately minimal, low-effects live desktop
 hyprland
-greetd
-greetd-tuigreet
+sddm
 xdg-desktop-portal
 xdg-desktop-portal-hyprland
 xdg-desktop-portal-gtk

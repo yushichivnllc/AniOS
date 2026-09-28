@@ -1,7 +1,7 @@
 [Unit]
 Description=Prepare AniOS live user configuration
 After=systemd-sysusers.service systemd-tmpfiles-setup.service
-Before=greetd.service
+Before=sddm.service
 
 [Service]
 Type=oneshot

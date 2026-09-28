@@ -8,7 +8,7 @@ pass() { echo "OK: $*"; }
 [[ -s "$ROOT_DIR/profile/packages.x86_64" ]] || fail "package manifest is missing or empty"
 [[ -d "$ROOT_DIR/profile/airootfs" ]] || fail "airootfs overlay is missing"
 
-for package in linux-zen steam hyprland networkmanager waybar; do
+for package in linux-zen steam hyprland networkmanager waybar sddm; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
 ! grep -qxF linux "$ROOT_DIR/profile/packages.x86_64" || fail "manifest must not request the generic linux kernel"
@@ -28,14 +28,34 @@ while IFS= read -r -d '' script; do
 done < <(find "$ROOT_DIR/scripts" "$ROOT_DIR/profile/airootfs/usr/local" -type f -print0 2>/dev/null)
 
 for file in \
-  "$ROOT_DIR/profile/airootfs/etc/greetd/config.toml" \
+  "$ROOT_DIR/profile/airootfs/etc/sddm.conf.d/10-anios-autologin.conf" \
+  "$ROOT_DIR/profile/airootfs/usr/share/wayland-sessions/anios.desktop" \
   "$ROOT_DIR/profile/airootfs/etc/NetworkManager/conf.d/20-anios-wifi.conf" \
   "$ROOT_DIR/profile/airootfs/etc/systemd/sysusers.d/anios.conf" \
   "$ROOT_DIR/profile/airootfs/etc/tmpfiles.d/anios.conf"; do
   [[ -s "$file" ]] || fail "expected configuration missing: ${file#"$ROOT_DIR/"}"
 done
 
-[[ -L "$ROOT_DIR/profile/airootfs/etc/systemd/system/display-manager.service" ]] || fail "greetd display-manager symlink is missing"
+SDDM_CONFIG="$ROOT_DIR/profile/airootfs/etc/sddm.conf.d/10-anios-autologin.conf"
+grep -qxF '[Autologin]' "$SDDM_CONFIG" || fail "SDDM autologin section is missing"
+grep -qxF 'User=anios' "$SDDM_CONFIG" || fail "SDDM must autologin the live user"
+grep -qxF 'Session=anios' "$SDDM_CONFIG" || fail "SDDM must start the AniOS Wayland session"
+grep -qxF 'Exec=/usr/local/bin/anios-session' \
+  "$ROOT_DIR/profile/airootfs/usr/share/wayland-sessions/anios.desktop" ||
+  fail "AniOS SDDM session must start anios-session"
+
+DISPLAY_MANAGER="$ROOT_DIR/profile/airootfs/etc/systemd/system/display-manager.service"
+[[ -L "$DISPLAY_MANAGER" ]] || fail "display-manager service symlink is missing"
+[[ "$(readlink "$DISPLAY_MANAGER")" == /usr/lib/systemd/system/sddm.service ]] ||
+  fail "display-manager must point to sddm.service"
+[[ -L "$ROOT_DIR/profile/airootfs/etc/systemd/system/graphical.target.wants/sddm.service" ]] ||
+  fail "sddm.service is not enabled for graphical.target"
+[[ ! -L "$ROOT_DIR/profile/airootfs/etc/systemd/system/graphical.target.wants/greetd.service" ]] ||
+  fail "greetd must not be enabled alongside SDDM"
+! grep -qxF greetd "$ROOT_DIR/profile/packages.x86_64" || fail "greetd must be removed when using SDDM"
+! grep -qxF greetd-tuigreet "$ROOT_DIR/profile/packages.x86_64" || fail "greetd-tuigreet must be removed when using SDDM"
+[[ ! -e "$ROOT_DIR/profile/airootfs/etc/greetd/config.toml" ]] ||
+  fail "stale greetd configuration must be removed"
 [[ -x "$ROOT_DIR/scripts/build-iso.sh" ]] || fail "build script is not executable"
 [[ -x "$ROOT_DIR/scripts/check-profile.sh" ]] || fail "check script is not executable"
 
