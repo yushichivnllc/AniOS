@@ -1,0 +1,703 @@
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Services.UPower
+import Quickshell.Services.SystemTray
+import qs
+import qs.services
+import qs.modules.common
+import qs.modules.common.plugins
+import qs.modules.common.widgets
+import qs.modules.common.functions
+import "bar_widget_source.js" as BarWidgetSource
+import "../../common/functions/edge_shade.js" as EdgeShade
+
+Item {
+    id: root
+    implicitHeight: Appearance.sizes.barHeight
+    width: parent.width
+    readonly property real barPadding: 0
+    readonly property bool isMaterial: Config.options.bar.cornerStyle === 3
+    // Float Islands: M3's three sections, each drawn as Float's plate - the
+    // window rounding, the layer border, a gap off the edge and the windows -
+    // with the groups inside them exactly as Float draws them. The full-width
+    // plate goes transparent and three islands take its place.
+    readonly property bool isFloatIslands: Config.options.bar.cornerStyle === 4
+    // Islands in frame mode are pieces of the Hug plate on the bar's join
+    // (Bar.qml publishes one record per island, the frame paints them): no
+    // gap of their own around the content, the join carries the lift.
+    readonly property bool frameIslands: FrameGeometry.enabled && root.isFloatIslands
+    readonly property bool floatPlate: Config.options.bar.cornerStyle === 1 || (root.isFloatIslands && !root.frameIslands)
+    // The islands, for the bar's window to publish (section, populated, rect).
+    readonly property list<Item> frameIslandItems: [leftIsland, centerIsland, rightIsland]
+    readonly property real centerPillX: centerPill.x
+    readonly property real centerPillWidth: centerPill.width
+    property bool suppressDockerForMemoryTest: false
+
+    readonly property bool trayHasItems: SystemTray.items.values.length > 0
+
+    // The painted body shapes, exposed so the hosting window can scope its
+    // compositor blur region to them (see WindowBlurRegion in Bar.qml). The
+    // "painted" flags mirror each shape's own color/visible condition: a blur
+    // region is a plain rect, so covering an unpainted (transparent) shape
+    // would frost the bare wallpaper behind it.
+    readonly property Item backgroundItem: barBackground
+    readonly property bool backgroundPainted: !centerOnly && Config.options.bar.showBackground
+        && Config.options.bar.cornerStyle !== 2 && !root.isMaterial && !root.isFloatIslands
+        && !root.plateOnFrame
+    // The plate is the FRAME's to paint where the bar is the frame's edge
+    // (frame-one-surface.md stage 3, frame-pin-grammar.md the bar row): the
+    // bar's window publishes it as a join on the band and Frame.qml draws it,
+    // fused or lifted, so plate and bands are one shape on one surface.
+    // Painted here as well it would be the same translucent colour twice.
+    // Both set by the bar's window, which owns the join: whether the frame
+    // paints this plate, and the corner radius the join asks for - rounding
+    // with the lift.
+    property bool plateOnFrame: false
+    property real plateRadius: 0
+    readonly property Item centerPillItem: centerPill
+    readonly property bool centerPillPainted: centerPill.visible
+
+    // M3 paints no full-width strip - it draws three rounded wrappers instead,
+    // and those are the only painted shapes on the bar. They were never handed
+    // to the blur region, so an M3 bar declared an empty region and the
+    // compositor frosted nothing at all, pills included. Exposed here so the
+    // region can cover exactly them and leave the gaps between them clear.
+    readonly property Item leftMaterialPillItem: leftMaterialPill
+    readonly property Item centerMaterialPillItem: centerMaterialPill
+    readonly property Item rightMaterialPillItem: rightMaterialPill
+    readonly property bool materialPillsPainted: root.isMaterial
+    // Float Islands' plates, handed to the blur region the same way.
+    readonly property Item leftIslandItem: leftIsland
+    readonly property Item centerIslandItem: centerIsland
+    readonly property Item rightIslandItem: rightIsland
+    // ...and not while the frame paints an island (onFrame): the frost for
+    // it is the frame's outline region then, and this window's own rounded
+    // region over its transparent island blurred the frame's paint a second
+    // time - measured in the sandbox as the island's body a shade lighter
+    // than a square corner the frame painted outside the rounded region.
+    readonly property bool leftIslandPainted: leftIsland.visible && !leftIsland.onFrame
+    readonly property bool centerIslandPainted: centerIsland.visible && !centerIsland.onFrame
+    readonly property bool rightIslandPainted: rightIsland.visible && !rightIsland.onFrame
+
+    function filterLayout(layout) {
+        return layout.filter(name => {
+            if (name === "sysTray" && !trayHasItems) return false;
+            if (root.suppressDockerForMemoryTest
+                    && (name === "dockerPlugin" || name === "plugin:docker_plugin")) return false;
+            if (BarWidgetSource.isDisabledPlugin(name, Config.options.plugins.enabled)) return false;
+            return true;
+        });
+    }
+
+    readonly property var effectiveLeftLayout:   filterLayout(Config.options.bar.layouts.leftLayout)
+    readonly property var effectiveMiddleLayout: filterLayout(Config.options.bar.layouts.middleLayout)
+    readonly property var effectiveRightLayout:  filterLayout(Config.options.bar.layouts.rightLayout)
+
+    // Edit Mode's per-entry read of the same rule filterLayout applies - THE
+    // same rule by construction, not a copy: the reorder maps its visible
+    // indices back to stored ones with these answers, and a predicate that
+    // drifted from the filter would shift a drag by one hidden entry.
+    function widgetVisible(name) {
+        return root.filterLayout([name]).length > 0;
+    }
+
+    // The drawn slot items per bucket, for the edit controller: whichever
+    // style is on screen owns the geometry, so the pick follows isMaterial.
+    function editSlotItems(bucket) {
+        const repeaters = root.isMaterial
+            ? { left: leftMaterialRepeater, middle: centerMaterialRepeater, right: rightMaterialRepeater }
+            : { left: leftRepeater, middle: middleRepeater, right: rightRepeater };
+        const repeater = repeaters[bucket];
+        const items = [];
+        for (let i = 0; i < repeater.count; i++) items.push(repeater.itemAt(i));
+        return items;
+    }
+
+    function getWidgetUrl(name) {
+        const fileName = BarWidgetSource.fileNameFor(name);
+        return fileName ? Qt.resolvedUrl("./" + fileName) : "";
+    }
+
+    function getMirroredForIndex(layout, idx) {
+        const prevCount = layout.slice(0, idx).filter(w => w === "visualizer").length
+        return prevCount % 2 === 1
+    }
+
+    function shouldPaintMaterialPill(name) {
+        if (Config.options.bar.cornerStyle !== 3) return false;
+        const blacklist = ["workspaces", "divisor", "powerButton", "docktoPanel", "leftSidebarButton", "activeWindow", "timerPill", "privacyIndicator", "submapIndicator"];
+        if (blacklist.includes(name)) {
+            return false;
+        }
+        return true;
+    }
+
+    function getMaterialPillColor(name) {
+        if (Config.options.bar.cornerStyle !== 3) return Appearance.colors.colPrimaryContainer;
+        switch(name) {
+            case "media":
+            case "sysTray":
+                return Appearance.colors.colSecondaryContainer;
+            case "resources":
+                return Appearance.colors.colTertiaryContainer;
+            case "systemIcons":
+                return Appearance.colors.colPrimary; 
+            default:
+                return Appearance.colors.colPrimaryContainer;
+        }
+    }
+
+    property var screen: root.QsWindow.window?.screen
+    property real useShortenedForm: (Appearance.sizes.barHellaShortenScreenWidthThreshold >= screen?.width) ? 2 : (Appearance.sizes.barShortenScreenWidthThreshold >= screen?.width) ? 1 : 0
+
+
+    // Optional soft drop shadow under the bar background (Config.options.bar.shadow).
+    // Only rendered when the background itself is painted (mirrors barBackground's color condition).
+    // Never while the frame paints the plate: the shadow lives in THIS window,
+    // above the frame's surface, so it fell across the frame's plate and a
+    // fused popup below it - part of the seam the user saw. The frame's plate
+    // is the frame's material and carries no shadow of its own.
+    Loader {
+        active: Config.options.bar.shadow && !centerOnly && Config.options.bar.showBackground
+            && Config.options.bar.cornerStyle !== 2 && !root.isMaterial && !root.isFloatIslands
+            && !root.plateOnFrame
+        anchors.fill: barBackground
+        sourceComponent: StyledRectangularShadow {
+            anchors.fill: undefined // The loader's anchors act on this, and this should not have any anchor
+            target: barBackground
+        }
+    }
+    // The edge shadow: with the background off and the groups transparent the
+    // bar is glyphs straight over the wallpaper, so this shades the screen
+    // edge behind them and fades to nothing across the bar - from whichever
+    // edge the bar sits on. Drawn only in that state, and only when asked.
+    Rectangle {
+        id: edgeShadow
+        anchors.fill: parent
+        // Only where Show Background APPLIES - Hug, Float, Float Islands; M3
+        // and Islands paint their own containers whatever the switch says -
+        // and then only with it off and the groups transparent.
+        visible: Config.options.bar.edgeShadow && !Config.options.bar.showBackground
+            && Config.options.bar.borderless === "transparent"
+            && (Config.options.bar.cornerStyle === 0 || Config.options.bar.cornerStyle === 1 || Config.options.bar.cornerStyle === 4)
+        // Adaptive (edge_shade.js): the shade's side follows the text -
+        // light text wants a dark shade, dark text a light one - and its
+        // strength how little the wallpaper's strip under this bar already
+        // contrasts with the text (Background.qml samples it per screen).
+        // Nothing over a strip that contrasts on its own; the full shade
+        // where it does not; the fixed shade until the first sample.
+        readonly property string shadeEdge: Config.options.bar.bottom ? "bottom" : "top"
+        readonly property var shadeSpec: EdgeShade.edgeShade(
+            GlobalStates.wallpaperEdgeLuma[root.screen?.name ?? ""]?.[shadeEdge],
+            Appearance.colors.colOnLayer0.hslLightness > 0.5, 0.55)
+        readonly property color shadeBase: shadeSpec.dark ? Appearance.m3colors.m3shadow : "#ffffff"
+        property color shade: Qt.rgba(shadeBase.r, shadeBase.g, shadeBase.b, shadeSpec.alpha)
+        Behavior on shade { animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this) }
+        gradient: Gradient {
+            orientation: Gradient.Vertical
+            GradientStop { position: 0; color: Config.options.bar.bottom ? "transparent" : edgeShadow.shade }
+            GradientStop { position: 1; color: Config.options.bar.bottom ? edgeShadow.shade : "transparent" }
+        }
+    }
+
+    Rectangle {
+        id: barBackground
+        anchors.fill: parent
+        anchors.margins: root.floatPlate ? Appearance.sizes.hyprlandGapsOut : 0
+        color: (!centerOnly && Config.options.bar.showBackground && Config.options.bar.cornerStyle !== 2 && !root.isMaterial && !root.isFloatIslands && !root.plateOnFrame)
+            ? Appearance.colors.colBarBackground : "transparent"
+        radius: root.plateOnFrame ? root.plateRadius
+            : Config.options.bar.cornerStyle === 1 ? Appearance.rounding.windowRounding : 0
+        border.width: (!centerOnly && Config.options.bar.cornerStyle === 1) ? 1 : 0
+        border.color: Appearance.colors.colLayer0Border
+    }
+
+    // center-only
+    readonly property bool centerOnly: !root.isMaterial
+        && root.effectiveLeftLayout.length === 0
+        && root.effectiveRightLayout.length === 0
+
+    // Shadow for the center-only pill (same option, mirrors centerPill's visible condition)
+    Loader {
+        active: Config.options.bar.shadow && centerPill.visible
+        anchors.fill: centerPill
+        sourceComponent: StyledRectangularShadow {
+            anchors.fill: undefined // The loader's anchors act on this, and this should not have any anchor
+            target: centerPill
+        }
+    }
+    Rectangle {
+        id: centerPill
+        visible: centerOnly && Config.options.bar.showBackground && Config.options.bar.cornerStyle !== 2
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: middleRow.implicitWidth + 10
+        height: parent.height - (root.floatPlate ? Appearance.sizes.hyprlandGapsOut * 2 : 0)
+        color: Appearance.colors.colBarBackground
+        radius: root.floatPlate ? Appearance.rounding.windowRounding : 0
+        border.width: root.floatPlate ? 1 : 0
+        border.color: Appearance.colors.colLayer0Border
+
+        // In frame mode the plate is square: the fillets at its ends are the
+        // ScreenCorners inner corners, drawn in the same colour.
+        bottomLeftRadius:  FrameGeometry.enabled ? 0 : (Config.options.bar.cornerStyle === 0 && !Config.options.bar.bottom ? Appearance.rounding.screenRounding : radius)
+        bottomRightRadius: FrameGeometry.enabled ? 0 : (Config.options.bar.cornerStyle === 0 && !Config.options.bar.bottom ? Appearance.rounding.screenRounding : radius)
+        topLeftRadius:     FrameGeometry.enabled ? 0 : (Config.options.bar.cornerStyle === 0 && Config.options.bar.bottom  ? Appearance.rounding.screenRounding : radius)
+        topRightRadius:    FrameGeometry.enabled ? 0 : (Config.options.bar.cornerStyle === 0 && Config.options.bar.bottom  ? Appearance.rounding.screenRounding : radius)
+    }
+
+    Item {
+        id: contentContainer
+        anchors.fill: barBackground
+        anchors.margins: root.barPadding
+
+        // Float Islands: one plate behind each populated section, declared
+        // before the sections so they paint under them. A section's inset
+        // from the container is the plate's own padding, so the plate reaches
+        // the container's edge (hyprlandGapsOut off the screen) exactly as
+        // Float's whole plate does.
+        readonly property real islandPad: Appearance.spacing.space125
+        component Island: Rectangle {
+            required property bool populated
+            required property string sectionName
+            // In frame mode the frame paints this island from the record the
+            // bar's window publishes ("barIsland:<section>", Bar.qml) - fused
+            // to the band with its meniscus, or lifted off it - and the
+            // island stands down like the plate does, its shadow with it.
+            readonly property bool onFrame: (GlobalStates.frameJoins[root.screen?.name ?? ""]?.["barIsland:" + sectionName] ?? null) !== null
+            opacity: onFrame ? 0 : 1
+            visible: root.isFloatIslands && Config.options.bar.showBackground && !root.centerOnly && populated
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            color: Appearance.colors.colBarBackground
+            radius: Appearance.rounding.windowRounding
+            border.width: 1
+            border.color: Appearance.colors.colLayer0Border
+        }
+        component IslandShadow: Loader {
+            required property Item island
+            active: Config.options.bar.shadow && island.visible && !island.onFrame
+            anchors.fill: island
+            sourceComponent: StyledRectangularShadow {
+                anchors.fill: undefined
+                target: island
+            }
+        }
+        IslandShadow { island: leftIsland }
+        IslandShadow { island: centerIsland }
+        IslandShadow { island: rightIsland }
+        Island {
+            id: leftIsland
+            sectionName: "left"
+            populated: root.effectiveLeftLayout.length > 0
+            anchors.left: leftSection.left
+            anchors.right: leftSection.right
+            anchors.leftMargin: -contentContainer.islandPad
+            anchors.rightMargin: -contentContainer.islandPad
+        }
+        Island {
+            id: centerIsland
+            sectionName: "center"
+            populated: root.effectiveMiddleLayout.length > 0
+            anchors.left: absoluteCenter.left
+            anchors.right: absoluteCenter.right
+            anchors.leftMargin: -contentContainer.islandPad
+            anchors.rightMargin: -contentContainer.islandPad
+        }
+        Island {
+            id: rightIsland
+            sectionName: "right"
+            populated: root.effectiveRightLayout.length > 0
+            anchors.left: rightSection.left
+            anchors.right: rightSection.right
+            anchors.leftMargin: -contentContainer.islandPad
+            anchors.rightMargin: -contentContainer.islandPad
+        }
+
+        // Left
+        Item {
+            id: leftSection
+            readonly property Item frameIsland: leftIsland
+            // The plate behind this section, for a widget's popup-open
+            // indicator when its own group paints no pill: the material pill,
+            // the island, or the bar background - whichever this style paints.
+            readonly property Item popupAnchorSurface: root.isMaterial ? leftMaterialPill
+                : root.isFloatIslands ? leftIsland
+                : barBackground.color.a > 0 ? barBackground : null
+            anchors.left: parent.left
+            anchors.leftMargin: root.isMaterial ? (Config.options.hyprland.general.gapsOut || 5) : (Config.options.bar.cornerStyle === 1 ? Appearance.spacing.space50 : Appearance.spacing.space125)
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: root.isMaterial ? leftMaterialPill.implicitWidth : leftRow.implicitWidth
+
+            BarBucketBoundary {
+                id: leftBoundary
+                z: 50
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                height: parent.height - Appearance.spacing.space50
+                width: Math.max(parent.width, minRun)
+            }
+
+            // Material pill wrapper
+            Rectangle {
+                id: leftMaterialPill
+                visible: root.isMaterial
+                anchors.centerIn: parent
+                implicitWidth: leftMaterialRow.implicitWidth + 10
+                implicitHeight: leftMaterialRow.implicitHeight
+                radius: Appearance.rounding.full
+                color: Appearance.colors.colBarBackground
+
+                RowLayout {
+                    id: leftMaterialRow
+                    anchors.centerIn: parent
+                    spacing: Appearance.spacing.space50
+
+                    Repeater {
+                        id: leftMaterialRepeater
+                        model: root.effectiveLeftLayout
+                        delegate: leftMaterialGroupDelegate
+                    }
+
+                    Component {
+                        id: leftMaterialGroupDelegate
+                        BarGroup {
+                            Layout.fillHeight: true
+                            currentIndex: index
+                            totalCount: root.effectiveLeftLayout.length
+                            editController: barEditController
+                            editBucket: "left"
+                            widgetId: modelData
+                            flipRegistry: barFlipRegistry
+                            paintMaterialPill: root.shouldPaintMaterialPill(modelData)
+                            bgColor: root.getMaterialPillColor(modelData)
+                            Loader {
+                                Layout.fillHeight: true
+                                source: root.getWidgetUrl(modelData)
+                                onLoaded: {
+                                    if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                                    if (item && modelData === "visualizer")
+                                        item.mirrored = root.getMirroredForIndex(root.effectiveLeftLayout, index)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Non-material layout
+            RowLayout {
+                id: leftRow
+                visible: !root.isMaterial
+                anchors.fill: parent
+                spacing: Config.options.bar.borderless === "transparent" ? -Appearance.spacing.space100 : Appearance.spacing.space25
+
+                Repeater {
+                    id: leftRepeater
+                    model: root.effectiveLeftLayout
+                    delegate: leftBarGroupDelegate
+                }
+
+                Component {
+                    id: leftBarGroupDelegate
+                    BarGroup {
+                        Layout.fillHeight: true
+                        currentIndex: index
+                        totalCount: root.effectiveLeftLayout.length
+                        editController: barEditController
+                        editBucket: "left"
+                        widgetId: modelData
+                        flipRegistry: barFlipRegistry
+                        Loader {
+                            Layout.fillHeight: true
+                            source: root.getWidgetUrl(modelData)
+                            onLoaded: {
+                                if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                                if (item && modelData === "visualizer")
+                                    item.mirrored = root.getMirroredForIndex(root.effectiveLeftLayout, index)
+                            }
+                        }
+                    }
+                }
+
+                Component {
+                    id: leftNoGroupDelegate
+                    Loader {
+                        Layout.fillHeight: false
+                        Layout.topMargin: Config.options.bar.bottom ? -Appearance.spacing.space50 : Appearance.spacing.space50
+                        Layout.alignment: Qt.AlignVCenter
+                        source: root.getWidgetUrl(modelData)
+                        onLoaded: {
+                            if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                            if (item && modelData === "visualizer")
+                                item.mirrored = root.getMirroredForIndex(root.effectiveLeftLayout, index)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Center
+        Item {
+            id: absoluteCenter
+            readonly property Item frameIsland: centerIsland
+            readonly property Item popupAnchorSurface: root.isMaterial ? centerMaterialPill
+                : root.isFloatIslands ? centerIsland
+                : centerPill.visible ? centerPill
+                : barBackground.color.a > 0 ? barBackground : null
+            anchors.centerIn: parent
+            width: root.isMaterial ? centerMaterialPill.implicitWidth : middleRow.implicitWidth
+            height: parent.height
+
+            BarBucketBoundary {
+                id: middleBoundary
+                z: 50
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                height: parent.height - Appearance.spacing.space50
+                width: Math.max(parent.width, minRun)
+            }
+
+            // Material pill wrapper
+            Rectangle {
+                id: centerMaterialPill
+                visible: root.isMaterial
+                anchors.centerIn: parent
+                implicitWidth: centerMaterialRow.implicitWidth + 10
+                implicitHeight: centerMaterialRow.implicitHeight 
+                radius: Appearance.rounding.full
+                color: Appearance.colors.colBarBackground
+
+                RowLayout {
+                    id: centerMaterialRow
+                    anchors.centerIn: parent
+                    spacing: Appearance.spacing.space50
+
+                    Repeater {
+                        id: centerMaterialRepeater
+                        model: root.effectiveMiddleLayout
+                        delegate: middleMaterialGroupDelegate
+                    }
+
+                    Component {
+                        id: middleMaterialGroupDelegate
+                        BarGroup {
+                            Layout.fillHeight: true
+                            currentIndex: index
+                            totalCount: root.effectiveMiddleLayout.length
+                            editController: barEditController
+                            editBucket: "middle"
+                            widgetId: modelData
+                            flipRegistry: barFlipRegistry
+                            paintMaterialPill: root.shouldPaintMaterialPill(modelData)
+                            bgColor: root.getMaterialPillColor(modelData)
+                            Loader {
+                                Layout.fillHeight: true
+                                source: root.getWidgetUrl(modelData)
+                                onLoaded: {
+                                    if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                                    if (item && modelData === "visualizer")
+                                        item.mirrored = root.getMirroredForIndex(root.effectiveMiddleLayout, index)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Non-material layout
+            RowLayout {
+                id: middleRow
+                visible: !root.isMaterial
+                anchors.fill: parent
+                spacing: Config.options.bar.borderless === "transparent" ? -Appearance.spacing.space100 : Appearance.spacing.space25
+
+                Repeater {
+                    id: middleRepeater
+                    model: root.effectiveMiddleLayout
+                    delegate: middleBarGroupDelegate
+                }
+
+                Component {
+                    id: middleBarGroupDelegate
+                    BarGroup {
+                        Layout.fillHeight: true
+                        currentIndex: index
+                        totalCount: root.effectiveMiddleLayout.length
+                        editController: barEditController
+                        editBucket: "middle"
+                        widgetId: modelData
+                        flipRegistry: barFlipRegistry
+                        Loader {
+                            Layout.fillHeight: true
+                            source: root.getWidgetUrl(modelData)
+                            onLoaded: {
+                                if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                                if (item && modelData === "visualizer")
+                                    item.mirrored = root.getMirroredForIndex(root.effectiveMiddleLayout, index)
+                            }
+                        }
+                    }
+                }
+
+                Component {
+                    id: middleNoGroupDelegate
+                    Loader {
+                        Layout.fillHeight: false
+                        Layout.topMargin: Config.options.bar.bottom ? -Appearance.spacing.space50 : Appearance.spacing.space50
+                        source: root.getWidgetUrl(modelData)
+                        onLoaded: {
+                            if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                            if (item && modelData === "visualizer")
+                                item.mirrored = root.getMirroredForIndex(root.effectiveMiddleLayout, index)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Right
+        Item {
+            id: rightSection
+            readonly property Item frameIsland: rightIsland
+            readonly property Item popupAnchorSurface: root.isMaterial ? rightMaterialPill
+                : root.isFloatIslands ? rightIsland
+                : barBackground.color.a > 0 ? barBackground : null
+            anchors.right: parent.right
+            anchors.rightMargin: root.isMaterial ? (Config.options.hyprland.general.gapsOut || 5) : (Config.options.bar.cornerStyle === 1 ? Appearance.spacing.space50 : Appearance.spacing.space125)
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: root.isMaterial ? rightMaterialPill.implicitWidth : rightRow.implicitWidth
+
+            BarBucketBoundary {
+                id: rightBoundary
+                z: 50
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: parent.height - Appearance.spacing.space50
+                width: Math.max(parent.width, minRun)
+            }
+
+            // Material pill wrapper
+            Rectangle {
+                id: rightMaterialPill
+                visible: root.isMaterial
+                anchors.centerIn: parent
+                implicitWidth: rightMaterialRow.implicitWidth + 10
+                implicitHeight: rightMaterialRow.implicitHeight 
+                radius: Appearance.rounding.full
+                color: Appearance.colors.colBarBackground
+
+                RowLayout {
+                    id: rightMaterialRow
+                    anchors.centerIn: parent
+                    spacing: Appearance.spacing.space50
+
+                    Repeater {
+                        id: rightMaterialRepeater
+                        model: root.effectiveRightLayout
+                        delegate: rightMaterialGroupDelegate
+                    }
+
+                    Component {
+                        id: rightMaterialGroupDelegate
+                        BarGroup {
+                            Layout.fillHeight: true
+                            currentIndex: index
+                            totalCount: root.effectiveRightLayout.length
+                            editController: barEditController
+                            editBucket: "right"
+                            widgetId: modelData
+                            flipRegistry: barFlipRegistry
+                            paintMaterialPill: root.shouldPaintMaterialPill(modelData)
+                            bgColor: root.getMaterialPillColor(modelData)
+                            Loader {
+                                Layout.fillHeight: true
+                                source: root.getWidgetUrl(modelData)
+                                onLoaded: {
+                                    if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                                    if (item && modelData === "visualizer")
+                                        item.mirrored = root.getMirroredForIndex(root.effectiveRightLayout, index)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Non-material layout
+            RowLayout {
+                id: rightRow
+                visible: !root.isMaterial
+                anchors.fill: parent
+                spacing: Config.options.bar.borderless === "transparent" ? -Appearance.spacing.space100 : Appearance.spacing.space25
+
+                Repeater {
+                    id: rightRepeater
+                    model: root.effectiveRightLayout
+                    delegate: rightBarGroupDelegate
+                }
+
+                Component {
+                    id: rightBarGroupDelegate
+                    BarGroup {
+                        Layout.fillHeight: true
+                        currentIndex: index
+                        totalCount: root.effectiveRightLayout.length
+                        editController: barEditController
+                        editBucket: "right"
+                        widgetId: modelData
+                        flipRegistry: barFlipRegistry
+                        Loader {
+                            Layout.fillHeight: true
+                            source: root.getWidgetUrl(modelData)
+                            onLoaded: {
+                                if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                                if (item && modelData === "visualizer")
+                                    item.mirrored = root.getMirroredForIndex(root.effectiveRightLayout, index)
+                            }
+                        }
+                    }
+                }
+
+                Component {
+                    id: rightNoGroupDelegate
+                    Loader {
+                        Layout.fillHeight: false
+                        Layout.topMargin: Config.options.bar.bottom ? -Appearance.spacing.space50 : Appearance.spacing.space50
+                        source: root.getWidgetUrl(modelData)
+                        onLoaded: {
+                            if (item && modelData.startsWith("plugin:") && item.hasOwnProperty("pluginId")) item.pluginId = modelData.substring(7)
+                            if (item && modelData === "visualizer")
+                                item.mirrored = root.getMirroredForIndex(root.effectiveRightLayout, index)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Edit Mode's reorder coordinator: the indicator, the ghost and every
+    // layout commit. One shared component, so the vertical bar runs the same
+    // logic off the same file rather than a copy that can drift.
+    BarEditController {
+        id: barEditController
+        anchors.fill: parent
+        z: 200
+        vertical: false
+        widgetVisible: name => root.widgetVisible(name)
+        slotItemsFor: bucket => root.editSlotItems(bucket)
+        leftZone: leftBoundary
+        middleZone: middleBoundary
+        rightZone: rightBoundary
+    }
+
+    // Where each widget was drawn, so the slot that replaces it after a reflow
+    // has a First to invert from. Declared as a child of this root because
+    // that is the frame every position is measured in - see BarFlipRegistry.
+    BarFlipRegistry {
+        id: barFlipRegistry
+    }
+}

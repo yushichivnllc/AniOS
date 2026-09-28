@@ -1,0 +1,432 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Services.Mpris
+import qs.modules.common
+import qs.modules.common.functions
+
+Singleton {
+    id: root
+
+    // The player the lyrics follow. The sidebar view hands its own in: its
+    // dropdown can select a player other than the global active one, and
+    // lyrics fetched for the wrong player are wrong lyrics with perfect
+    // confidence.
+    property MprisPlayer overridePlayer: null
+    readonly property MprisPlayer activePlayer: root.overridePlayer ?? MprisController.activePlayer
+    onActivePlayerChanged: root.restartLyrics()
+
+    property var lyricsLines: []
+    property int activeIndex: -1
+    property string status: "idle"
+    // Which provider answered (Glassy / LyricsPlus / LRCLIB / ...), for the
+    // view's small source indicator. Cleared when a fetch restarts.
+    property string source: ""
+    property var slots: []
+    property bool desktopWidgetLyricsActive: false
+    // The media sidebar's lyrics view, as a refcount: the desktop widget's
+    // flag only ever had one writer, and the sidebar view silently never
+    // armed the service - its spinner span forever over an idle fetcher.
+    property int sidebarLyricsRefs: 0
+    readonly property bool lyricsWanted: root.desktopWidgetLyricsActive || root.sidebarLyricsRefs > 0
+
+    // The word-sweep clock: MPRIS position only moves when the player
+    // answers a poll, so the sweep interpolates from the last answer while
+    // playing. Consumers poll estimatedPosition() on their own cadence.
+    property real lastKnownPosition: 0
+    property double lastPositionWall: 0
+    readonly property bool playing: root.activePlayer?.playbackState === MprisPlaybackState.Playing
+    Connections {
+        target: root.activePlayer
+        function onPositionChanged() {
+            root.lastKnownPosition = root.activePlayer.position
+            root.lastPositionWall = Date.now()
+        }
+    }
+    function estimatedPosition() {
+        // Unanchored (no position signal yet): extrapolating from wall zero
+        // computes hours and lights every word at once.
+        if (!root.playing || root.lastPositionWall === 0)
+            return root.activePlayer?.position ?? root.lastKnownPosition
+        return root.lastKnownPosition + (Date.now() - root.lastPositionWall) / 1000
+    }
+
+    // Instrumental gaps become their own lines: where the space between one
+    // line's sung end and the next line's start exceeds the threshold, a
+    // filler entry (the view draws it as a breathing note) fills it - the
+    // intro before the first line included. The sung end is the last word's
+    // own end when the source carried word timing; a line-level source gets
+    // a fixed allowance, so a merely slow line does not sprout notes.
+    readonly property real fillerGapSeconds: 5
+    function sungEnd(line) {
+        if (root.looksLikeWords(line.words)) {
+            // The word array is DISPLAY order, not time order: BetterLyrics
+            // appends background vocals ("(Gave to me)") after the main line
+            // with EARLIER stamps, so the last element can end long before
+            // the main vocal's "yeah" does - and the tail keep-alive dropped
+            // a still-singing line seconds early. Scan for the latest end.
+            let end = -Infinity
+            for (let i = 0; i < line.words.length; i++) {
+                const w = line.words[i]
+                const t = Number(w[0])
+                const e = w.length > 2 && isFinite(Number(w[2])) ? t + Number(w[2]) : t
+                if (e > end) end = e
+            }
+            return end
+        }
+        return line.time + root.fillerGapSeconds
+    }
+    function withFillers(lines) {
+        // Fillers only where the source has per-word timing: a line-level
+        // source has no trustworthy sung-end, so a gap it reports is a guess,
+        // and a guessed instrumental break is worse than none.
+        if (!lines.some(l => root.looksLikeWords(l.words)))
+            return lines
+        const out = []
+        // Intro filler only when the first sung line is itself word-timed: its
+        // start is then a real stamp to measure the instrumental intro against.
+        if (lines.length > 0 && root.looksLikeWords(lines[0].words)
+                && lines[0].time > root.fillerGapSeconds)
+            out.push({ time: 0, text: "", words: null, filler: true })
+        for (let i = 0; i < lines.length; i++) {
+            out.push(lines[i])
+            if (i + 1 < lines.length) {
+                // A filler after line i needs a TRUSTWORTHY sung-end, which only
+                // a word-timed line has. A line-level line's end is a guess
+                // (time + a fixed allowance), so a gap it "reports" is a guessed
+                // instrumental break - exactly what the no-per-word rule forbids.
+                if (!root.looksLikeWords(lines[i].words))
+                    continue
+                const end = root.sungEnd(lines[i])
+                if (lines[i + 1].time - end > root.fillerGapSeconds)
+                    out.push({ time: end, text: "", words: null, filler: true })
+            }
+        }
+        return out
+    }
+
+    function looksLikeWords(value) {
+        return value !== null && value !== undefined
+            && typeof value.length === "number" && value.length > 0
+    }
+
+    // The active line's words with absolute times - the provider's OWN
+    // stamps only. A source without word timing gets no synthesized fake:
+    // line-level data is styled fittingly (the view's glyph-masked sweep
+    // across the line's span) instead of pretending to know each word.
+    readonly property var activeWordTimeline: {
+        if (root.activeIndex < 0 || root.activeIndex >= root.lyricsLines.length)
+            return []
+        return root.wordTimeline(root.lyricsLines[root.activeIndex])
+    }
+
+    // Any line's words as a timeline - the view builds one per delegate,
+    // because a line's tail can still be singing after the NEXT line went
+    // active (cross-line overlap: Provider's "Want" under the following
+    // line's "And"), and a single active-line timeline cannot say so.
+    function wordTimeline(line) {
+        if (!line || !root.looksLikeWords(line.words))
+            return []
+        return line.words.map(word => ({
+            time: Number(word[0]),
+            text: String(word[1]),
+            // The sung window's end (start + duration) when the source
+            // carried it - the glow completes there and rests, instead of
+            // stretching across the silence to the next word.
+            end: word.length > 2 && isFinite(Number(word[2]))
+                ? Number(word[0]) + Number(word[2]) : undefined,
+            syllables: word.length > 3 && root.looksLikeWords(word[3])
+                ? word[3].map(syl => ({ time: Number(syl[0]), text: String(syl[1]) }))
+                : undefined,
+        }))
+    }
+
+    // The active line's span, pacing that sweep.
+    readonly property var activeLineSpan: {
+        if (root.activeIndex < 0 || root.activeIndex >= root.lyricsLines.length)
+            return null
+        const start = root.lyricsLines[root.activeIndex].time
+        const next = root.activeIndex + 1 < root.lyricsLines.length
+            ? root.lyricsLines[root.activeIndex + 1].time : start + 8
+        return { start: start, end: Math.max(next, start + 0.5) }
+    }
+
+    readonly property real lineAnticipation: 0.5
+    // The active line's romanization/translation, and whether ANY line has
+    // them (so the view shows the toggles only when there is something to
+    // toggle). Line-level extras, not word-timed.
+    function lineRomanized(index) {
+        return (index >= 0 && index < root.lyricsLines.length)
+            ? (root.lyricsLines[index].romanized ?? "") : ""
+    }
+    function lineTranslated(index) {
+        return (index >= 0 && index < root.lyricsLines.length)
+            ? (root.lyricsLines[index].translated ?? "") : ""
+    }
+    readonly property bool hasRomanization: root.lyricsLines.some(l => (l.romanized ?? "").length > 0)
+    readonly property bool hasTranslation: root.lyricsLines.some(l => (l.translated ?? "").length > 0)
+
+    readonly property int before: 3
+    readonly property int after:  3
+    readonly property int total:  7
+
+    function buildSlots(idx) {
+        let result = []
+        for (let i = 0; i < root.total; i++) {
+            let lineIdx = idx - root.before + i
+            if (lineIdx >= 0 && lineIdx < root.lyricsLines.length)
+                result.push(root.lyricsLines[lineIdx].text || "♪")
+            else
+                result.push("")
+        }
+        return result
+    }
+
+    Timer {
+        id: syncTimer
+        // The interpolated clock, not the raw position: MPRIS position only
+        // moves when the player answers the sidebar's 3s poke, and a line
+        // index read off it flips up to a whole poke late - the shell sat a
+        // line behind GlassyMusic's own karaoke at every transition.
+        interval: 150
+        repeat: true
+        running: root.status === "ok" && root.lyricsLines.length > 0
+        onTriggered: {
+            // The line flips half a second EARLY, on the maintainer's call:
+            // the reader wants the next line settled before it is sung. Only
+            // the index anticipates - the word clock stays true, so an
+            // early-arrived line simply waits unsung until its words come.
+            const pos = root.estimatedPosition() + root.lineAnticipation
+            let idx = -1
+            for (let i = 0; i < root.lyricsLines.length; i++) {
+                if (root.lyricsLines[i].time <= pos) idx = i
+                else break
+            }
+            if (idx !== root.activeIndex) {
+                root.activeIndex = idx
+                root.slots = root.buildSlots(idx)
+            }
+        }
+    }
+
+    // The fetch can hang if several providers stall (5 x 12s + Glassy's poll);
+    // this bounds the spinner and kills the proc so a later fetch is not
+    // blocked behind a corpse.
+    readonly property int fetchTimeoutMs: 20000
+    Timer {
+        id: fetchWatchdog
+        interval: root.fetchTimeoutMs
+        onTriggered: {
+            if (lyricsProc.running) {
+                root._ignoreNextExit = true
+                lyricsProc.running = false
+            }
+            if (root.status === "loading")
+                root.status = "not_found"
+        }
+    }
+
+    // A deliberate kill (restart or watchdog) fires the OLD run's onExited
+    // asynchronously, AFTER the new fetch has set status back to "loading" -
+    // so an unguarded handler flips the fresh load to not_found. This absorbs
+    // exactly one such kill.
+    property bool _ignoreNextExit: false
+
+    Process {
+        id: lyricsProc
+        running: false
+        // A fetch that dies without printing - a network failure, a python
+        // stack trace - used to strand the view on "loading" forever.
+        onExited: (exitCode, exitStatus) => {
+            fetchWatchdog.stop()
+            if (root._ignoreNextExit) { root._ignoreNextExit = false; return }
+            if (root.status === "loading")
+                root.status = "not_found"
+        }
+        stderr: SplitParser {
+            onRead: line => console.warn("[Lyrics]", line)
+        }
+        stdout: SplitParser {
+            onRead: data => {
+                const trimmed = data.trim()
+                fetchWatchdog.stop()
+                if (trimmed === "not_found") { root.status = "not_found"; return }
+                if (trimmed === "no_info")   { root.status = "no_info";   return }
+
+                let parsed = null
+                try {
+                    parsed = JSON.parse(trimmed)
+                } catch (error) {
+                    parsed = null
+                }
+                if (!parsed || parsed.ok !== true) return
+                root.source = parsed.source ?? ""
+                const rawLines = parsed.lines ?? []
+                let lines = []
+                for (let i = 0; i < rawLines.length; i++) {
+                    const entry = rawLines[i]
+                    const t = Number(entry?.t)
+                    if (!isNaN(t))
+                        lines.push({ time: t, text: entry.text ?? "", words: entry.words ?? null,
+                            romanized: entry.romanized ?? "", translated: entry.translated ?? "" })
+                }
+
+                if (lines.length === 0) { root.status = "not_found"; return }
+
+                root.lyricsLines = root.withFillers(lines)
+                root.activeIndex = -1
+                root.slots = root.buildSlots(-1)
+                root.status = "ok"
+            }
+        }
+    }
+
+    // Glassy renders the romanization/translation DOM a few seconds after the
+    // lyrics, so a fetch that ran first came back without them - and the
+    // toggles never appeared for that song. While the panel is open on a
+    // Glassy result missing one of the two, ask again for just those fields
+    // every 10 s, a dozen times at most, and fold what arrives into the
+    // loaded lines IN PLACE: reassigning lyricsLines would reset the sweep.
+    readonly property int extrasIntervalMs: 10000
+    readonly property int extrasMaxAttempts: 12
+    property int extrasAttempts: 0
+    property var lastFetchArgs: []
+    Timer {
+        id: extrasTimer
+        interval: root.extrasIntervalMs
+        repeat: true
+        running: root.lyricsWanted
+            && root.status === "ok"
+            && root.source === "Glassy"
+            && !(root.hasRomanization && root.hasTranslation)
+            && root.extrasAttempts < root.extrasMaxAttempts
+        onTriggered: {
+            if (extrasProc.running || root.lastFetchArgs.length === 0) return
+            root.extrasAttempts++
+            extrasProc.command = root.lastFetchArgs.concat(["--extras"])
+            extrasProc.running = true
+        }
+    }
+    Process {
+        id: extrasProc
+        running: false
+        stderr: SplitParser {
+            onRead: line => console.warn("[Lyrics extras]", line)
+        }
+        stdout: SplitParser {
+            onRead: data => root.mergeExtras(data.trim())
+        }
+    }
+    function mergeExtras(payloadText) {
+        if (!payloadText.startsWith("{")) return
+        let parsed = null
+        try { parsed = JSON.parse(payloadText) } catch (error) { return }
+        if (!parsed || parsed.extras !== true) return
+        const extras = parsed.lines ?? []
+        let changed = false
+        for (let e = 0; e < extras.length; e++) {
+            const t = Number(extras[e]?.t)
+            if (isNaN(t)) continue
+            for (let i = 0; i < root.lyricsLines.length; i++) {
+                const line = root.lyricsLines[i]
+                if (Math.abs(line.time - t) > 0.05) continue
+                if (!line.romanized && extras[e].romanized) { line.romanized = extras[e].romanized; changed = true }
+                if (!line.translated && extras[e].translated) { line.translated = extras[e].translated; changed = true }
+            }
+        }
+        // Same array, same objects: only the dependents (hasTranslation, the
+        // per-row lineTranslated(index) reads) re-evaluate.
+        if (changed) root.lyricsLinesChanged()
+    }
+
+    // The last (title, artist, duration) a fetch was launched for. A repeat of
+    // the same key - metadata churn, a player re-selection, a sidebar reopen
+    // on the same song - reuses what is loaded instead of re-fetching.
+    property string lastKey: ""
+
+    // Metadata lands field by field (title before artist) and a track change
+    // fires several signals at once; each would otherwise launch, kill, and
+    // relaunch the fetcher. Debounce collapses the burst into one fetch.
+    Timer {
+        id: restartDebounce
+        interval: 200
+        onTriggered: root.doRestart()
+    }
+    function restartLyrics() { restartDebounce.restart() }
+
+    function doRestart() {
+        const title    = root.activePlayer?.trackTitle  ?? ""
+        const artist   = root.activePlayer?.trackArtist ?? ""
+        const duration = root.activePlayer?.length       ?? 0
+        const key = title + "" + artist + "" + Math.floor(duration)
+
+        if (!root.lyricsWanted) {
+            // Not shown: stop the fetch and forget the key, so reopening
+            // re-fetches - which the python-side disk cache serves instantly
+            // for a song already fetched.
+            if (lyricsProc.running) { root._ignoreNextExit = true; lyricsProc.running = false }
+            fetchWatchdog.stop()
+            root.lastKey = ""
+            root.lastFetchArgs = []
+            root.source = ""
+            root.lyricsLines = []
+            root.activeIndex = -1
+            root.slots = []
+            root.status = "idle"
+            return
+        }
+
+        // Same track already loaded or in flight: keep it, do not relaunch.
+        if (key === root.lastKey
+                && (root.status === "loading"
+                    || (root.status === "ok" && root.lyricsLines.length > 0)))
+            return
+
+        root.lastKey = key
+        root.source = ""
+        if (lyricsProc.running) { root._ignoreNextExit = true; lyricsProc.running = false }
+        root.lyricsLines = []
+        root.activeIndex = -1
+        root.slots = []
+
+        // Drop the previous track's sweep anchor. The (lastKnownPosition,
+        // lastPositionWall) pair only refreshes on a position poll, so a track
+        // change carried the OLD song's clock: opening the sidebar right after
+        // a song started interpolated the new lyrics from a stale anchor and
+        // ran them far ahead, until a play/pause forced a fresh poll. Zeroing
+        // the wall makes estimatedPosition read the live position until the
+        // next poll re-anchors it for smooth interpolation.
+        root.lastPositionWall = 0
+        root.lastKnownPosition = root.activePlayer?.position ?? 0
+
+        // Title only: a browser/YouTube player often reports an empty
+        // artist with everything packed in the title ("Sleep Token -
+        // Provider - YouTube"), and scripts/lyrics/lyrics.py's normalizer
+        // unpacks that - which it cannot do if this guard drops the track
+        // first. An unresolvable title still comes back not_found.
+        if (!title) { root.status = "no_info"; return }
+
+        root.status = "loading"
+        const fetchArgs = [
+            "python3",
+            `${Directories.scriptPath}/lyrics/lyrics.py`,
+            title, artist, String(Math.floor(duration))
+        ]
+        lyricsProc.command = fetchArgs
+        root.lastFetchArgs = fetchArgs
+        root.extrasAttempts = 0
+        lyricsProc.running = true
+        fetchWatchdog.restart()
+    }
+
+    Connections {
+        target: root.activePlayer
+        function onTrackTitleChanged() { root.restartLyrics() }
+        function onTrackArtistChanged() { root.restartLyrics() }
+    }
+
+    onLyricsWantedChanged: root.restartLyrics()
+}

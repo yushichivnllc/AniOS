@@ -1,6 +1,6 @@
 # AniOS
 
-AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland gọn nhẹ với kernel `linux-zen`, cài sẵn Steam và driver đồ họa mã nguồn mở phổ biến cho Intel/AMD. Dự án cũng có lựa chọn cài desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) chính chủ qua một shortcut sau khi vào desktop.
+AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland với kernel `linux-zen`, cài sẵn Steam và driver đồ họa mã nguồn mở phổ biến cho Intel/AMD. Hệ thống cài sẵn toàn bộ dotfile của desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) (XephyLon) hoàn toàn offline, hỗ trợ song song 2 chế độ giao diện: **AniOS Minimal (Waybar)** và **Immaterial Impulse (Quickshell)**.
 
 > Repository này chứa **Archiso profile và script tạo ISO**. File ISO được dựng tự động bằng [GitHub Actions](#dựng-iso-tự-động-bằng-github-actions), hoặc dựng tay trên máy Arch Linux.
 
@@ -65,7 +65,7 @@ Lưu ý: mỗi lượt dựng mất khoảng 30–90 phút và vài chục GB du
 - SDDM tự đăng nhập vào tài khoản Live tạm `anios` và khởi chạy phiên AniOS trên Hyprland. Mật khẩu tài khoản Live và `sudo` đều là `1111`; đây là mật khẩu cố ý đơn giản cho môi trường live tạm thời, **không dùng phiên này với dữ liệu riêng tư hoặc trên mạng không đáng tin cậy**.
 - Kết nối Wi-Fi bằng biểu tượng mạng trên thanh trạng thái hoặc lệnh `nmtui`; kết nối dây do NetworkManager quản lý.
 - **Gõ tiếng Việt**: cài sẵn cả **ibus (ibus-unikey)** và **fcitx5 (fcitx5-unikey)**. Mặc định phiên khởi động với fcitx5, nhấn `Ctrl+Space` để bật/tắt tiếng Việt (Telex). Người dùng có thể dễ dàng chuyển đổi qua lại giữa IBus và Fcitx5 bất kỳ lúc nào bằng lệnh `anios-switch-im ibus` hoặc `anios-switch-im fcitx5`.
-- **Dotfile cài sẵn**: tài khoản live và hệ thống được thiết lập sẵn bộ dotfile hoàn chỉnh gồm cấu hình shell Bash (`~/.bashrc` với prompt màu AniOS, alias thông dụng `ll`, `fetch`, `update`), Fish shell (`~/.config/fish/config.fish`), Kitty terminal (`~/.config/kitty/kitty.conf`), HUD chơi game MangoHud (`~/.config/MangoHud/MangoHud.conf`, bật tắt bằng `Shift_R+F12`), GameMode (`~/.config/gamemode.ini`), Fastfetch (`~/.config/fastfetch/config.jsonc`), Git, Vim và Nano.
+- **Dotfile cài sẵn**: tài khoản live và hệ thống được thiết lập sẵn bộ dotfile hoàn chỉnh gồm cấu hình shell Bash (`~/.bashrc` với prompt màu AniOS, alias thông dụng `ll`, `fetch`, `update`), Fish shell (`~/.config/fish/config.fish`), Kitty terminal (`~/.config/kitty/kitty.conf`), HUD chơi game MangoHud (`~/.config/MangoHud/MangoHud.conf`, bật tắt bằng `Shift_R+F12`), GameMode (`~/.config/gamemode.ini`), Fastfetch (`~/.config/fastfetch/config.jsonc`), Git, Vim và Nano. Đặc biệt, hệ thống **tích hợp sẵn toàn bộ dotfile Immaterial Impulse** (XephyLon) hoàn toàn offline: toàn bộ desktop Quickshell Material 3 (`~/.config/quickshell/imi`), Matugen dynamic theming (`~/.config/matugen`), Kvantum Qt theming (`~/.config/Kvantum`), menu đăng xuất Wlogout (`~/.config/wlogout`), Starship prompt (`~/.config/starship.toml`), Tmux (`~/.config/tmux`), MPV, cấu hình cờ Chrome/Code/Thorium và icon chính chủ.
 - **Cắm USB/ổ cứng ngoài**: udisks2 + gvfs tự mount, ổ hiện trong Thunar và trên thanh trạng thái, hỗ trợ NTFS/exFAT/FAT32.
 - **Âm thanh**: PipeWire + WirePlumber (thêm `pipewire-audio`, `alsa-utils` và `rtkit`). Ảnh live **tự bật sẵn** dàn âm thanh chứ không trông chờ vào việc các gói tự `systemctl --global enable` lúc pacstrap:
   - `profile/airootfs/etc/systemd/user/default.target.d/10-anios-audio.conf` nạp `pipewire.service`, `pipewire-pulse.service`, `wireplumber.service` và `anios-audio-setup.service` vào phiên, kèm các symlink trong `default.target.wants/`, `sockets.target.wants/` và `pipewire.service.wants/` (đúng trạng thái mà `systemctl --user enable` tạo ra). Thiếu những thứ này thì **phiên live câm hoàn toàn**: không ứng dụng nào thấy thiết bị âm thanh, Waybar không hiện âm lượng.
@@ -79,15 +79,24 @@ Lưu ý: mỗi lượt dựng mất khoảng 30–90 phút và vài chục GB du
 - Desktop mặc định tắt blur và animation để giảm tải GPU. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 - **Cấu hình Hyprland** nằm ở `~/.config/hypr/hyprland.lua` (bản sao gốc trong ảnh: `/usr/share/anios/skel/.config/hypr/hyprland.lua`): từ Hyprland 0.55 cấu hình viết bằng Lua thay cho `hyprland.conf` cũ, nên sau khi sửa chỉ cần `Super+Shift+R` để nạp lại. Màn hình khoá dùng định dạng riêng của hyprlock (`~/.config/hypr/hyprlock.conf`).
 
-## Cài desktop Immaterial Impulse
+## Giao diện Immaterial Impulse và Dual Session
 
-Phiên mặc định được giữ nhẹ. Shortcut **Install Immaterial Impulse** sẽ clone repository của XephyLon và chạy trình cài đặt tương tác chính chủ với quyền user thường:
+Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đã được **cài sẵn trong ảnh ISO** (offline 100%, không cần kết nối mạng hay build gói). Người dùng có 2 cách trải nghiệm:
 
-```bash
-anios-setup
-```
+1. **Chọn phiên tại màn hình đăng nhập SDDM**:
+   - `AniOS (Hyprland - Minimal)`: Phiên bản nhẹ mặc định với Waybar + Mako + Fuzzel, tiết kiệm tài nguyên cho GPU yếu hoặc máy quán net đời cũ.
+   - `AniOS (Immaterial Impulse)`: Phiên bản đầy đủ tính năng với Quickshell, widget Material 3, Matugen tự đổi màu theo hình nền và phím tắt thông minh.
 
-Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; trình cài đặt có thể tải thêm nhiều gói (một số gói được build từ AUR), sử dụng thêm RAM/VRAM và mất thời gian thiết lập. Vì vậy AniOS để bước này tự chọn, không tự chạy khi boot, nhằm giữ cấu hình mặc định phù hợp hơn với máy phòng net đời cũ. Phần mềm upstream và giấy phép của nó được quản lý riêng; hãy xem repository upstream để biết yêu cầu mới nhất.
+2. **Chuyển đổi giao diện trực tiếp trong desktop (không cần khởi động lại máy)**:
+   - Sử dụng lệnh:
+     ```bash
+     anios-switch-desktop imi       # Chuyển sang Immaterial Impulse (Quickshell)
+     anios-switch-desktop minimal   # Chuyển về AniOS Minimal (Waybar)
+     anios-switch-desktop toggle    # Đổi qua lại giữa 2 giao diện
+     ```
+   - Hoặc phím tắt: `Super+Alt+M`.
+   - Hoặc nhấp đúp vào biểu tượng **Switch to Immaterial Impulse** / **Switch to AniOS Minimal** trên màn hình Desktop.
+   - Script `anios-setup` cung cấp menu tương tác nhanh để chuyển đổi hoặc khôi phục dotfile gốc từ `/usr/share/anios/skel`.
 
 ## Phần cứng và hiệu năng
 
@@ -98,7 +107,7 @@ Cần Internet. Immaterial Impulse là desktop Quickshell nhiều tính năng; t
 
 ## Cấu trúc repository
 
-- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf`), Waybar, dotfile cài sẵn, ibus & fcitx5, dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng và cấu hình phiên, kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
+- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf` hỗ trợ song song Minimal và Immaterial Impulse), Quickshell, Waybar, Matugen, dotfile cài sẵn, ibus & fcitx5, công cụ chuyển đổi giao diện (`usr/local/bin/anios-switch-desktop`), dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng và cấu hình phiên, kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
 - `profile/airootfs/usr/share/sddm/themes/wuwa/` — theme Qylock Wuthering Waves, mã nguồn giấy phép GPL-3.0; thông tin upstream và commit nguồn ở `UPSTREAM`.
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
 - `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).

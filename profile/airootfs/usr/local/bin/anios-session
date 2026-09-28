@@ -12,4 +12,13 @@ export QT_IM_MODULE=fcitx
 export XMODIFIERS=@im=fcitx
 export SDL_IM_MODULE=fcitx
 
+mode="${1:-}"
+if [[ "$mode" == "--imi" || "$mode" == "imi" || "$mode" == "immaterial-impulse" ]]; then
+  export ANIOS_DESKTOP="imi"
+  shift || true
+elif [[ "$mode" == "--minimal" || "$mode" == "minimal" ]]; then
+  export ANIOS_DESKTOP="minimal"
+  shift || true
+fi
+
 exec dbus-run-session -- Hyprland "$@"

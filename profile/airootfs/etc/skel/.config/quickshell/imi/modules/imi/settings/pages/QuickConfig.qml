@@ -1,0 +1,768 @@
+import QtQuick
+import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
+import Quickshell
+import qs.services
+import qs.modules.common
+import qs.modules.common.widgets
+
+ContentPage {
+    id: page
+    forceWidth: true
+    baseWidth: 720
+    bottomContentPadding: 35
+
+    function themeArguments(extraArguments) {
+        const commandArguments = [Directories.wallpaperSwitchScriptPath, "--noswitch", "--coloronly"]
+        const artwork = WallpaperEngine.activeArtwork
+        if (artwork && artwork.length > 0)
+            commandArguments.push("--image", artwork)
+        if (extraArguments) {
+            for (let index = 0; index < extraArguments.length; ++index)
+                commandArguments.push(extraArguments[index])
+        }
+        return commandArguments
+    }
+
+    function refreshTheme(extraArguments) {
+        Quickshell.execDetached(themeArguments(extraArguments))
+    }
+
+    // Per-scheme swatches for the picker chips. SchemePreview owns the venv run
+    // and caches it; this page is one of two consumers now, so it observes the
+    // inputs and pokes rather than driving a process of its own.
+    readonly property string swatchInputs: SchemePreview.inputs
+    onSwatchInputsChanged: SchemePreview.refresh()
+    Component.onCompleted: SchemePreview.refresh()
+
+    function goTo(term) {
+        const t = term.toLowerCase().trim()
+        function findTarget(rootItem) {
+            for (let i = 0; i < rootItem.children.length; i++) {
+                let child = rootItem.children[i]
+                if (child.title && child.title.toLowerCase().includes(t)) return child
+            }
+            for (let i = 0; i < rootItem.children.length; i++) {
+                let found = findTarget(rootItem.children[i])
+                if (found) return found
+            }
+            return null
+        }
+        let target = findTarget(mainLayout)
+        if (target) {
+            let pos = target.mapToItem(mainLayout, 0, 0)
+            page.scrollToY(pos.y)
+        }
+    }
+
+    component SmallLightDarkPreferenceButton: RippleButton {
+        id: smallLightDarkPreferenceButton
+        required property bool dark
+        property color colText: toggled ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSecondaryContainer
+        padding: Appearance.spacing.space100
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        toggled: Appearance.m3colors.darkmode === dark
+        colBackground: Appearance.colors.colSecondaryContainer
+        buttonRadius: toggled ? height / 2 : Appearance.rounding.normal
+        Behavior on buttonRadius {
+            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+        }
+        onClicked: {
+            page.refreshTheme(["--mode", dark ? "dark" : "light"])
+        }
+        contentItem: Item {
+            anchors.centerIn: parent
+            RowLayout {
+                anchors.centerIn: parent
+                spacing: Appearance.spacing.space100
+                MaterialSymbol {
+                    iconSize: Appearance.font.pixelSize.huge
+                    fill: smallLightDarkPreferenceButton.toggled ? 1 : 0
+                    text: dark ? "dark_mode" : "light_mode"
+                    color: smallLightDarkPreferenceButton.colText
+                }
+                StyledText {
+                    text: dark ? Translation.tr("Dark") : Translation.tr("Light")
+                    font.pixelSize: Appearance.font.pixelSize.normal
+                    font.weight: smallLightDarkPreferenceButton.toggled ? Font.DemiBold : Font.Medium
+                    color: smallLightDarkPreferenceButton.colText
+                }
+            }
+        }
+    }
+
+    ColumnLayout {
+        id: mainLayout
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        spacing: Appearance.spacing.space200
+
+        ContentSection {
+            icon: "screenshot_monitor"
+            title: Translation.tr("Wallpaper & Colors")
+            shape: MaterialShape.Shape.Puffy
+            Layout.fillWidth: true
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Appearance.spacing.space150
+
+                Rectangle {
+                    Layout.preferredWidth: 420
+                    Layout.preferredHeight: 280
+                    radius: Appearance.rounding.large - 3
+                    color: Appearance.colors.colLayer2
+                    clip: true
+
+                    StyledImage {
+                        anchors.fill: parent
+                        sourceSize.width: 420
+                        sourceSize.height: 280
+                        fillMode: Image.PreserveAspectCrop
+                        // WE-aware artwork; a video wallpaper falls back to its
+                        // generated thumbnail (a raw video path can't render in
+                        // an Image) - upstream vb.
+                        source: /\.(mp4|webm|mkv|avi|mov)$/i.test(WallpaperEngine.activeArtwork)
+                            ? Config.options.background.thumbnailPath
+                            : WallpaperEngine.activeArtwork
+                        cache: false
+                        layer.enabled: true
+                        layer.effect: OpacityMask {
+                            maskSource: Rectangle {
+                                width: 420; height: 280
+                                radius: Appearance.rounding.large - 3
+                            }
+                        }
+                    }
+
+                    ToolbarPairedFab {
+                        anchors.bottom: parent.bottom
+                        anchors.right: parent.right
+                        anchors.margins: Appearance.spacing.space100
+                        iconText: "colorize"
+                        onClicked: {
+                            page.refreshTheme(["--color"])
+                        }
+                        StyledToolTip {
+                            text: "Change accent color"
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    // Match the wallpaper preview's height exactly so the
+                    // scheme grid can't overshoot it.
+                    Layout.preferredHeight: 280
+                    Layout.maximumHeight: 280
+                    spacing: Appearance.spacing.space100
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        // 56 + 3x66 chips + the four gaps = the preview's 280.
+                        Layout.preferredHeight: 56
+                        Layout.maximumHeight: 56
+                        spacing: Appearance.spacing.space100
+                        uniformCellSizes: true
+                        SmallLightDarkPreferenceButton { dark: false }
+                        SmallLightDarkPreferenceButton { dark: true }
+                    }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 3
+                        rowSpacing: Appearance.spacing.space100
+                        columnSpacing: Appearance.spacing.space100
+
+                        Repeater {
+                            model: [
+                                { value: "auto",               displayName: Translation.tr("Auto"),        icon: "auto_awesome" },
+                                { value: "scheme-content",     displayName: Translation.tr("Content"),     icon: "image" },
+                                { value: "scheme-expressive",  displayName: Translation.tr("Expressive"),  icon: "palette" },
+                                { value: "scheme-fidelity",    displayName: Translation.tr("Fidelity"),    icon: "equal" },
+                                { value: "scheme-fruit-salad", displayName: Translation.tr("Fruit Salad"), icon: "nutrition" },
+                                { value: "scheme-monochrome",  displayName: Translation.tr("Monochrome"),  icon: "invert_colors" },
+                                { value: "scheme-neutral",     displayName: Translation.tr("Neutral"),     icon: "tonality" },
+                                { value: "scheme-rainbow",     displayName: Translation.tr("Rainbow"),     icon: "gradient" },
+                                { value: "scheme-tonal-spot",  displayName: Translation.tr("Tonal Spot"),  icon: "lens" },
+                            ]
+
+                            // A button, not a plate with a hover MouseArea: the
+                            // chips are picked, so they press and ripple like
+                            // every other selection card. `hovered` is the
+                            // Control's own now, and the plate's colour
+                            // Behavior is the shared button's.
+                            delegate: RippleButton {
+                                id: schemeChip
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 66
+                                Layout.maximumHeight: 66
+                                padding: 0
+
+                                property bool isSelected: Config.options.appearance.palette.type === schemeChip.modelData.value
+                                property var swatches: SchemePreview.swatches[schemeChip.modelData.value] ?? []
+
+                                buttonRadius: Appearance.rounding.normal
+                                // The selected chip is marked by its ring and
+                                // its check, not by a plate of its own - so the
+                                // toggled tones are the same container pair.
+                                toggled: schemeChip.isSelected
+                                colBackground: Appearance.colors.colSecondaryContainer
+                                colBackgroundHover: Appearance.colors.colSecondaryContainerHover
+                                colRipple: Appearance.colors.colSecondaryContainerActive
+                                colBackgroundToggled: Appearance.colors.colSecondaryContainer
+                                colBackgroundToggledHover: Appearance.colors.colSecondaryContainerHover
+                                colRippleToggled: Appearance.colors.colSecondaryContainerActive
+
+                                onClicked: {
+                                    Config.options.appearance.palette.type = schemeChip.modelData.value
+                                    page.refreshTheme(["--type", schemeChip.modelData.value])
+                                }
+
+                                // An item, then the column centred in it: the
+                                // card's height is fixed at 66, so a column
+                                // handed that height would sit its 51px of
+                                // content against the top edge.
+                                contentItem: Item {
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: Appearance.spacing.space25
+
+                                        Item {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            implicitWidth: 34
+                                            implicitHeight: 34
+
+                                            SchemePaletteCircle {
+                                                anchors.centerIn: parent
+                                                swatches: schemeChip.swatches
+                                                fallbackIcon: schemeChip.modelData.icon
+                                            }
+
+                                            // Selection ring + center check badge
+                                            Rectangle {
+                                                anchors.centerIn: parent
+                                                width: 34
+                                                height: 34
+                                                radius: 17
+                                                color: "transparent"
+                                                border.width: 2
+                                                border.color: Appearance.colors.colPrimary
+                                                opacity: schemeChip.isSelected ? 1 : 0
+                                                scale: schemeChip.isSelected ? 1 : 0.7
+                                                Behavior on opacity {
+                                                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                                                }
+                                                Behavior on scale {
+                                                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                                                }
+                                            }
+                                            Rectangle {
+                                                anchors.centerIn: parent
+                                                width: 16
+                                                height: 16
+                                                radius: 8
+                                                color: Appearance.colors.colPrimary
+                                                opacity: schemeChip.isSelected ? 1 : 0
+                                                scale: schemeChip.isSelected ? 1 : 0.4
+                                                Behavior on opacity {
+                                                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                                                }
+                                                Behavior on scale {
+                                                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+                                                }
+                                                MaterialSymbol {
+                                                    anchors.centerIn: parent
+                                                    text: "check"
+                                                    iconSize: 14
+                                                    color: Appearance.colors.colOnPrimary
+                                                }
+                                            }
+                                        }
+
+                                        StyledText {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            Layout.maximumWidth: schemeChip.width - Appearance.spacing.space100 * 2
+                                            elide: Text.ElideRight
+                                            text: schemeChip.modelData.displayName
+                                            font.pixelSize: Appearance.font.pixelSize.smaller
+                                            font.weight: schemeChip.isSelected ? Font.DemiBold : Font.Medium
+                                            color: Appearance.colors.colOnSecondaryContainer
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Which colour matugen lifts from the wallpaper. The scheme chips
+            // above pick the tone mapping; this picks the seed. "Dominant" is
+            // the scorer's first candidate; the rest are matugen's --prefer
+            // criteria over the same candidates, so a wallpaper whose loudest
+            // colour is a dull wall can be themed from its saturated accent.
+            ConfigSelectionArray {
+                text: Translation.tr("Source colour")
+                icon: "colorize"
+                currentValue: Config.options.appearance.palette.sourceMode
+                onSelected: value => {
+                    Config.options.appearance.palette.sourceMode = value
+                    page.refreshTheme()
+                }
+                options: [
+                    { displayName: Translation.tr("Dominant"), value: "dominant", icon: "star" },
+                    { displayName: Translation.tr("Saturated"), value: "saturation", icon: "water_drop" },
+                    { displayName: Translation.tr("Muted"), value: "less-saturation", icon: "blur_on" },
+                    { displayName: Translation.tr("Light"), value: "lightness", icon: "light_mode" },
+                    { displayName: Translation.tr("Dark"), value: "darkness", icon: "dark_mode" },
+                    { displayName: Translation.tr("Vivid"), value: "value", icon: "brightness_7" }
+                ]
+            }
+
+            ConfigRow {
+                ConfigSwitch {
+                    buttonIcon: "motion_mode"
+                    text: Translation.tr("Transparency")
+                    checked: Config.options.appearance.transparency.enable
+                    onToggleRequested: Config.options.appearance.transparency.enable = !Config.options.appearance.transparency.enable
+                }
+                ConfigSwitch {
+                    buttonIcon: "autofps_select"
+                    enabled: Config.options.appearance.transparency.enable
+                    text: Translation.tr("Automatic")
+                    checked: Config.options.appearance.transparency.automatic
+                    onToggleRequested: Config.options.appearance.transparency.automatic = !Config.options.appearance.transparency.automatic
+                }
+            }
+
+            // One opacity for every blurred shell surface - the bar, the
+            // sidebars, the dock, this window, the cheatsheet - since they all
+            // draw on colLayer0, which the background transparency thins. The
+            // slider is that amount inverted; it is inert while Automatic picks
+            // the amount from the wallpaper, and while transparency is off.
+            // Desktop widgets follow it through Settings > Widgets.
+            ConfigSlider {
+                Layout.fillWidth: true
+                enabled: Config.options.appearance.transparency.enable && !Config.options.appearance.transparency.automatic
+                text: Translation.tr("Shell opacity")
+                buttonIcon: "opacity"
+                from: 0
+                to: 1
+                usePercentTooltip: true
+                value: 1 - Config.options.appearance.transparency.backgroundTransparency
+                onValueModified: {
+                    const rounded = Math.round((1 - newValue) * 20) / 20;
+                    if (rounded !== Config.options.appearance.transparency.backgroundTransparency)
+                        Config.options.appearance.transparency.backgroundTransparency = rounded;
+                }
+            }
+
+            ConfigSelectionArray {
+                icon: "brightness_auto"
+                text: Translation.tr("Auto dark/light")
+                currentValue: Config.options.appearance.autoTheme.mode
+                onSelected: newValue => { Config.options.appearance.autoTheme.mode = newValue; }
+                options: [
+                    { displayName: Translation.tr("Off"),     icon: "close",         value: "off" },
+                    { displayName: Translation.tr("Sunset"),  icon: "wb_twilight",   value: "sunset" },
+                    { displayName: Translation.tr("Fixed"),   icon: "schedule",      value: "fixed" }
+                ]
+            }
+
+            ConfigRow {
+                visible: Config.options.appearance.autoTheme.mode === "fixed"
+
+                ConfigTextArea {
+                    buttonIcon: "light_mode"
+                    text: Translation.tr("Light at")
+                    placeholderText: "07:00"
+                    fieldWidth: 90
+                    singleLine: true
+                    value: Config.options.appearance.autoTheme.lightTime
+                    onValueChanged: {
+                        if (value.trim() !== "")
+                            Config.options.appearance.autoTheme.lightTime = value.trim();
+                    }
+                }
+                ConfigTextArea {
+                    buttonIcon: "dark_mode"
+                    text: Translation.tr("Dark at")
+                    placeholderText: "19:00"
+                    fieldWidth: 90
+                    singleLine: true
+                    value: Config.options.appearance.autoTheme.darkTime
+                    onValueChanged: {
+                        if (value.trim() !== "")
+                            Config.options.appearance.autoTheme.darkTime = value.trim();
+                    }
+                }
+            }
+
+            ConfigSwitch {
+                buttonIcon: "lightbulb"
+                text: Translation.tr("Sync RGB devices (OpenRGB)")
+                description: OpenRgb.available
+                    ? Translation.tr("Applies the accent color to your RGB hardware whenever the palette changes")
+                    : Translation.tr("The openrgb command was not found — install OpenRGB to use this")
+                checked: Config.options.appearance.openrgb.enable
+                onToggleRequested: Config.options.appearance.openrgb.enable = !Config.options.appearance.openrgb.enable
+            }
+
+            ConfigSelectionArray {
+                visible: Config.options.appearance.openrgb.enable && OpenRgb.available
+                icon: "palette"
+                text: Translation.tr("Light color source")
+                currentValue: Config.options.appearance.openrgb.colorSource
+                onSelected: newValue => { Config.options.appearance.openrgb.colorSource = newValue; }
+                options: [
+                    { displayName: Translation.tr("Accent"),  icon: "colors",  value: "accent" },
+                    { displayName: Translation.tr("Monitor"), icon: "monitor", value: "monitor" }
+                ]
+            }
+
+            ColumnLayout {
+                visible: Config.options.appearance.openrgb.enable && OpenRgb.available
+                    && Config.options.appearance.openrgb.colorSource === "monitor"
+                Layout.fillWidth: true
+                spacing: 0
+
+                ConfigSwitch {
+                    buttonIcon: "fullscreen"
+                    text: Translation.tr("Only while fullscreen")
+                    description: OpenRgb.grimAvailable || !OpenRgb.monitorMode
+                        ? Translation.tr("Follow the screen only while a fullscreen app runs; otherwise use the accent")
+                        : Translation.tr("The grim command was not found — install grim to sample the monitor")
+                    checked: Config.options.appearance.openrgb.monitorFullscreenOnly
+                    onToggleRequested: Config.options.appearance.openrgb.monitorFullscreenOnly = !Config.options.appearance.openrgb.monitorFullscreenOnly
+                }
+
+                ConfigSwitch {
+                    buttonIcon: "blur_on"
+                    text: Translation.tr("Smooth transitions")
+                    description: Translation.tr("Blend toward the sampled color instead of snapping on scene cuts")
+                    checked: Config.options.appearance.openrgb.monitorSmooth
+                    onToggleRequested: Config.options.appearance.openrgb.monitorSmooth = !Config.options.appearance.openrgb.monitorSmooth
+                }
+
+                ConfigSwitch {
+                    id: gpuAmbientSwitch
+                    readonly property bool gpuIncluded: !(Config.options.appearance.openrgb.monitorExcludedTypes ?? []).includes("GPU")
+                    buttonIcon: "developer_board"
+                    text: Translation.tr("Include GPU lighting")
+                    description: Translation.tr("GPU RGB writes ride the graphics i2c bus and can stutter games — off is safer")
+                    checked: gpuIncluded
+                    onToggleRequested: {
+                        // Whole-list assignment: JsonAdapter lists only
+                        // persist when replaced, never when mutated.
+                        let types = (Config.options.appearance.openrgb.monitorExcludedTypes ?? []).filter(t => t !== "GPU");
+                        if (gpuAmbientSwitch.gpuIncluded)
+                            types = types.concat(["GPU"]);
+                        Config.options.appearance.openrgb.monitorExcludedTypes = types;
+                    }
+                }
+
+                ConfigSpinBox {
+                    icon: "timer"
+                    text: Translation.tr("Sample interval (ms)")
+                    value: Config.options.appearance.openrgb.monitorPollInterval
+                    from: 100
+                    to: 2000
+                    stepSize: 50
+                    onValueModified: {
+                        Config.options.appearance.openrgb.monitorPollInterval = newValue;
+                    }
+                }
+            }
+
+            ColumnLayout {
+                id: openRgbDevices
+                visible: Config.options.appearance.openrgb.enable && OpenRgb.available
+                Layout.fillWidth: true
+                spacing: 0
+
+                // Identical hardware repeats in the raw list (two RAM sticks,
+                // multi-controller GPUs); exclusion is name-keyed, so collapse
+                // duplicates into one row.
+                readonly property var uniqueDevices: {
+                    const seen = {};
+                    const out = [];
+                    for (const dev of OpenRgb.devices) {
+                        if (seen[dev.name]) {
+                            seen[dev.name].count++;
+                            continue;
+                        }
+                        const entry = { name: dev.name, type: dev.type, count: 1 };
+                        seen[dev.name] = entry;
+                        out.push(entry);
+                    }
+                    return out;
+                }
+
+                function iconFor(type) {
+                    switch (type) {
+                    case "DRAM": return "memory";
+                    case "GPU": return "developer_board";
+                    case "Motherboard": return "developer_board";
+                    case "Keyboard": return "keyboard";
+                    case "Mouse": return "mouse";
+                    case "Gamepad": return "sports_esports";
+                    case "Headset": return "headset";
+                    case "Cooler": return "mode_fan";
+                    case "LED Strip": return "fluorescent";
+                    default: return "lightbulb";
+                    }
+                }
+
+                // Enumeration does a full hardware detection pass when no
+                // OpenRGB server runs - scan lazily when the list first shows.
+                onVisibleChanged: {
+                    if (visible && OpenRgb.devices.length === 0)
+                        OpenRgb.rescanDevices();
+                }
+                Component.onCompleted: {
+                    if (visible && OpenRgb.devices.length === 0)
+                        OpenRgb.rescanDevices();
+                }
+
+                Repeater {
+                    model: openRgbDevices.uniqueDevices
+
+                    delegate: ConfigSwitch {
+                        id: deviceSwitch
+                        required property var modelData
+                        readonly property bool syncedNow: !(Config.options.appearance.openrgb.excludedDevices ?? []).includes(modelData.name)
+
+                        buttonIcon: openRgbDevices.iconFor(modelData.type)
+                        text: modelData.name
+                        description: modelData.count > 1
+                            ? Translation.tr("%1 — %2 devices").arg(modelData.type).arg(modelData.count)
+                            : modelData.type
+                        checked: syncedNow
+                        onToggleRequested: {
+                            // Whole-list assignment: JsonAdapter lists only
+                            // persist when replaced, never when mutated.
+                            let excluded = (Config.options.appearance.openrgb.excludedDevices ?? []).filter(n => n !== deviceSwitch.modelData.name);
+                            if (deviceSwitch.syncedNow)
+                                excluded = excluded.concat([deviceSwitch.modelData.name]);
+                            Config.options.appearance.openrgb.excludedDevices = excluded;
+                        }
+                    }
+                }
+
+                RippleButtonWithIcon {
+                    Layout.alignment: Qt.AlignRight
+                    Layout.topMargin: Appearance.spacing.space100
+                    materialIcon: "refresh"
+                    enabled: !OpenRgb.scanning
+                    mainText: OpenRgb.scanning
+                        ? Translation.tr("Scanning devices...")
+                        : (OpenRgb.devices.length === 0
+                            ? Translation.tr("Scan for devices")
+                            : Translation.tr("Rescan devices"))
+                    onClicked: OpenRgb.rescanDevices()
+                }
+            }
+        }
+
+        ContentSection {
+            icon: "screenshot_monitor"
+            title: Translation.tr("Bar & Screen")
+            shape: MaterialShape.Shape.ClamShell
+            Layout.fillWidth: true
+
+            // One card per row. The page is 720 wide, so two columns hand each
+            // card 316px of content, and only Group style's chips fit that: Bar
+            // position overflowed its padding and Bar style, five chips since
+            // Float Islands, ran past the card's edge. Wrapping instead left
+            // three of the four rows with an orphan chip on a second line and
+            // the cards in a row standing at different heights. As a single
+            // row each - title left, chips right - every card holds its chips
+            // on one line with room to spare.
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 1
+                rowSpacing: Appearance.spacing.space100
+                columnSpacing: Appearance.spacing.space100
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: barPosCol.implicitHeight + 24
+                    radius: Appearance.rounding.normal
+                    color: Appearance.colors.colLayer1
+                    border.width: Appearance.borderWidth.standard
+                    border.color: "transparent"
+
+                    RowLayout {
+                        id: barPosCol
+                        anchors { fill: parent; margins: Appearance.spacing.space150 }
+                        spacing: Appearance.spacing.space100
+
+                        MaterialSymbol {
+                            text: "swap_vert"
+                            iconSize: Appearance.font.pixelSize.normal + 4
+                            color: Appearance.colors.colOnLayer1
+                        }
+                        StyledText {
+                            text: Translation.tr("Bar position")
+                            font.pixelSize: Appearance.font.pixelSize.normal
+                            color: Appearance.colors.colOnLayer1
+                            font.weight: Font.Medium
+                        }
+
+                        ConfigSelectionArray {
+                            id: barPosArray
+                            // Takes the rest of the row: the array's own Flow keeps its
+                            // natural width as a maximum and right-aligns, so the chips
+                            // sit on the right and wrap only when the row cannot hold them.
+                            Layout.fillWidth: true
+                            currentValue: (Config.options.bar.bottom ? 1 : 0) | (Config.options.bar.vertical ? 2 : 0)
+                            onSelected: newValue => {
+                                Config.options.bar.bottom = (newValue & 1) !== 0;
+                                Config.options.bar.vertical = (newValue & 2) !== 0;
+                            }
+                            options: [
+                                { displayName: Translation.tr("Top"), icon: "arrow_upward",   value: 0 },
+                                { displayName: Translation.tr("Left"), icon: "arrow_back",     value: 2 },
+                                { displayName: Translation.tr("Bottom"), icon: "arrow_downward", value: 1 },
+                                { displayName: Translation.tr("Right"), icon: "arrow_forward",  value: 3 }
+                            ]
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: barStyleCol.implicitHeight + 24
+                    radius: Appearance.rounding.normal
+                    color: Appearance.colors.colLayer1
+                    border.width: Appearance.borderWidth.standard
+                    border.color: "transparent"
+
+                    RowLayout {
+                        id: barStyleCol
+                        anchors { fill: parent; margins: Appearance.spacing.space150 }
+                        spacing: Appearance.spacing.space100
+
+                        MaterialSymbol {
+                            text: "settop_component"
+                            iconSize: Appearance.font.pixelSize.normal + 4
+                            color: Appearance.colors.colOnLayer1
+                        }
+                        StyledText {
+                            text: Translation.tr("Bar style")
+                            font.pixelSize: Appearance.font.pixelSize.normal
+                            color: Appearance.colors.colOnLayer1
+                            font.weight: Font.Medium
+                        }
+
+                        ConfigSelectionArray {
+                            id: barStyleArray
+                            // Takes the rest of the row: the array's own Flow keeps its
+                            // natural width as a maximum and right-aligns, so the chips
+                            // sit on the right and wrap only when the row cannot hold them.
+                            Layout.fillWidth: true
+                            // Frame mode: Hug and Float are the plate's states (Bar & Dock >
+                            // Positioning & Styles has the state row), Islands (2) awaits its rework.
+                            currentValue: FrameGeometry.enabled && Config.options.bar.cornerStyle === 1 ? 0 : Config.options.bar.cornerStyle
+                            onSelected: newValue => { Config.options.bar.cornerStyle = newValue; }
+                            options: FrameGeometry.enabled ? [
+                                { displayName: Translation.tr("Plate"), icon: "line_curve", value: 0 },
+                                { displayName: Translation.tr("Islands"), icon: "view_week", value: 4 },
+                                { displayName: Translation.tr("M3"), icon: "interests",  value: 3 }
+                            ] : [
+                                { displayName: Translation.tr("Hug"), icon: "line_curve", value: 0 },
+                                { displayName: Translation.tr("Float"), icon: "view_day",   value: 1 },
+                                { displayName: Translation.tr("Islands"), icon: "crop_3_2",   value: 2 },
+                                { displayName: Translation.tr("M3"), icon: "interests",  value: 3 },
+                                { displayName: Translation.tr("Float Islands"), icon: "view_week", value: 4 }
+                            ]
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    // Its own column, plus the insets that column anchors with.
+                    Layout.preferredHeight: groupStyleCol.implicitHeight + Appearance.spacing.space150 * 2
+                    radius: Appearance.rounding.normal
+                    color: Appearance.colors.colLayer1
+                    RowLayout {
+                        id: groupStyleCol
+                        anchors { fill: parent; margins: Appearance.spacing.space150 }
+                        spacing: Appearance.spacing.space100
+
+                        MaterialSymbol {
+                            text: "tab_group"
+                            iconSize: Appearance.font.pixelSize.normal + 4
+                            color: Appearance.colors.colOnLayer1
+                        }
+                        StyledText {
+                            text: Translation.tr("Group style")
+                            font.pixelSize: Appearance.font.pixelSize.normal
+                            color: Appearance.colors.colOnLayer1
+                            font.weight: Font.Medium
+                        }
+
+                        ConfigSelectionArray {
+                            id: groupStyleArray
+                            // Takes the rest of the row: the array's own Flow keeps its
+                            // natural width as a maximum and right-aligns, so the chips
+                            // sit on the right and wrap only when the row cannot hold them.
+                            Layout.fillWidth: true
+                            currentValue: Config.options.bar.borderless
+                            onSelected: newValue => { Config.options.bar.borderless = newValue; }
+                            options: [
+                                { displayName: Translation.tr("No"),          icon: "close",         value: "transparent" },
+                                { displayName: Translation.tr("Pills"),     icon: "pill",          value: "pills" },
+                                { displayName: Translation.tr("Separated"), icon: "view_column_2", value: "separated" }
+                            ]
+                        }
+                    }
+                    
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: screenRoundCol.implicitHeight + Appearance.spacing.space150 * 2
+                    radius: Appearance.rounding.normal
+                    color: Appearance.colors.colLayer1
+
+                    RowLayout {
+                        id: screenRoundCol
+                        anchors { fill: parent; margins: Appearance.spacing.space150 }
+                        spacing: Appearance.spacing.space100
+
+                        MaterialSymbol {
+                            text: "rounded_corner"
+                            iconSize: Appearance.font.pixelSize.normal + 4
+                            color: Appearance.colors.colOnLayer1
+                        }
+                        StyledText {
+                            text: Translation.tr("Screen round corner")
+                            font.pixelSize: Appearance.font.pixelSize.normal
+                            color: Appearance.colors.colOnLayer1
+                            font.weight: Font.Medium
+                        }
+
+                        ConfigSelectionArray {
+                            id: screenRoundArray
+                            // Takes the rest of the row: the array's own Flow keeps its
+                            // natural width as a maximum and right-aligns, so the chips
+                            // sit on the right and wrap only when the row cannot hold them.
+                            Layout.fillWidth: true
+                            currentValue: Config.options.appearance.fakeScreenRounding
+                            onSelected: newValue => { Config.options.appearance.fakeScreenRounding = newValue; }
+                            options: [
+                                { displayName: Translation.tr("No"),                  icon: "close",           value: 0 },
+                                { displayName: Translation.tr("Yes"),                 icon: "check",           value: 1 },
+                                { displayName: Translation.tr("When not fullscreen"), icon: "fullscreen_exit", value: 2 }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

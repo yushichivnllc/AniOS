@@ -1,0 +1,76 @@
+pragma ComponentBehavior: Bound
+
+import qs.modules.common
+import qs.modules.common.widgets
+import QtQuick
+
+Item {
+    id: root
+    anchors.fill: parent
+
+    required property int clockSecond
+    property real handWidth: 2
+    property real handLength: 95
+    property real dotSize: 20
+    property string style: "hide"
+    property bool animateRotation: false
+    property color color: Appearance.colors.colSecondary
+    
+    // The fraction of the current second the hand has swept, for a host that
+    // samples time itself rather than animating each second (CookieClock). A
+    // host that does not drive it leaves it at 0 and the hand sits on the mark.
+    property real sweep: 0
+    rotation: (360 / 60 * (clockSecond + sweep)) + 90
+
+    Behavior on rotation {
+        enabled: root.animateRotation // Animating every second is expensive...
+        animation: RotationAnimation {
+            direction: RotationAnimation.Clockwise
+            duration: 1000 // 1 second
+            easing.type: Easing.InOutQuad
+        }
+    }
+
+    Rectangle {
+        anchors {
+            left: parent.left
+            verticalCenter: parent.verticalCenter
+            leftMargin: Appearance.spacing.space150 + (root.style === "dot" ? root.dotSize : 0)
+        }
+        implicitWidth: root.style === "dot" ? root.dotSize : root.handLength
+        implicitHeight: root.style === "dot" ? root.dotSize : root.handWidth
+        radius: Math.min(width, height) / 2
+        color: root.color
+        Behavior on implicitHeight {
+            animation: Appearance.animation.elementResize.numberAnimation.createObject(this)
+        }
+        Behavior on implicitWidth {
+            animation: Appearance.animation.elementResize.numberAnimation.createObject(this)
+        }
+    }
+
+    // Classic style dot in the middle of the hand
+    FadeLoader {
+        id: classicDotLoader
+        anchors {
+            left: parent.left
+            verticalCenter: parent.verticalCenter
+        }
+        shown: root.style === "classic"
+        Rectangle {
+            anchors {
+                left: parent.left
+                verticalCenter: parent.verticalCenter
+                leftMargin: Appearance.spacing.space500
+            }
+            implicitWidth: root.style === "classic" ? 14 : 0
+            implicitHeight: implicitWidth
+            color: root.color
+            radius: Appearance.rounding.small
+
+            Behavior on implicitWidth {
+                animation: Appearance.animation.elementResize.numberAnimation.createObject(this)
+            }
+        }
+    }
+}

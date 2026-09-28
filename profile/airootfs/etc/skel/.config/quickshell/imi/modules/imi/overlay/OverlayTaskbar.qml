@@ -1,0 +1,166 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import qs
+import qs.services
+import qs.modules.common
+import qs.modules.common.functions
+import qs.modules.common.widgets
+import qs.modules.common.widgets.widgetCanvas
+
+Rectangle {
+    id: root
+
+    property real padding: Appearance.spacing.space100
+
+    opacity: GlobalStates.overlayOpen ? 1 : 0
+    implicitWidth: contentRow.implicitWidth + (padding * 2)
+    implicitHeight: contentRow.implicitHeight + (padding * 2)
+    color: Appearance.m3colors.m3surfaceContainer
+    radius: Appearance.rounding.large
+    border.color: Appearance.colors.colOutlineVariant
+    border.width: Appearance.borderWidth.standard
+
+    Behavior on opacity {
+        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+    }
+
+    RowLayout {
+        id: contentRow
+        anchors {
+            fill: parent
+            margins: root.padding
+        }
+        spacing: Appearance.spacing.space100
+
+        Row {
+            spacing: Appearance.spacing.space50
+            Repeater {
+                model: ScriptModel {
+                    values: OverlayContext.availableWidgets
+                }
+                delegate: WidgetButton {
+                    required property var modelData
+                    identifier: modelData.identifier
+                    materialSymbol: modelData.materialSymbol
+                    iconComponent: modelData.iconComponent ?? null
+                }
+            }
+        }
+
+        Separator {}
+        TimeWidget {}
+        Separator {
+            visible: Battery.available
+        }
+        BatteryWidget {
+            visible: Battery.available
+        }
+    }
+
+    component Separator: Rectangle {
+        implicitWidth: 1
+        color: Appearance.colors.colOutlineVariant
+        Layout.fillHeight: true
+        Layout.topMargin: Appearance.spacing.space150
+        Layout.bottomMargin: Appearance.spacing.space150
+    }
+
+    component TimeWidget: StyledText {
+        Layout.alignment: Qt.AlignVCenter
+        Layout.leftMargin: Appearance.spacing.space100
+        Layout.rightMargin: Appearance.spacing.space100
+
+        text: DateTime.time
+        color: Appearance.colors.colOnSurface
+        font {
+            family: Appearance.font.family.numbers
+            variableAxes: Appearance.font.variableAxes.numbers
+            pixelSize: 22
+        }
+    }
+    
+    component BatteryWidget: Row {
+        id: batteryWidget
+        Layout.alignment: Qt.AlignVCenter
+        Layout.leftMargin: Appearance.spacing.space100
+        Layout.rightMargin: Appearance.spacing.space100
+        spacing: Appearance.spacing.space25
+        property color colText: Battery.isLowAndNotCharging ? Appearance.colors.colError : Appearance.colors.colOnSurface
+
+        MaterialSymbol {
+            id: boltIcon
+            anchors.verticalCenter: parent.verticalCenter
+            fill: 1
+            text: Battery.isCharging ? "bolt" : "battery_android_full"
+            color: batteryWidget.colText
+            iconSize: 24
+            animateChange: true
+        }
+        
+        StyledText {
+            id: batteryText
+            anchors.verticalCenter: parent.verticalCenter
+            text: Math.round(Battery.percentage * 100) + "%"
+            color: batteryWidget.colText
+            font {
+                family: Appearance.font.family.numbers
+                variableAxes: Appearance.font.variableAxes.numbers
+                pixelSize: 18
+            }
+        }
+    }
+
+    component WidgetButton: RippleButton {
+        id: widgetButton
+        required property string identifier
+        required property string materialSymbol
+        property Component iconComponent: null
+
+        Layout.alignment: Qt.AlignVCenter
+
+        toggled: Persistent.states.overlay.open.includes(identifier)
+        altAction: () => OverlayContext.requestCenter(identifier)
+        onClicked: {
+            if (widgetButton.toggled) {
+                Persistent.states.overlay.open = Persistent.states.overlay.open.filter(type => type !== identifier);
+            } else {
+                Persistent.states.overlay.open.push(identifier);
+            }
+        }
+        implicitWidth: implicitHeight
+
+        colBackgroundToggled: Appearance.colors.colSecondaryContainer
+        colBackgroundToggledHover: Appearance.colors.colSecondaryContainerHover
+        colRippleToggled: Appearance.colors.colSecondaryContainerActive
+
+        buttonRadius: root.radius - (root.height - height) / 2
+
+        contentItem: Item {
+            anchors.centerIn: parent
+            implicitWidth: 32
+            implicitHeight: 32
+            MaterialSymbol {
+                id: iconWidget
+                visible: !widgetButton.iconComponent
+                anchors.centerIn: parent
+                iconSize: 24
+                text: widgetButton.materialSymbol
+                color: widgetButton.toggled ? Appearance.colors.colOnSecondaryContainer : Appearance.colors.colOnSurfaceVariant
+            }
+            Loader {
+                id: brandIcon
+                active: !!widgetButton.iconComponent
+                anchors.centerIn: parent
+                sourceComponent: widgetButton.iconComponent
+            }
+            Binding {
+                target: brandIcon.item
+                property: "toggled"
+                value: widgetButton.toggled
+                when: brandIcon.item !== null
+            }
+        }
+    }
+}

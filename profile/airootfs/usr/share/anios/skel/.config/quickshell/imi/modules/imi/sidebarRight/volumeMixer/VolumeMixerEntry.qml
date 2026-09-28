@@ -1,0 +1,108 @@
+import qs.modules.common
+import qs.modules.common.widgets
+import qs.services
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Services.Pipewire
+import Qt5Compat.GraphicalEffects
+
+Item {
+    id: root
+    required property PwNode node
+    PwObjectTracker {
+        objects: [root.node]
+    }
+
+    implicitHeight: rowLayout.implicitHeight
+
+    RowLayout {
+        id: rowLayout
+        anchors.fill: parent
+        spacing: Appearance.spacing.space100
+
+        MouseArea {
+            property real size: 36
+            Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+            Layout.preferredWidth: size
+            Layout.preferredHeight: size
+
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.node.audio.muted = !root.node.audio.muted
+
+            hoverEnabled: true
+            property bool hovered: containsMouse
+            StyledToolTip {
+                text: root.node?.audio.muted ? Translation.tr("Click to unmute") : Translation.tr("Click to mute")
+            }
+
+            Image {
+                id: iconImg
+                anchors.fill: parent
+                visible: false
+                sourceSize.width: parent.size
+                sourceSize.height: parent.size
+                source: {
+                    let icon;
+                    icon = AppSearch.guessIcon(root.node?.properties["application.icon-name"] ?? "");
+                    if (AppSearch.iconExists(icon))
+                        return Quickshell.iconPath(icon, "image-missing");
+                    icon = AppSearch.guessIcon(root.node?.properties["node.name"] ?? "");
+                    return Quickshell.iconPath(icon, "image-missing");
+                }
+            }
+
+            Desaturate {
+                anchors.fill: iconImg
+                source: iconImg
+                desaturation: root.node?.audio.muted ? 1.0 : 0.0
+                visible: iconImg.source !== ""
+                opacity: root.node?.audio.muted ? 0.4 : 1.0
+
+                Behavior on opacity {
+                    animation: Appearance.animation.elementMoveFaster.numberAnimation.createObject(this)
+                }
+                Behavior on desaturation {
+                    animation: Appearance.animation.elementMoveFaster.numberAnimation.createObject(this)
+                }
+            }
+
+            MaterialSymbol {
+                anchors.centerIn: parent
+                visible: root.node?.audio.muted ?? false
+                text: root.node?.isSink ? "volume_off" : "mic_off"
+                iconSize: 22
+                color: Appearance.colors.colOnLayer1
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: -Appearance.spacing.space50
+
+            // The half that identifies the stream is the media name, and it is
+            // the half on the far side of the separator - so elision here
+            // reliably removes exactly the part the user is looking for. Two
+            // browser tabs are one row apiece reading "Firefox • ..." with
+            // nothing after it.
+            MarqueeText {
+                Layout.fillWidth: true
+                font.pixelSize: Appearance.font.pixelSize.small
+                color: Appearance.colors.colSubtext
+                text: {
+                    // application.name -> description -> name
+                    const app = Audio.appNodeDisplayName(root.node);
+                    const media = root.node.properties["media.name"];
+                    return media != undefined ? `${app} • ${media}` : app;
+                }
+            }
+
+            StyledSlider {
+                id: slider
+                value: root.node?.audio.volume ?? 0
+                onMoved: root.node.audio.volume = value
+                configuration: StyledSlider.Configuration.S
+            }
+        }
+    }
+}

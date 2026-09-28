@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+
+QUICKSHELL_CONFIG_NAME="imi"
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+CONFIG_DIR="$XDG_CONFIG_HOME/quickshell/$QUICKSHELL_CONFIG_NAME"
+CACHE_DIR="$XDG_CACHE_HOME/quickshell"
+STATE_DIR="$XDG_STATE_HOME/quickshell"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+term_alpha=100 #Set this to < 100 make all your terminals transparent
+# sleep 0 # idk i wanted some delay or colors dont get applied properly
+if [ ! -d "$STATE_DIR"/user/generated ]; then
+  mkdir -p "$STATE_DIR"/user/generated
+fi
+cd "$CONFIG_DIR" || exit
+
+colornames=''
+colorstrings=''
+colorlist=()
+colorvalues=()
+
+# No palette, no theming: with material_colors.scss missing or empty (a fresh
+# install before the first generation, a generation that failed) the lists
+# below are empty, every template was copied out with its `$placeholders`
+# intact, and kitty refused to start on "Invalid color name: '#$primary #'"
+# (a user's report). Leaving the previous generated files in place is the
+# right answer then; writing broken ones is not.
+if [ ! -s "$STATE_DIR/user/generated/material_colors.scss" ]; then
+  echo "[applycolor] $STATE_DIR/user/generated/material_colors.scss is missing or empty; nothing to apply." >&2
+  exit 1
+fi
+colornames=$(cat $STATE_DIR/user/generated/material_colors.scss | cut -d: -f1)
+colorstrings=$(cat $STATE_DIR/user/generated/material_colors.scss | cut -d: -f2 | cut -d ' ' -f2 | cut -d ";" -f1)
+IFS=$'\n'
+colorlist=($colornames)     # Array of color names
+colorvalues=($colorstrings) # Array of color values
+
+apply_kitty() {  
+  # Check if terminal escape sequence template exists
+  if [ ! -f "$SCRIPT_DIR/terminal/kitty-theme.conf" ]; then
+    echo "Template file not found for Kitty theme. Skipping that."
+    return
+  fi
+  # Copy template
+  mkdir -p "$STATE_DIR"/user/generated/terminal
+  cp "$SCRIPT_DIR/terminal/kitty-theme.conf" "$STATE_DIR"/user/generated/terminal/kitty-theme.conf
+  # Apply colors
+  for i in "${!colorlist[@]}"; do
+    sed -i "s/${colorlist[$i]} #/${colorvalues[$i]#\#}/g" "$STATE_DIR"/user/generated/terminal/kitty-theme.conf
+  done
+  # A placeholder the palette did not name is a colour kitty cannot parse, and
+  # kitty refuses the whole config for one. Never hand it such a file.
+  if grep -q '#\$' "$STATE_DIR"/user/generated/terminal/kitty-theme.conf; then
+    echo "[applycolor] kitty theme still has unreplaced placeholders; not installing it:" >&2
+    grep -n '#\$' "$STATE_DIR"/user/generated/terminal/kitty-theme.conf >&2
+    rm -f "$STATE_DIR"/user/generated/terminal/kitty-theme.conf
+    return
+  fi
+
+  # Re-append the managed Kitty background block after regenerating colors.
+  python3 "$SCRIPT_DIR/../terminal/apply_terminal_background.py" \
+    --config "$APPEARANCE_CONFIG_FILE" \
+    --theme "$STATE_DIR/user/generated/terminal/kitty-theme.conf" || true
+
+  # Reload
+  kill -SIGUSR1 $(pidof kitty)
+}
+
+apply_anyterm() {
+  # Check if terminal escape sequence template exists
+  if [ ! -f "$SCRIPT_DIR/terminal/sequences.txt" ]; then
+    echo "Template file not found for Terminal. Skipping that."
+    return
+  fi
+  # Copy template
+  mkdir -p "$STATE_DIR"/user/generated/terminal
+  cp "$SCRIPT_DIR/terminal/sequences.txt" "$STATE_DIR"/user/generated/terminal/sequences.txt
+  # Apply colors
+  for i in "${!colorlist[@]}"; do
+    sed -i "s/${colorlist[$i]} #/${colorvalues[$i]#\#}/g" "$STATE_DIR"/user/generated/terminal/sequences.txt
+  done
+
+  sed -i "s/\$alpha/$term_alpha/g" "$STATE_DIR/user/generated/terminal/sequences.txt"
+
+  # A tmux pane must not receive the default fg/bg/cursor: tmux adopts them as
+  # the pane's own and paints the background explicitly from then on, which
+  # turns a translucent kitty into a solid slab. Panes get the palette and a
+  # reset instead (scripts/colors/terminal/pane_safe.sh); the defaults reach
+  # them through the outer terminal, whose own pty is pushed the full set.
+  "$SCRIPT_DIR/terminal/pane_safe.sh" <"$STATE_DIR"/user/generated/terminal/sequences.txt \
+    >"$STATE_DIR"/user/generated/terminal/sequences-pane.txt
+  local pane_ttys=""
+  local sock
+  for sock in /tmp/tmux-"$(id -u)"/*; do
+    [[ -S $sock ]] || continue
+    pane_ttys+=$'\n'"$(tmux -S "$sock" list-panes -a -F '#{pane_tty}' 2>/dev/null)"
+  done
+
+  # Only interactive shells understand these OSC sequences. Other processes can
+  # hold a pty too - kded6 does - and a daemon that reads its pty as plain text
+  # will happily surface the raw escape codes as a desktop notification.
+  for file in /dev/pts/*; do
+    [[ $file =~ ^/dev/pts/[0-9]+$ ]] || continue
+    [[ -w $file ]] || continue
+
+    local attached
+    attached=$(ps -o comm= -t "${file#/dev/}" 2>/dev/null)
+    if ! grep -qE '^(sh|bash|zsh|fish|ksh|csh|tcsh|dash|ash|nu|xonsh|elvish|screen|tmux)' <<<"$attached"; then
+      continue
+    fi
+
+    local payload="$STATE_DIR"/user/generated/terminal/sequences.txt
+    if grep -qxF "$file" <<<"$pane_ttys"; then
+      payload="$STATE_DIR"/user/generated/terminal/sequences-pane.txt
+    fi
+    {
+      cat "$payload" >"$file"
+    } & disown || true
+  done
+}
+
+apply_term() {
+  apply_kitty
+  apply_anyterm
+}
+
+apply_qt() {
+  sh "$CONFIG_DIR/scripts/kvantum/materialQT.sh"          # generate kvantum theme
+  python "$CONFIG_DIR/scripts/kvantum/changeAdwColors.py" # apply config colors
+}
+
+# Check if terminal theming is enabled in config
+CONFIG_FILE="$XDG_CONFIG_HOME/immaterial-impulse/config.json"
+# appearance.* lives in config.d/appearance.json since the config split
+# (stage 1); config.json is read only when that file does not exist yet.
+APPEARANCE_CONFIG_FILE="$XDG_CONFIG_HOME/immaterial-impulse/config.d/appearance.json"
+[ -f "$APPEARANCE_CONFIG_FILE" ] || APPEARANCE_CONFIG_FILE="$CONFIG_FILE"
+if [ -f "$APPEARANCE_CONFIG_FILE" ]; then
+  enable_terminal=$(jq -r '.appearance.wallpaperTheming.enableTerminal' "$APPEARANCE_CONFIG_FILE")
+  if [ "$enable_terminal" = "true" ]; then
+    apply_term &
+  fi
+else
+  echo "Config file not found at $CONFIG_FILE. Applying terminal theming by default."
+  apply_term &
+fi
+
+# apply_qt & # Qt theming is already handled by kde-material-colors

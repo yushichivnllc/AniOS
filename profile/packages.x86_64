@@ -101,6 +101,11 @@ intel-media-driver
 # Tiện ích và thành phần cần cho Immaterial Impulse có sẵn trong repo
 quickshell
 matugen
+hypridle
+wlogout
+bc
+starship
+imagemagick
 qt6-wayland
 qt6-declarative
 qt6-svg

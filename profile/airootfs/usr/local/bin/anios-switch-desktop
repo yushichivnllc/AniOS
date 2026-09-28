@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# anios-switch-desktop: Chuyển đổi giữa hai giao diện desktop cài sẵn của AniOS:
+# 1. minimal (mặc định): Hyprland + Waybar + Mako + Fuzzel (nhẹ, tiết kiệm RAM/GPU)
+# 2. imi: Immaterial Impulse (Hyprland + Quickshell + Matugen, Material 3)
+
+MODE="${1:-status}"
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/anios"
+MODE_FILE="$CONF_DIR/desktop-mode"
+
+get_current_mode() {
+  if [[ -f "$MODE_FILE" ]]; then
+    tr -d '[:space:]' < "$MODE_FILE"
+  else
+    echo "minimal"
+  fi
+}
+
+notify() {
+  local title="$1" msg="$2"
+  if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    hyprctl notify -1 5000 "rgb(7aa2f7)" "$title: $msg" 2>/dev/null || true
+  fi
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "$title" "$msg" 2>/dev/null || true
+  fi
+}
+
+switch_to_imi() {
+  mkdir -p "$CONF_DIR"
+  echo "imi" > "$MODE_FILE"
+  export ANIOS_DESKTOP="imi"
+  echo "Đang chuyển sang giao diện Immaterial Impulse (Quickshell)..."
+
+  # Đảm bảo các thư mục cấu hình đã có trong $HOME
+  if [[ ! -d "$HOME/.config/quickshell/imi" && -d "/usr/share/anios/skel/.config/quickshell/imi" ]]; then
+    mkdir -p "$HOME/.config/quickshell"
+    cp -a /usr/share/anios/skel/.config/quickshell/imi "$HOME/.config/quickshell/"
+  fi
+  if [[ ! -d "$HOME/.config/immaterial-impulse" && -d "/usr/share/anios/skel/.config/immaterial-impulse" ]]; then
+    mkdir -p "$HOME/.config"
+    cp -a /usr/share/anios/skel/.config/immaterial-impulse "$HOME/.config/"
+  fi
+  if [[ ! -d "$HOME/.config/matugen" && -d "/usr/share/anios/skel/.config/matugen" ]]; then
+    mkdir -p "$HOME/.config"
+    cp -a /usr/share/anios/skel/.config/matugen "$HOME/.config/"
+  fi
+
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    # Dừng Waybar & Mako
+    pkill -x waybar 2>/dev/null || true
+    pkill -x mako 2>/dev/null || true
+
+    # Khởi động Quickshell nếu chưa chạy
+    if ! pgrep -x quickshell >/dev/null 2>&1 && ! pgrep -x qs >/dev/null 2>&1; then
+      if command -v qs >/dev/null 2>&1; then
+        QSG_RENDER_LOOP=threaded qs -c imi >/dev/null 2>&1 &
+      elif command -v quickshell >/dev/null 2>&1; then
+        QSG_RENDER_LOOP=threaded quickshell -c imi >/dev/null 2>&1 &
+      fi
+    fi
+
+    # Nạp lại cấu hình Hyprland
+    hyprctl reload 2>/dev/null || true
+    notify "AniOS" "Đã kích hoạt giao diện Immaterial Impulse (Quickshell)"
+  fi
+  echo "Hoàn tất! Giao diện Immaterial Impulse (Quickshell) đã được kích hoạt."
+}
+
+switch_to_minimal() {
+  mkdir -p "$CONF_DIR"
+  echo "minimal" > "$MODE_FILE"
+  export ANIOS_DESKTOP="minimal"
+  echo "Đang chuyển sang giao diện AniOS Minimal (Waybar)..."
+
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    # Dừng Quickshell
+    pkill -x quickshell 2>/dev/null || true
+    pkill -x qs 2>/dev/null || true
+
+    # Khởi động lại Waybar & Mako & Swaybg nếu chưa chạy
+    if ! pgrep -x waybar >/dev/null 2>&1 && command -v waybar >/dev/null 2>&1; then
+      waybar >/dev/null 2>&1 &
+    fi
+    if ! pgrep -x mako >/dev/null 2>&1 && command -v mako >/dev/null 2>&1; then
+      mako >/dev/null 2>&1 &
+    fi
+    if ! pgrep -x swaybg >/dev/null 2>&1 && command -v swaybg >/dev/null 2>&1; then
+      swaybg -i /usr/share/anios/wallpaper.png >/dev/null 2>&1 &
+    fi
+
+    # Nạp lại cấu hình Hyprland
+    hyprctl reload 2>/dev/null || true
+    notify "AniOS" "Đã kích hoạt giao diện AniOS Minimal (Waybar)"
+  fi
+  echo "Hoàn tất! Giao diện AniOS Minimal (Waybar) đã được kích hoạt."
+}
+
+case "$MODE" in
+  imi|quickshell|immaterial|immaterial-impulse)
+    switch_to_imi
+    ;;
+  minimal|waybar|anios)
+    switch_to_minimal
+    ;;
+  toggle)
+    current="$(get_current_mode)"
+    if [[ "$current" == "imi" ]]; then
+      switch_to_minimal
+    else
+      switch_to_imi
+    fi
+    ;;
+  status)
+    current="$(get_current_mode)"
+    echo "Giao diện hiện tại: $current"
+    if [[ "$current" == "imi" ]]; then
+      echo "  (Immaterial Impulse - Quickshell Material 3)"
+    else
+      echo "  (AniOS Minimal - Waybar + Mako)"
+    fi
+    ;;
+  -h|--help|help)
+    cat <<'EOF'
+Cách dùng: anios-switch-desktop [imi | minimal | toggle | status]
+
+Chuyển đổi giữa 2 giao diện desktop cài sẵn của AniOS:
+  imi      - Kích hoạt giao diện Immaterial Impulse (Quickshell + Material 3)
+  minimal  - Kích hoạt giao diện nhẹ AniOS Minimal (Waybar + Mako)
+  toggle   - Đổi qua lại giữa 2 giao diện
+  status   - Xem trạng thái giao diện hiện tại
+EOF
+    ;;
+  *)
+    echo "Tuỳ chọn không hợp lệ: $MODE" >&2
+    echo "Sử dụng: anios-switch-desktop [imi | minimal | toggle | status]" >&2
+    exit 1
+    ;;
+esac
