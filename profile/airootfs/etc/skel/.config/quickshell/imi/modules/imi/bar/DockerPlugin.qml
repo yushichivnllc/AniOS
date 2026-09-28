@@ -1,0 +1,204 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Layouts
+import qs.modules.common
+import qs.modules.common.widgets
+import "../../common/functions/barEdges.js" as BarEdges
+import "../../common/plugins/bundled/docker" as DockerPackage
+
+// Native bar adapter for the bundled Docker manager. Its geometry follows the
+// same content-driven contract as WeatherBar so BarGroup remains the sole
+// owner of the surrounding layout size.
+//
+// A RippleButton, not a MouseArea: a click here opens the container popup,
+// and a bare area answered it with nothing - no ripple, no press, no state
+// while the popup was up. The button brings the interaction model (the
+// press squish and the ripple from the press point); the open state is the
+// bar's dashed anchor outline while the popup is up.
+RippleButton {
+    id: root
+
+    property bool vertical: Config.options.bar.vertical
+    property bool popupOpen: false
+    // Not `horizontalPadding`: that is a FINAL property of the Control this
+    // button is, and redeclaring it stops the whole widget from being created.
+    readonly property real sidePadding: Appearance.spacing.space100
+    readonly property bool isMaterial: Config.options.bar.cornerStyle === 3
+    // The circle is a progress ring - running over total - in the resource
+    // monitor's vocabulary: the outline ring under every bar style but M3,
+    // where the tonal pill is the container and the ring is filled.
+    readonly property real containerProgress: DockerPackage.DockerService.totalCount > 0
+        ? DockerPackage.DockerService.runningCount / DockerPackage.DockerService.totalCount : 0
+    readonly property color tone: DockerPackage.DockerService.dockerAvailable
+        ? Appearance.colors.colPrimary : Appearance.colors.colError
+
+    Component {
+        id: outlineRing
+        ClippedOutlineCircularProgress {
+            implicitSize: 25
+            lineWidth: Appearance.rounding.unsharpen
+            value: root.containerProgress
+            colPrimary: root.tone
+            enableAnimation: false
+            Item {
+                anchors.centerIn: parent
+                width: 25
+                height: 25
+                MaterialSymbol {
+                    anchors.centerIn: parent
+                    fill: 0
+                    text: "deployed_code"
+                    iconSize: Appearance.font.pixelSize.normal
+                    color: root.tone
+                }
+            }
+        }
+    }
+
+    Component {
+        id: filledRing
+        ClippedFilledCircularProgress {
+            implicitSize: 25
+            lineWidth: Appearance.rounding.unsharpen
+            value: root.containerProgress
+            colPrimary: root.tone
+            accountForLightBleeding: DockerPackage.DockerService.dockerAvailable
+            enableAnimation: false
+            Item {
+                anchors.centerIn: parent
+                width: 25
+                height: 25
+                MaterialSymbol {
+                    anchors.centerIn: parent
+                    fill: 0
+                    text: "deployed_code"
+                    iconSize: Appearance.font.pixelSize.normal
+                    color: DockerPackage.DockerService.dockerAvailable
+                        ? Appearance.colors.colOnPrimary : Appearance.colors.colOnError
+                }
+            }
+        }
+    }
+
+    implicitWidth: root.vertical
+        ? (contentLoader.item?.implicitWidth ?? 32)
+        : (contentLoader.item?.implicitWidth ?? 0) + root.sidePadding * 2
+    implicitHeight: root.vertical
+        ? (contentLoader.item?.implicitHeight ?? 0)
+        : Appearance.sizes.barHeight
+    buttonRadius: Appearance.rounding.full
+    colBackground: "transparent"
+    colBackgroundHover: Appearance.colors.colLayer1Hover
+    colRipple: Appearance.colors.colLayer1Active
+
+    // The button's background hugs the content rather than the bar-height
+    // hit area: the hover pill and the anchor outline both draw on it, and
+    // at bar height the outline was a hoop around the gauge and the count
+    // with air above and below. EXPLICIT width and height, not implicit: a
+    // Control forces its background to its own size unless the size is set
+    // outright, so an implicit size with anchors.centerIn changes nothing -
+    // which is why the first attempt at this still filled the hit area.
+    background.anchors.centerIn: this
+    background.width: root.vertical
+        ? (contentLoader.item?.implicitWidth ?? 0) + Appearance.spacing.space50 * 2
+        : (contentLoader.item?.implicitWidth ?? 0) + root.sidePadding * 2
+    background.height: root.vertical
+        ? (contentLoader.item?.implicitHeight ?? 0) + root.sidePadding * 2
+        : (contentLoader.item?.implicitHeight ?? 0) + Appearance.spacing.space50 * 2
+
+    // The open state is the bar's anchor indicator on the popup-facing edge,
+    // as long as the content - the gauge and its count, whichever way they
+    // are laid out - not a tonal container, which broke every style but M3.
+    PopupAnchorIndicator {
+        wraps: contentLoader
+        edgeItem: root
+        edge: BarEdges.popupEdge(Config.options.bar.vertical, Config.options.bar.bottom)
+        shown: root.popupOpen
+    }
+
+    downAction: () => {
+        root.popupOpen = !root.popupOpen;
+        if (root.popupOpen) DockerPackage.DockerService.refresh();
+    }
+
+    contentItem: Item {
+        implicitWidth: contentLoader.implicitWidth
+        implicitHeight: contentLoader.implicitHeight
+        Loader {
+            id: contentLoader
+            anchors.centerIn: parent
+            sourceComponent: root.vertical ? verticalContent : horizontalContent
+        }
+    }
+
+    Component {
+        id: horizontalContent
+        RowLayout {
+            spacing: Appearance.spacing.space100
+
+            StyledText {
+                text: `${DockerPackage.DockerService.runningCount}/${DockerPackage.DockerService.totalCount}`
+                font.pixelSize: Appearance.font.pixelSize.small
+                font.weight: Font.DemiBold
+                color: DockerPackage.DockerService.dockerAvailable
+                    ? Appearance.colors.colPrimary : Appearance.colors.colError
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Loader {
+                Layout.alignment: Qt.AlignVCenter
+                sourceComponent: root.isMaterial ? filledRing : outlineRing
+            }
+        }
+    }
+
+    Component {
+        id: verticalContent
+        ColumnLayout {
+            spacing: Appearance.spacing.space25
+
+            Loader {
+                Layout.alignment: Qt.AlignHCenter
+                sourceComponent: root.isMaterial ? filledRing : outlineRing
+            }
+
+            StyledText {
+                text: DockerPackage.DockerService.runningCount
+                font.pixelSize: Appearance.font.pixelSize.small
+                font.weight: Font.DemiBold
+                color: DockerPackage.DockerService.dockerAvailable
+                    ? Appearance.colors.colPrimary : Appearance.colors.colError
+                Layout.alignment: Qt.AlignHCenter
+            }
+        }
+    }
+
+    Loader {
+        id: popupLoader
+        // Loaded while open, and until the overlay has released the card's
+        // content after the exit (StyledPopup.held): unloaded at the click
+        // that closed it, the content was destroyed under the leaving card.
+        // A plain flag, not a binding on the item's own `held`: that binding
+        // re-evaluated while its write was unloading the item - a binding
+        // loop, and a popup destroyed under the overlay's hand.
+        property bool cardHeld: false
+        active: root.popupOpen || popupLoader.cardHeld
+        onLoaded: popupLoader.cardHeld = popupLoader.item?.held ?? false
+        Connections {
+            target: popupLoader.item
+            function onHeldChanged() { popupLoader.cardHeld = popupLoader.item?.held ?? false; }
+        }
+        sourceComponent: DockerPackage.DockerPopup {
+            pinnedOpen: root.popupOpen
+            // StyledPopup uses its target for screen-relative positioning;
+            // a RippleButton exposes no containsMouse, so this is click-only.
+            hoverTarget: root
+            // The overlay owns the surface, so it owns the outside-click grab.
+            onDismissRequested: root.popupOpen = false
+        }
+    }
+
+
+
+}

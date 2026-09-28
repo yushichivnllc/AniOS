@@ -1,6 +1,7 @@
 AniOS — phiên live Arch Linux + Hyprland
 ========================================
 
+Phím tắt chung:
 Super+Return     Mở terminal (Foot)
 Super+D          Mở launcher (Steam nằm trong đây)
 Super+E          Mở trình quản lý file (Thunar)
@@ -10,6 +11,16 @@ Super+Space      Bật/tắt cửa sổ nổi
 Super+Shift+L    Khoá màn hình (mật khẩu: 1111)
 Ctrl+Alt+F2      Mở TTY cứu hộ (Ctrl+Alt+F1 để quay lại desktop)
 Super+Shift+E    Thoát phiên Hyprland
+
+Hai chế độ giao diện cài sẵn:
+1. AniOS Minimal: Giao diện nhẹ với Waybar + Mako, tối ưu cho GPU đời cũ.
+2. Immaterial Impulse: Giao diện Material 3 tuyệt đẹp với Quickshell + Matugen.
+- Chuyển đổi nhanh bất kỳ lúc nào:
+    anios-switch-desktop imi       (chuyển sang Immaterial Impulse)
+    anios-switch-desktop minimal   (chuyển sang AniOS Minimal)
+    hoặc bấm đúp shortcut trên Desktop / phím tắt Super+Alt+M.
+- Chọn phiên tại màn hình đăng nhập SDDM:
+    AniOS (Hyprland - Minimal) hoặc AniOS (Immaterial Impulse).
 
 Cắm USB/ổ cứng ngoài: ổ sẽ tự hiện trong Thunar và trên thanh trạng thái.
 
@@ -26,9 +37,6 @@ thường cắm jack 3.5mm). Nếu vẫn không nghe thấy gì:
 
 Mật khẩu tài khoản live và sudo là 1111. Hãy nhập mật khẩu này khi
 mở khoá màn hình hoặc đăng nhập lại sau khi thoát phiên.
-
-Chọn "Install Immaterial Impulse" trên Desktop để cài desktop Quickshell đầy
-đủ của XephyLon (cần Internet, tải thêm nhiều gói).
 
 Lưu ý: đây là phiên live tạm thời. File cá nhân, tài khoản Steam và game cài
 trong phiên sẽ mất khi tắt máy, trừ khi bạn dùng ổ ngoài có lưu trữ bền vững.

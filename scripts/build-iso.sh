@@ -205,6 +205,7 @@ insert_permission() {
 }
 insert_permission "/etc/sudoers.d/10-anios-live" "0:0:440"
 insert_permission "/usr/local/bin/anios-setup" "0:0:755"
+insert_permission "/usr/local/bin/anios-switch-desktop" "0:0:755"
 insert_permission "/usr/local/bin/anios-session" "0:0:755"
 insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
@@ -215,6 +216,7 @@ insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
 for entry in \
   '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
+  '["/usr/local/bin/anios-switch-desktop"]="0:0:755"' \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \

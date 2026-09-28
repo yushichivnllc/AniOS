@@ -1,0 +1,371 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+
+import qs.modules.common
+import qs
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Services.Notifications
+
+/**
+ * Provides extra features not in Quickshell.Services.Notifications:
+ *  - Persistent storage
+ *  - Popup notifications, with timeout
+ *  - Notification groups by app
+ */
+Singleton {
+	id: root
+    component Notif: QtObject {
+        id: wrapper
+        required property int notificationId // Could just be `id` but it conflicts with the default prop in QtObject
+        property Notification notification
+        property list<var> actions: notification?.actions.map((action) => ({
+            "identifier": action.identifier,
+            "text": action.text,
+        })) ?? []
+        property bool popup: false
+        property bool isTransient: notification?.hints.transient ?? false
+        // The notification's own icon when it sent one, else a desktop-entry
+        // guess from the app's name - Discord/Vesktop send their avatar as
+        // image data and no appIcon at all, which left the tile empty once
+        // the avatar was gone. Resolved HERE, not in the widget: the icon
+        // widget is presentational (lint_dumb_widgets), and the guess is a
+        // fact about the notification, not about how it is drawn.
+        property string appIcon: root.resolveAppIcon(notification?.appIcon ?? "", wrapper.appName)
+        property string appName: notification?.appName ?? ""
+        property string body: notification?.body ?? ""
+        property string image: notification?.image ?? ""
+        property string summary: notification?.summary ?? ""
+        property double time
+        property string urgency: notification?.urgency.toString() ?? "normal"
+        property Timer timer
+
+        onNotificationChanged: {
+            if (notification === null) {
+                root.discardNotification(notificationId);
+            }
+        }
+    }
+
+    function resolveAppIcon(own, appName) {
+        if (own !== "") return own;
+        const guessed = AppSearch.guessIcon(appName);
+        return guessed === "image-missing" ? "" : guessed;
+    }
+
+    function notifToJSON(notif) {
+        return {
+            "notificationId": notif.notificationId,
+            "actions": notif.actions,
+            "appIcon": notif.appIcon,
+            "appName": notif.appName,
+            "body": notif.body,
+            // image://qsimage/ URLs are minted by THIS process's provider
+            // and die with it; persisted, they come back as a broken-image
+            // glyph after every restart. Only a path survives a restart.
+            "image": String(notif.image).startsWith("image://") ? "" : notif.image,
+            "summary": notif.summary,
+            "time": notif.time,
+            "urgency": notif.urgency,
+        }
+    }
+    function notifToString(notif) {
+        return JSON.stringify(notifToJSON(notif), null, 2);
+    }
+
+    component NotifTimer: Timer {
+        required property int notificationId
+        interval: 7000
+        running: true
+        onTriggered: () => {
+            const index = root.list.findIndex((notif) => notif.notificationId === notificationId);
+            const notifObject = root.list[index];
+            print("[Notifications] Notification timer triggered for ID: " + notificationId + ", transient: " + notifObject?.isTransient);
+            if (!notifObject) {
+                destroy();
+                return;
+            }
+            if (notifObject.isTransient) root.discardNotification(notificationId);
+            else root.expirePopup(notificationId);
+            destroy()
+        }
+    }
+
+    property bool silent: false
+    property int unread: 0
+    property var filePath: Directories.notificationsPath
+    property list<Notif> list: []
+    property var popupList: list.filter((notif) => notif.popup);
+    property bool popupInhibited: (GlobalStates?.sidebarRightOpen ?? false) || silent
+    property var latestTimeForApp: ({})
+    Component {
+        id: notifComponent
+        Notif {}
+    }
+    Component {
+        id: notifTimerComponent
+        NotifTimer {}
+    }
+
+    function stringifyList(list) {
+        return JSON.stringify(list.map((notif) => notifToJSON(notif)), null, 2);
+    }
+    
+    onListChanged: {
+        // Update latest time for each app
+        root.list.forEach((notif) => {
+            if (!root.latestTimeForApp[notif.appName] || notif.time > root.latestTimeForApp[notif.appName]) {
+                root.latestTimeForApp[notif.appName] = Math.max(root.latestTimeForApp[notif.appName] || 0, notif.time);
+            }
+        });
+        // Remove apps that no longer have notifications
+        Object.keys(root.latestTimeForApp).forEach((appName) => {
+            if (!root.list.some((notif) => notif.appName === appName)) {
+                delete root.latestTimeForApp[appName];
+            }
+        });
+    }
+
+    function appNameListForGroups(groups) {
+        return Object.keys(groups).sort((a, b) => {
+            // Sort by time, descending
+            return groups[b].time - groups[a].time;
+        });
+    }
+
+    function groupsForList(list) {
+        const groups = {};
+        list.forEach((notif) => {
+            if (!groups[notif.appName]) {
+                groups[notif.appName] = {
+                    appName: notif.appName,
+                    appIcon: notif.appIcon,
+                    notifications: [],
+                    time: 0
+                };
+            }
+            groups[notif.appName].notifications.push(notif);
+            // Always set to the latest time in the group
+            groups[notif.appName].time = latestTimeForApp[notif.appName] || notif.time;
+        });
+        return groups;
+    }
+
+    property var groupsByAppName: groupsForList(root.list)
+    property var popupGroupsByAppName: groupsForList(root.popupList)
+    property list<string> appNameList: appNameListForGroups(root.groupsByAppName)
+    property list<string> popupAppNameList: appNameListForGroups(root.popupGroupsByAppName)
+
+    // Quickshell's notification IDs starts at 1 on each run, while saved notifications
+    // can already contain higher IDs. This is for avoiding id collisions
+    property int idOffset
+    signal initDone();
+    signal notify(notification: var);
+    signal discard(id: int);
+    signal discardAll();
+    signal timeout(id: var);
+    // A popup's time is up. Whoever shows the card (the popup window) can
+    // take it out first - a fused card slides into the frame's band - and
+    // then call `timeoutNotification`; if nobody does within the fallback,
+    // the service does.
+    signal popupExpiring(id: var);
+    function expirePopup(id) {
+        root.popupExpiring(id);
+        expiryFallbackComponent.createObject(root, { notificationId: id });
+    }
+    Component {
+        id: expiryFallbackComponent
+        Timer {
+            property var notificationId
+            interval: 700
+            running: true
+            onTriggered: {
+                const notif = root.list.find((n) => n.notificationId === notificationId);
+                if (notif && notif.popup) root.timeoutNotification(notificationId);
+                destroy();
+            }
+        }
+    }
+
+	NotificationServer {
+        id: notifServer
+        // actionIconsSupported: true
+        actionsSupported: true
+        bodyHyperlinksSupported: true
+        bodyImagesSupported: true
+        bodyMarkupSupported: true
+        bodySupported: true
+        imageSupported: true
+        keepOnReload: false
+        persistenceSupported: true
+
+        onNotification: (notification) => {
+            // The Phone tab mirrors the daemon's notifications itself, so
+            // kdeconnectd's desktop copy - posted as "KDE Connect" or as the
+            // phone - would be the same notification twice. Dropped only
+            // while the tab is showing them (PhoneNotifications.mirrorActive
+            // is inside the wrapper); otherwise the daemon's copy is the
+            // only one the user gets. Untracked, the server discards it.
+            if (PhoneNotifications.mirrorsDesktopNotification(notification.appName)) return;
+            notification.tracked = true
+            const newNotifObject = notifComponent.createObject(root, {
+                "notificationId": notification.id + root.idOffset,
+                "notification": notification,
+                "time": Date.now(),
+            });
+			root.list = [...root.list, newNotifObject];
+
+            // Popup
+            if (!root.popupInhibited) {
+                newNotifObject.popup = true;
+                // The app's expire_timeout wins only while respectAppTimeout
+                // is on: 0 is its "never dismiss", a negative value its
+                // "you decide". Off, every popup takes the shell's timeout.
+                const respectApp = Config?.options.notifications.respectAppTimeout ?? true;
+                const shellTimeout = Config?.options.notifications.timeout ?? 7000;
+                if (!respectApp || notification.expireTimeout != 0) {
+                    newNotifObject.timer = notifTimerComponent.createObject(root, {
+                        "notificationId": newNotifObject.notificationId,
+                        "interval": (!respectApp || notification.expireTimeout < 0) ? shellTimeout : notification.expireTimeout,
+                    });
+                }
+                root.unread++;
+            }
+            root.notify(newNotifObject);
+            // console.log(notifToString(newNotifObject));
+            notifFileView.setText(stringifyList(root.list));
+        }
+    }
+
+    function markAllRead() {
+        root.unread = 0;
+    }
+
+    function discardNotification(id) {
+        console.log("[Notifications] Discarding notification with ID: " + id);
+        const index = root.list.findIndex((notif) => notif.notificationId === id);
+        const notifServerIndex = notifServer.trackedNotifications.values.findIndex((notif) => notif.id + root.idOffset === id);
+        if (index !== -1) {
+            root.list.splice(index, 1);
+            notifFileView.setText(stringifyList(root.list));
+            triggerListChange()
+        }
+        if (notifServerIndex !== -1) {
+            notifServer.trackedNotifications.values[notifServerIndex].dismiss()
+        }
+        root.discard(id); // Emit signal
+    }
+
+    function discardAllNotifications() {
+        root.list = []
+        triggerListChange()
+        notifFileView.setText(stringifyList(root.list));
+        notifServer.trackedNotifications.values.forEach((notif) => {
+            notif.dismiss()
+        })
+        root.discardAll();
+    }
+
+    function cancelTimeout(id) {
+        const index = root.list.findIndex((notif) => notif.notificationId === id);
+        if (root.list[index] != null)
+            root.list[index].timer.stop();
+    }
+
+    // The timer runs again from the start: a card unpinned goes back to
+    // being a popup on the clock.
+    function restartTimeout(id) {
+        const notif = root.list.find((n) => n.notificationId === id);
+        if (notif?.timer) notif.timer.restart();
+    }
+    function timeoutNotification(id) {
+        const index = root.list.findIndex((notif) => notif.notificationId === id);
+        if (root.list[index] != null)
+            root.list[index].popup = false;
+        // The list is reassigned so every popup view drops the card at
+        // once: a delegate that lingered kept publishing its plate for the
+        // frame to paint (measured: a plate with no card in it).
+        triggerListChange();
+        root.timeout(id);
+    }
+
+    function timeoutAll() {
+        root.popupList.forEach((notif) => {
+            root.timeout(notif.notificationId);
+        })
+        root.popupList.forEach((notif) => {
+            notif.popup = false;
+        });
+        triggerListChange();
+    }
+
+    function attemptInvokeAction(id, notifIdentifier) {
+        console.log("[Notifications] Attempting to invoke action with identifier: " + notifIdentifier + " for notification ID: " + id);
+        const notifServerIndex = notifServer.trackedNotifications.values.findIndex((notif) => notif.id + root.idOffset === id);
+        console.log("Notification server index: " + notifServerIndex);
+        if (notifServerIndex !== -1) {
+            const notifServerNotif = notifServer.trackedNotifications.values[notifServerIndex];
+            const action = notifServerNotif.actions.find((action) => action.identifier === notifIdentifier);
+            // console.log("Action found: " + JSON.stringify(action));
+            action.invoke()
+        } 
+        else {
+            console.log("Notification not found in server: " + id)
+        }
+        root.discardNotification(id);
+    }
+
+    function triggerListChange() {
+        root.list = root.list.slice(0)
+    }
+
+    function refresh() {
+        notifFileView.reload()
+    }
+
+    Component.onCompleted: {
+        refresh()
+    }
+
+    FileView {
+        id: notifFileView
+        path: Qt.resolvedUrl(filePath)
+        onLoaded: {
+            const fileContents = notifFileView.text()
+            root.list = JSON.parse(fileContents).map((notif) => {
+                return notifComponent.createObject(root, {
+                    "notificationId": notif.notificationId,
+                    "actions": [], // Notification actions are meaningless if they're not tracked by the server or the sender is dead
+                    "appIcon": root.resolveAppIcon(notif.appIcon ?? "", notif.appName ?? ""),
+                    "appName": notif.appName,
+                    "body": notif.body,
+                    // Files written before the persist-side strip above still
+                    // carry dead provider URLs; drop them here too.
+                    "image": String(notif.image ?? "").startsWith("image://") ? "" : (notif.image ?? ""),
+                    "summary": notif.summary,
+                    "time": notif.time,
+                    "urgency": notif.urgency,
+                });
+            });
+            // Find largest notificationId
+            let maxId = 0
+            root.list.forEach((notif) => {
+                maxId = Math.max(maxId, notif.notificationId)
+            })
+
+            console.log("[Notifications] File loaded")
+            root.idOffset = maxId
+            root.initDone()
+        }
+        onLoadFailed: (error) => {
+            if(error == FileViewError.FileNotFound) {
+                console.log("[Notifications] File not found, creating new file.")
+                root.list = []
+                notifFileView.setText(stringifyList(root.list));
+            } else {
+                console.log("[Notifications] Error loading file: " + error)
+            }
+        }
+    }
+}

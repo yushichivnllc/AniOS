@@ -1,0 +1,234 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import Quickshell.Hyprland
+import qs.services
+
+/**
+ * Provides access to some Hyprland data not available in Quickshell.Hyprland.
+ */
+Singleton {
+    id: root
+    property var windowList: []
+    property var addresses: []
+    property var windowByAddress: ({})
+    property var workspaces: []
+    property var workspaceIds: []
+    property var workspaceById: ({})
+    property var activeWorkspace: null
+    property var monitors: []
+    property var layers: ({})
+
+    // True while a fullscreen (not just maximized) client sits on that monitor's
+    // active workspace, keyed by monitor name. Hyprland reports fullscreen as an
+    // int: 0 none, 1 maximized, 2 fullscreen, 3 both.
+    //
+    // Worth the poll because it is the only source that separates the two.
+    // Quickshell exposes `HyprlandWorkspace.hasFullscreen`, but that mirrors
+    // Hyprland's own flag, which is set for maximized windows too; a toplevel's
+    // `wayland.fullscreen` answers a different question again (what the client
+    // asked for, not what the compositor did). Only `hyprctl clients -j`'s
+    // integer distinguishes them, so anything that must react to true fullscreen
+    // and ignore maximized reads it from here. Recomputed off the polled
+    // client/monitor lists, which refresh on every Hyprland event.
+    readonly property var fullscreenByMonitorName: {
+        const out = ({});
+        for (const mon of root.monitors) {
+            out[mon.name] = root.windowList.some(w => w.monitor === mon.id
+                && w.workspace?.id === mon.activeWorkspace?.id
+                && w.fullscreen >= 2);
+        }
+        return out;
+    }
+
+    // Monitors with a special workspace showing. `hyprctl monitors -j` names
+    // it in `specialWorkspace`, and the list refreshes on every event, the
+    // `activespecial` one included. Hyprland blurs the whole screen behind a
+    // special workspace, so anything drawing sixty frames a second under one
+    // is paying for a fullscreen blur nobody can see through.
+    readonly property var specialWorkspaceByMonitorName: {
+        const out = ({});
+        for (const mon of root.monitors)
+            out[mon.name] = (mon.specialWorkspace?.name ?? "") !== "";
+        return out;
+    }
+    // The focused monitor's entry in the map above. Drives OpenRgb's ambient
+    // (monitor color) sync, and is reusable by anything else that cares.
+    readonly property bool focusedMonitorHasFullscreen: {
+        const mon = root.monitors.find(m => m.focused);
+        if (!mon)
+            return false;
+        return root.fullscreenByMonitorName[mon.name] ?? false;
+    }
+
+    // Convenient stuff
+
+    function toplevelsForWorkspace(workspace) {
+        return ToplevelManager.toplevels.values.filter(toplevel => {
+            const address = `0x${toplevel.HyprlandToplevel?.address}`;
+            var win = HyprlandData.windowByAddress[address];
+            return win?.workspace?.id === workspace;
+        })
+    }
+
+    function hyprlandClientsForWorkspace(workspace) {
+        return root.windowList.filter(win => win.workspace.id === workspace);
+    }
+
+    function clientForToplevel(toplevel) {
+        if (!toplevel || !toplevel.HyprlandToplevel) {
+            return null;
+        }
+        const address = `0x${toplevel?.HyprlandToplevel?.address}`;
+        return root.windowByAddress[address];
+    }
+
+    // Internals
+
+    function updateWindowList() {
+        getClients.running = true;
+    }
+
+    function updateLayers() {
+        getLayers.running = true;
+    }
+
+    function updateMonitors() {
+        getMonitors.running = true;
+    }
+
+    function updateWorkspaces() {
+        getWorkspaces.running = true;
+        getActiveWorkspace.running = true;
+    }
+
+    function updateAll() {
+        updateWindowList();
+        updateMonitors();
+        updateLayers();
+        updateWorkspaces();
+    }
+
+    function biggestWindowForWorkspace(workspaceId) {
+        const windowsInThisWorkspace = HyprlandData.windowList.filter(w => w.workspace.id == workspaceId);
+        return windowsInThisWorkspace.reduce((maxWin, win) => {
+            const maxArea = (maxWin?.size?.[0] ?? 0) * (maxWin?.size?.[1] ?? 0);
+            const winArea = (win?.size?.[0] ?? 0) * (win?.size?.[1] ?? 0);
+            return winArea > maxArea ? win : maxWin;
+        }, null);
+    }
+
+    Component.onCompleted: {
+        updateAll();
+    }
+
+    // Coalesce bursts of Hyprland events into a single refresh. Spawning apps
+    // (e.g. kitty) or fast workspace switches emit many events in a few ms;
+    // running updateAll() (5 hyprctl subprocesses) per event pegs a core and
+    // stutters the UI. A short debounce collapses each burst into one refresh
+    // without any perceptible delay.
+    Timer {
+        id: refreshDebounce
+        interval: 50
+        onTriggered: root.updateAll()
+    }
+
+    // Whether a floating window is on any monitor's active workspace. A
+    // floating window MOVES without a Hyprland event (the bar hugs for one
+    // in its strip, the dock hides for one - frame_geometry.js
+    // edgeOccupied), so while one is up the clients are re-read on a slow
+    // clock; none up, the clock is off.
+    readonly property bool floatingOnActive: root.monitors.some(mon =>
+        root.windowList.some(w => w.monitor === mon.id
+            && ((w.floating && w.workspace?.id === mon.activeWorkspace?.id)
+                || ((mon.specialWorkspace?.name ?? "") !== "" && w.workspace?.id === mon.specialWorkspace?.id))))
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.floatingOnActive
+        onTriggered: root.updateWindowList()
+    }
+
+    Connections {
+        target: Hyprland
+
+        function onRawEvent(event) {
+            if (["openlayer", "closelayer", "screencast"].includes(event.name)) return;
+            refreshDebounce.restart()
+        }
+    }
+
+    Process {
+        id: getClients
+        command: ["hyprctl", "clients", "-j"]
+        stdout: StdioCollector {
+            id: clientsCollector
+            onStreamFinished: {
+                root.windowList = JSON.parse(clientsCollector.text)
+                let tempWinByAddress = {};
+                for (var i = 0; i < root.windowList.length; ++i) {
+                    var win = root.windowList[i];
+                    tempWinByAddress[win.address] = win;
+                }
+                root.windowByAddress = tempWinByAddress;
+                root.addresses = root.windowList.map(win => win.address);
+            }
+        }
+    }
+
+    Process {
+        id: getMonitors
+        command: ["hyprctl", "monitors", "-j"]
+        stdout: StdioCollector {
+            id: monitorsCollector
+            onStreamFinished: {
+                root.monitors = JSON.parse(monitorsCollector.text);
+            }
+        }
+    }
+
+    Process {
+        id: getLayers
+        command: ["hyprctl", "layers", "-j"]
+        stdout: StdioCollector {
+            id: layersCollector
+            onStreamFinished: {
+                root.layers = JSON.parse(layersCollector.text);
+            }
+        }
+    }
+
+    Process {
+        id: getWorkspaces
+        command: ["hyprctl", "workspaces", "-j"]
+        stdout: StdioCollector {
+            id: workspacesCollector
+            onStreamFinished: {
+                var rawWorkspaces = JSON.parse(workspacesCollector.text);
+                root.workspaces = rawWorkspaces.filter(ws => ws.id >= 1 && ws.id <= 100);
+                let tempWorkspaceById = {};
+                for (var i = 0; i < root.workspaces.length; ++i) {
+                    var ws = root.workspaces[i];
+                    tempWorkspaceById[ws.id] = ws;
+                }
+                root.workspaceById = tempWorkspaceById;
+                root.workspaceIds = root.workspaces.map(ws => ws.id);
+            }
+        }
+    }
+
+    Process {
+        id: getActiveWorkspace
+        command: ["hyprctl", "activeworkspace", "-j"]
+        stdout: StdioCollector {
+            id: activeWorkspaceCollector
+            onStreamFinished: {
+                root.activeWorkspace = JSON.parse(activeWorkspaceCollector.text);
+            }
+        }
+    }
+}

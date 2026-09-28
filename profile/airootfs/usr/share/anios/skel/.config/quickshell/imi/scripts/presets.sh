@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+# presets.sh - manage shell config presets | just for fun I could have done it from quickshell directly =P
+# Usage:
+#   presets.sh --save <name>
+#   presets.sh --remove <name>
+#   presets.sh --apply <name>
+
+CONFIG_DIR="$HOME/.config/immaterial-impulse"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+# appearance.* lives in config.d/appearance.json since the config split
+# (stage 1). A preset stays ONE document (it is shared): --save folds the
+# file's appearance back in, --apply splits it back out. Until the shell has
+# split (no file yet), everything is config.json as before.
+APPEARANCE_FILE="$CONFIG_DIR/config.d/appearance.json"
+PLUGIN_STATE_FILE="$CONFIG_DIR/plugin-state.json"
+PRESETS_DIR="$CONFIG_DIR/presets"
+# Derive locations from the script itself, so this works regardless of where the
+# shell config is installed (no hardcoded config-dir name).
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+SHELL_ROOT="$(dirname "$SCRIPT_DIR")"
+SWITCHWALL="$SCRIPT_DIR/colors/switchwall.sh"
+
+mkdir -p "$PRESETS_DIR"
+
+# FileView reacts to every replacement of these files. Avoid replacing an
+# identical document: doing so needlessly rebuilds plugin delegates and their
+# (potentially monitor-sized) blur textures while a preset is being applied.
+replace_if_changed() {
+    local candidate="$1"
+    local destination="$2"
+    # Never install a candidate that is not a JSON object: a failed jq
+    # leaves an empty file, and renaming that over config.json is the
+    # settings wipe this script must never cause.
+    if ! jq -e 'type == "object"' "$candidate" >/dev/null 2>&1; then
+        echo "Error: refusing to install $candidate over $destination: not a JSON object" >&2
+        rm -f "$candidate"
+        return 2
+    fi
+
+    if [ -f "$destination" ] && cmp -s "$candidate" "$destination"; then
+        rm -f "$candidate"
+        return 1
+    fi
+    mv "$candidate" "$destination"
+    return 0
+}
+
+action="$1"
+name="$2"
+
+if [ -z "$name" ]; then
+    echo "Error: missing preset name" >&2
+    exit 1
+fi
+# The name becomes a path component under PRESETS_DIR. Presets.qml already
+# spaces-to-underscores it, but every action here also takes names from the
+# command line and from files other people wrote; a slash or ".." would read,
+# write or remove outside the presets directory.
+if ! printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._-]+$' || [ "$name" = "." ] || [ "$name" = ".." ]; then
+    echo "Error: bad preset name: $name (letters, digits, . _ - only)" >&2
+    exit 1
+fi
+
+case "$action" in
+    --save)
+        description="$3"
+        plugin_state_snapshot="${4:-}"
+        if [ -n "$plugin_state_snapshot" ]; then
+            plugin_state="$(printf '%s' "$plugin_state_snapshot" | jq -ce '{
+                version: (.version // 2),
+                desktopPositions: (.desktopPositions // {}),
+                lockPositions: (.lockPositions // {}),
+                lockPresence: (.lockPresence // null),
+                lockOptions: (.lockOptions // {}),
+                pluginOptions: (.pluginOptions // {})
+            }' 2>/dev/null)" || plugin_state=""
+        else
+            plugin_state=""
+        fi
+        if [ -z "$plugin_state" ]; then
+            plugin_state="$(jq -c '{
+            version: (.version // 2),
+            desktopPositions: (.desktopPositions // {}),
+            lockPositions: (.lockPositions // {}),
+            lockPresence: (.lockPresence // null),
+            lockOptions: (.lockOptions // {}),
+            pluginOptions: (.pluginOptions // {})
+        }' "$PLUGIN_STATE_FILE" 2>/dev/null \
+            || printf '{"version":2,"desktopPositions":{},"lockPositions":{},"lockPresence":null,"lockOptions":{},"pluginOptions":{}}')"
+        fi
+        # A preset is a document people SHARE, and `config.json` holds the
+        # user's own OpenWeatherMap key. Saving one used to copy it verbatim,
+        # so posting a preset published your key with it. Stripped here rather
+        # than on apply: apply merges the preset over the user's config, so a
+        # key left in the file would also overwrite the recipient's own.
+        # (The AI provider keys are not affected - those live in the keyring,
+        # never in this document.)
+        if [ -f "$APPEARANCE_FILE" ]; then
+            # config.json * {appearance}: the split file is the live copy.
+            if ! config_doc="$(jq -s '.[0] * (.[1] | {appearance: (.appearance // {})})' "$CONFIG_FILE" "$APPEARANCE_FILE")"; then
+                echo "Error: could not read $CONFIG_FILE and $APPEARANCE_FILE; the preset was not saved" >&2
+                exit 1
+            fi
+        else
+            config_doc="$(cat "$CONFIG_FILE")"
+        fi
+        # Through a temp file and replace_if_changed, so a failed jq never
+        # leaves a 0-byte preset behind.
+        if ! printf '%s' "$config_doc" | jq --argjson pluginState "$plugin_state" \
+            'del(._presetMeta, ._pluginState)
+             | ._pluginState = $pluginState
+             | if .bar.weather.apiKey? then .bar.weather.apiKey = "" else . end' \
+            > "$PRESETS_DIR/${name}.json.tmp"; then
+            echo "Error: could not build the preset; nothing was saved" >&2
+            rm -f "$PRESETS_DIR/${name}.json.tmp"
+            exit 1
+        fi
+        replace_if_changed "$PRESETS_DIR/${name}.json.tmp" "$PRESETS_DIR/${name}.json" || [ $? -eq 1 ] || exit 1
+        if [ -n "$description" ]; then
+            jq --arg desc "$description" '._presetMeta = {"description": $desc}' \
+                "$PRESETS_DIR/${name}.json" > "$PRESETS_DIR/${name}.json.tmp" \
+                && mv "$PRESETS_DIR/${name}.json.tmp" "$PRESETS_DIR/${name}.json"
+        fi
+        ;;
+    --remove)
+        rm -f "$PRESETS_DIR/${name}.json"
+        ;;
+    --apply)
+        preset_file="$PRESETS_DIR/${name}.json"
+        if [ ! -f "$preset_file" ]; then
+            echo "Error: preset not found: $name" >&2
+            exit 1
+        fi
+        # Selective application (spec 2026-08-31): --only <spec,...> filters
+        # the preset to the named sections BEFORE the existing merge, which
+        # then behaves exactly as it does for an old partial preset - omitted
+        # keys keep their live values. A spec is a top-level key, an
+        # "appearance:<sub>" subsection, or "_pluginState". Specs are
+        # validated against [A-Za-z0-9_:], and one bad spec refuses the whole
+        # apply rather than guessing.
+        only_specs=""
+        if [ "$3" = "--only" ]; then
+            only_specs="$4"
+            if [ -z "$only_specs" ] || ! printf '%s' "$only_specs" | grep -Eq '^[A-Za-z0-9_:]+(,[A-Za-z0-9_:]+)*$'; then
+                echo "Error: bad --only spec: $only_specs" >&2
+                exit 1
+            fi
+            keep_top="$(printf '%s' "$only_specs" | tr ',' '\n' \
+                | grep -v ':' | grep -v '^_pluginState$' | jq -R . | jq -sc .)"
+            keep_appearance="$(printf '%s' "$only_specs" | tr ',' '\n' \
+                | grep '^appearance:' | cut -d: -f2 | jq -R . | jq -sc .)"
+            filtered_preset="$(jq -c --argjson top "$keep_top" --argjson app "$keep_appearance" \
+                '. as $p
+                 | (reduce $top[] as $k ({}; if ($p | has($k)) then .[$k] = $p[$k] else . end))
+                 | if ($app | length) > 0 and ($p.appearance? != null) then
+                       .appearance = (reduce $app[] as $k ({};
+                           if ($p.appearance | has($k)) then .[$k] = $p.appearance[$k] else . end))
+                   else . end' "$preset_file")"
+            preset_file="$(mktemp "${PRESETS_DIR}/.apply-XXXXXX.json")"
+            printf '%s' "$filtered_preset" > "$preset_file"
+            trap 'rm -f "$preset_file"' EXIT
+            if printf '%s' "$only_specs" | tr ',' '\n' | grep -qx '_pluginState'; then
+                jq -c --slurpfile orig <(jq '._pluginState // empty' "$PRESETS_DIR/${name}.json") \
+                    'if ($orig | length) > 0 then ._pluginState = $orig[0] else . end' \
+                    "$preset_file" > "${preset_file}.tmp" && mv "${preset_file}.tmp" "$preset_file"
+            fi
+        else
+            # No --only: everything except `apps`. Those values are run as
+            # shell commands (Session, the Bluetooth/Wi-Fi/mixer dialogs, the
+            # launcher's terminal), so a shared preset could plant a command
+            # that fires the next time the recipient opens Bluetooth settings.
+            # The dialog already leaves its Commands row off by default; the
+            # command line gets the same default, and `--only apps` remains
+            # the one way to take them deliberately.
+            preset_file="$(mktemp "${PRESETS_DIR}/.apply-XXXXXX.json")"
+            jq 'del(.apps)' "$PRESETS_DIR/${name}.json" > "$preset_file"
+            trap 'rm -f "$preset_file"' EXIT
+        fi
+        preset_plugin_state="$(jq -c '._pluginState // empty' "$preset_file")"
+        # Plugins flagged presetPersist keep their CURRENT options, desktop
+        # positions and enabled state through preset application. The flag map
+        # itself lives only in the live plugin-state (never captured into a
+        # preset's _pluginState snapshot).
+        persist_ids="$(jq -c '[(.presetPersist // {}) | to_entries[] | select(.value == true) | .key]' \
+            "$PLUGIN_STATE_FILE" 2>/dev/null || printf '[]')"
+        if [ -n "$preset_plugin_state" ]; then
+            current_plugin_state="$(jq -c '{
+                version: (.version // 2),
+                desktopPositions: (.desktopPositions // {}),
+                lockPositions: (.lockPositions // {}),
+                lockPresence: (.lockPresence // null),
+                lockOptions: (.lockOptions // {}),
+                pluginOptions: (.pluginOptions // {}),
+                presetPersist: (.presetPersist // {})
+            }' "$PLUGIN_STATE_FILE" 2>/dev/null \
+                || printf '{"version":2,"desktopPositions":{},"lockPositions":{},"lockPresence":null,"lockOptions":{},"pluginOptions":{},"presetPersist":{}}')"
+            # Top-level merging keeps fields omitted by older position-only
+            # presets, while a new preset's complete maps replace current state.
+            jq -n --argjson current "$current_plugin_state" --argjson preset "$preset_plugin_state" \
+                --argjson persistIds "$persist_ids" \
+                '$current * $preset
+                    | .version = 2
+                    | .desktopPositions = (if ($preset | has("desktopPositions"))
+                        then ($preset.desktopPositions // {})
+                        else ($current.desktopPositions // {}) end)
+                    | .lockPositions = (if ($preset | has("lockPositions"))
+                        then ($preset.lockPositions // {})
+                        else ($current.lockPositions // {}) end)
+                    | .lockPresence = (if ($preset | has("lockPresence"))
+                        then $preset.lockPresence
+                        else $current.lockPresence end)
+                    | .pluginOptions = (if ($preset | has("pluginOptions"))
+                        then ($preset.pluginOptions // {})
+                        else ($current.pluginOptions // {}) end)
+                    | .lockOptions = (if ($preset | has("lockOptions"))
+                        then ($preset.lockOptions // {})
+                        else ($current.lockOptions // {}) end)
+                    | .presetPersist = ($current.presetPersist // {})
+                    | reduce $persistIds[] as $id (.;
+                        (if ($current.pluginOptions // {}) | has($id)
+                         then .pluginOptions[$id] = $current.pluginOptions[$id]
+                         else .pluginOptions |= del(.[$id]) end)
+                        | (if ($current.lockOptions // {}) | has($id)
+                         then .lockOptions[$id] = $current.lockOptions[$id]
+                         else .lockOptions |= del(.[$id]) end)
+                        | ($current.desktopPositions // {}) as $cpos
+                        | .desktopPositions = (reduce (((.desktopPositions // {}) + $cpos) | keys_unsorted[]) as $screen (.desktopPositions // {};
+                            if ($cpos[$screen] // {}) | has($id)
+                            then .[$screen] = ((.[$screen] // {}) + {($id): $cpos[$screen][$id]})
+                            else .[$screen] = ((.[$screen] // {}) | del(.[$id]))
+                            end)))' \
+                > "${PLUGIN_STATE_FILE}.tmp" \
+                && replace_if_changed "${PLUGIN_STATE_FILE}.tmp" "$PLUGIN_STATE_FILE" || true
+
+            # Cancel a pending in-memory debounce and publish the preset state
+            # immediately. Without this, a just-edited option can overwrite the
+            # externally restored file before FileView reloads it.
+            restored_plugin_state="$(jq -c '.' "$PLUGIN_STATE_FILE" 2>/dev/null || true)"
+            if [ -n "$restored_plugin_state" ]; then
+                qs -p "$SHELL_ROOT" ipc call pluginState replace \
+                    "$restored_plugin_state" >/dev/null 2>&1 || true
+            fi
+        fi
+        current_enabled="$(jq -c '.plugins.enabled // []' "$CONFIG_FILE" 2>/dev/null || printf '[]')"
+        if jq -s --argjson persistIds "$persist_ids" --argjson curEnabled "$current_enabled" \
+            '.[0] * .[1] | del(._presetMeta, ._pluginState)
+                | if (.plugins.enabled? != null) and ($persistIds | length > 0) then
+                    .plugins.enabled = (
+                        (.plugins.enabled | map(select(. as $x | ($persistIds | index($x)) | not)))
+                        + ($persistIds | map(select(. as $x | ($curEnabled | index($x)) != null))))
+                  else . end' \
+            "$CONFIG_FILE" "$preset_file" \
+            > "${CONFIG_FILE}.merged"
+        then
+            :
+        else
+            echo "Error: could not merge the preset into $CONFIG_FILE; nothing was changed" >&2
+            rm -f "${CONFIG_FILE}.merged"
+            exit 1
+        fi
+        if [ -f "$APPEARANCE_FILE" ]; then
+            # The split: appearance goes to its own file (merged over what is
+            # there), everything else to config.json without it. Both temp
+            # files are built and checked before either rename.
+            if ! jq -s '.[0] * (.[1] | {appearance: (.appearance // {})})' "$APPEARANCE_FILE" "${CONFIG_FILE}.merged" \
+                    > "${APPEARANCE_FILE}.tmp" \
+                || ! jq 'del(.appearance)' "${CONFIG_FILE}.merged" > "${CONFIG_FILE}.tmp"; then
+                echo "Error: could not split the merged preset; nothing was changed" >&2
+                rm -f "${CONFIG_FILE}.merged" "${APPEARANCE_FILE}.tmp" "${CONFIG_FILE}.tmp"
+                exit 1
+            fi
+            rm -f "${CONFIG_FILE}.merged"
+            # A refusal (return 2) aborts before either file moves: both
+            # candidates are checked first, so the apply is all or nothing.
+            if ! jq -e 'type == "object"' "${APPEARANCE_FILE}.tmp" >/dev/null 2>&1 \
+                || ! jq -e 'type == "object"' "${CONFIG_FILE}.tmp" >/dev/null 2>&1; then
+                echo "Error: the split preset did not produce two JSON objects; nothing was changed" >&2
+                rm -f "${APPEARANCE_FILE}.tmp" "${CONFIG_FILE}.tmp"
+                exit 1
+            fi
+            replace_if_changed "${APPEARANCE_FILE}.tmp" "$APPEARANCE_FILE" || [ $? -eq 1 ] || exit 1
+            replace_if_changed "${CONFIG_FILE}.tmp" "$CONFIG_FILE" || [ $? -eq 1 ] || exit 1
+        else
+            mv "${CONFIG_FILE}.merged" "${CONFIG_FILE}.tmp"
+            replace_if_changed "${CONFIG_FILE}.tmp" "$CONFIG_FILE" || [ $? -eq 1 ] || exit 1
+        fi
+        engine_path="$(jq -r '.wallpaperSelector.wallpaperEngine.activePath // empty' "$CONFIG_FILE")"
+        engine_preview="$(jq -r '.wallpaperSelector.wallpaperEngine.activePreview // empty' "$CONFIG_FILE")"
+        if [ -n "$engine_path" ] && [ -d "$engine_path" ] && [ -n "$engine_preview" ]; then
+            # A Wallpaper Engine project is selected: theme from its preview. The
+            # wallpaper surface renders it off the config on its own.
+            "$SWITCHWALL" --noswitch --coloronly --image "$engine_preview"
+        else
+            "$SWITCHWALL" --noswitch
+        fi
+        ;;
+    *)
+        echo "Error: unknown action: $action" >&2
+        exit 1
+        ;;
+esac

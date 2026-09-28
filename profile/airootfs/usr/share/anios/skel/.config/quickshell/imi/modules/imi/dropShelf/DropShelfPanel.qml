@@ -1,0 +1,330 @@
+import qs.modules.common
+import qs.modules.common.widgets
+import qs.modules.common.functions
+import qs.services
+import qs
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import Quickshell.Hyprland
+import Quickshell.Wayland
+
+Scope {
+    id: root
+
+    readonly property bool shakeToSummon: Config.options.dropShelf.shakeToSummon
+    readonly property real shakeSensitivity: Config.options.dropShelf.shakeSensitivity
+    // Frost *is* the translucency here (see shelfBg: the compositor blurs behind
+    // the layer, so the only thing "blur" does in this file is thin the tint),
+    // so the global transparency switch has to gate it. Ungated, the shelf stayed
+    // 50% see-through onto a now-sharp wallpaper while every other surface went
+    // opaque - and out of the box, since both settings default to on/0.5.
+    //
+    // No per-panel exemption, deliberately: the desktop widgets' `keepTranslucent`
+    // exists because widgets are user-installed and heterogeneous, and one of them
+    // may exist precisely to be see-through. This is one first-party transient
+    // shelf; the global switch is its switch.
+    readonly property bool blurBackground: Config.options.dropShelf.blurBackground
+        && Config.options.appearance.transparency.enable
+    readonly property real backgroundOpacity: Config.options.dropShelf.backgroundOpacity
+
+    // Dropover-style mid-drag summon: press the bound key while dragging files
+    // and the shelf materializes under the cursor to receive the drop.
+    GlobalShortcut {
+        name: "dropShelfSummon"
+        description: "Summons the drop shelf at the cursor"
+        onPressed: {
+            if (GlobalStates.dropShelfOpen) GlobalStates.dropShelfOpen = false
+            else DropShelf.summonAtCursor()
+        }
+    }
+
+    IpcHandler {
+        target: "dropShelf"
+
+        function toggle(): void {
+            if (GlobalStates.dropShelfOpen) GlobalStates.dropShelfOpen = false
+            else DropShelf.summonAtCursor()
+        }
+
+        function open(): void {
+            DropShelf.summonAtCursor()
+        }
+
+        function close(): void {
+            GlobalStates.dropShelfOpen = false
+        }
+    }
+
+    // Shake-to-summon: a helper polls the Hyprland socket for the cursor and
+    // reports shakes. Wayland offers no global "drag in progress" signal, so
+    // this is armed whenever enabled - the strict gesture plus auto-dismiss
+    // keeps false positives harmless. Paused while locked or fullscreen.
+    Process {
+        id: shakeProc
+        running: root.shakeToSummon
+            && !GlobalStates.screenLocked
+            && !HyprlandData.focusedMonitorHasFullscreen
+        command: ["python3", `${Directories.scriptPath}/dropshelf/shake_detector.py`,
+            "--sensitivity", `${root.shakeSensitivity}`]
+        stdout: SplitParser {
+            onRead: line => {
+                if (!line.startsWith("SHAKE ")) return
+                const parts = line.trim().split(/\s+/)
+                if (parts.length < 3) return
+                if (!GlobalStates.dropShelfOpen) {
+                    DropShelf.openAtGlobal(parseFloat(parts[1]), parseFloat(parts[2]))
+                    DropShelf.armAutoDismiss()
+                }
+            }
+        }
+        stderr: SplitParser {
+            onRead: line => console.warn("[DropShelf] shake detector:", line)
+        }
+        onExited: (exitCode, exitStatus) => {
+            // One-shot on purpose (no respawn loop; see docs/PLUGINS.md process
+            // lifecycle). A clean toggle restarts it via the running binding.
+            if (root.shakeToSummon)
+                console.warn("[DropShelf] shake detector exited:", exitCode)
+        }
+    }
+
+    // The shelf outlives its flag by the leave motion; input follows the
+    // flag so a leaving shelf never takes a click or a drop.
+    OverlayLifecycle {
+        id: shelfLife
+        wanted: GlobalStates.dropShelfOpen
+    }
+    Region { id: shelfNoInput }
+
+    LazyLoader {
+        active: shelfLife.alive
+
+        component: PanelWindow {
+            id: shelfWindow
+            visible: true
+            mask: GlobalStates.dropShelfOpen ? null : shelfNoInput
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "quickshell:dropshelf"
+            color: "transparent"
+
+            anchors { top: true; left: true }
+            margins {
+                left: Math.max(20, GlobalStates.dropShelfX - implicitWidth / 2)
+                top: GlobalStates.dropShelfAnchorBelow
+                    ? GlobalStates.dropShelfY + 10
+                    : Math.max(20, GlobalStates.dropShelfY - implicitHeight - 30)
+            }
+
+            implicitWidth: 360
+            implicitHeight: contentColumn.implicitHeight + 24
+
+            DropArea {
+                id: shelfDropArea
+                anchors.fill: parent
+                keys: ["text/uri-list"]
+
+                onEntered: (drag) => {
+                    drag.accepted = drag.hasUrls
+                }
+
+                onDropped: (drop) => {
+                    if (!drop.hasUrls) {
+                        drop.accepted = false
+                        return
+                    }
+                    DropShelf.addItems(drop.urls)
+                    drop.accept()
+                }
+            }
+
+            // A summoned shelf auto-dismisses unless the user engages with it.
+            Binding {
+                target: DropShelf
+                property: "autoDismissHeld"
+                value: shelfDropArea.containsDrag || shelfHoverHandler.hovered
+            }
+            Component.onDestruction: DropShelf.autoDismissHeld = false
+
+            PopupPlate {
+                id: shelfBg
+                anchors.fill: parent
+                // Enter and leave from the lifecycle's one scalar: a fade
+                // with a small settle, the rise the summon position implies.
+                opacity: shelfLife.progress
+                scale: 0.94 + 0.06 * shelfLife.progress
+                transformOrigin: Item.Top
+
+                HoverHandler {
+                    id: shelfHoverHandler
+                }
+                radius: Appearance.rounding.large
+                // Translucent when frosted: the compositor blurs behind every
+                // quickshell:* layer (hyprland rules.lua), so lowering the tint's
+                // opacity is all "blur" takes here.
+                color: root.blurBackground
+                    ? ColorUtils.transparentize(Appearance.colors.colLayer0, 1 - root.backgroundOpacity)
+                    : Appearance.colors.colLayer0
+
+                ColumnLayout {
+                    id: contentColumn
+                    anchors.fill: parent
+                    anchors.margins: Appearance.spacing.space150
+                    spacing: Appearance.spacing.space100
+
+                    Carousel {
+                        id: shelfCarousel
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 140
+                        showCurrentIndicator: false
+                        model: DropShelf.items
+                        largeItemWidthRatio: 0.42
+                        mediumItemWidthRatio: 0.28
+                        smallItemWidthRatio: 0.12
+
+                        delegate: Loader {
+                            id: shelfItemLoader
+                            property string entryPath: modelData
+                            property real fixedWidth
+                            property real fixedHeight
+                            sourceComponent: /\.(png|jpe?g|webp|bmp|gif)$/i.test(shelfItemLoader.entryPath)
+                                ? imageDelegate
+                                : fileDelegate
+
+                            Component {
+                                id: imageDelegate
+                                Item {
+                                    anchors.fill: parent
+                                    StyledImage {
+                                        id: shelfImg
+                                        anchors.fill: parent
+                                        source: "file://" + shelfItemLoader.entryPath
+                                        fillMode: Image.PreserveAspectCrop
+                                        cache: true
+                                        asynchronous: true
+
+                                        Drag.active: dragArea.drag.active
+                                        Drag.dragType: Drag.Automatic
+                                        Drag.mimeData: { "text/uri-list": "file://" + shelfItemLoader.entryPath }
+                                        Drag.supportedActions: Qt.CopyAction
+
+                                        MouseArea {
+                                            id: dragArea
+                                            anchors.fill: parent
+                                            drag.target: parent
+                                            cursorShape: Qt.OpenHandCursor
+                                            onPressed: parent.grabToImage(() => {})
+                                            onReleased: {
+                                                if (parent.Drag.active) {
+                                                    parent.Drag.drop()
+                                                }
+                                                parent.x = 0
+                                                parent.y = 0
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Component {
+                                id: fileDelegate
+                                Item {
+                                    anchors.fill: parent
+                                    Rectangle {
+                                        id: fileBg
+                                        anchors.fill: parent
+                                        color: Appearance.colors.colSurfaceContainerHighest
+
+                                        Drag.active: fileDragArea.drag.active
+                                        Drag.dragType: Drag.Automatic
+                                        Drag.mimeData: { "text/uri-list": "file://" + shelfItemLoader.entryPath }
+                                        Drag.supportedActions: Qt.CopyAction
+
+                                        ColumnLayout {
+                                            anchors.centerIn: parent
+                                            spacing: Appearance.spacing.space50
+                                            MaterialSymbol {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: shelfItemLoader.entryPath.endsWith("/") ? "folder" : "draft"
+                                                iconSize: 32
+                                                color: Appearance.colors.colOnLayer1
+                                            }
+                                            StyledText {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                Layout.maximumWidth: 90
+                                                elide: Text.ElideMiddle
+                                                text: shelfItemLoader.entryPath.split("/").pop()
+                                                font.pixelSize: Appearance.font.pixelSize.smaller
+                                                color: Appearance.colors.colOnLayer1
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: fileDragArea
+                                            anchors.fill: parent
+                                            drag.target: parent
+                                            cursorShape: Qt.OpenHandCursor
+                                            onReleased: {
+                                                if (parent.Drag.active) {
+                                                    parent.Drag.drop()
+                                                }
+                                                parent.x = 0
+                                                parent.y = 0
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    StyledText {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: Translation.tr("%1 elements").arg(DropShelf.items.length)
+                        font.pixelSize: Appearance.font.pixelSize.normal
+                        color: Appearance.colors.colOnLayer0
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Appearance.spacing.space50
+                        spacing: Appearance.spacing.space100
+
+                        DialogButton {
+                            Layout.fillWidth: true
+                            buttonText: Translation.tr("Copy")
+                            colBackground: Appearance.colors.colSecondaryContainer
+                            colBackgroundHover: Appearance.colors.colSecondaryContainerHover
+                            colRipple: Appearance.colors.colSecondaryContainerActive
+                            colText: Appearance.colors.colOnSecondaryContainer
+                            onClicked: DropShelf.copyAll()
+                        }
+
+                        DialogButton {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignRight
+                            buttonText: Translation.tr("Clear")
+                            colBackground: Appearance.colors.colLayer1
+                            colBackgroundHover: Appearance.colors.colLayer1Hover
+                            colRipple: Appearance.colors.colLayer1Active
+                            colText: Appearance.colors.colOnLayer1
+                            onClicked: DropShelf.clear()
+                        }
+                        DialogButton {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignRight
+                            buttonText: Translation.tr("Close")
+                            colBackground: Appearance.colors.colLayer1
+                            colBackgroundHover: Appearance.colors.colLayer1Hover
+                            colRipple: Appearance.colors.colLayer1Active
+                            colText: Appearance.colors.colOnLayer1
+                            onClicked: DropShelf.hide()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

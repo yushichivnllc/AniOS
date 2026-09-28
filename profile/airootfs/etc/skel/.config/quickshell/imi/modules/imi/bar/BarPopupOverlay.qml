@@ -1,0 +1,1172 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Wayland
+import qs
+import qs.modules.common
+import qs.services
+import qs.modules.common.widgets
+import qs.modules.common.functions
+import "bar_popup_unroll.js" as BarPopupUnroll
+
+// One always-mapped layer surface per screen, hosting the single card every bar
+// popup morphs. The surface itself never moves, resizes or unmaps: on a
+// layer-shell surface position *is* `margins`, so animating a popup along the
+// bar reconfigures its surface every frame, which is the create-map-destroy
+// loop StyledPopup's imperative positioning already exists to avoid.
+//
+// The card carries all the motion instead, and `mask: Region { item: card }`
+// keeps the rest of the screen click-through. A 0x0 card builds an empty input
+// region, which makes Qt mark the whole surface transparent for input - that is
+// the invariant that lets a full-screen Overlay surface stay mapped forever.
+Scope {
+    id: overlayScope
+
+    Variants {
+        // Same screen set as both bars: the vertical bar loads the same widget
+        // files, so one overlay family entry serves either orientation.
+        model: {
+            const screens = Quickshell.screens;
+            const list = Config.options.bar.screenList;
+            if (!list || list.length === 0)
+                return screens;
+            return screens.filter(screen => list.includes(screen.name));
+        }
+
+        PanelWindow {
+            id: overlayWindow
+            required property ShellScreen modelData
+
+            screen: modelData
+            color: "transparent"
+            // Mapped only while it has something to show. This is a
+            // SCREEN-SIZED surface on the Overlay layer, so leaving it mapped
+            // puts a 5120x1440 transparent sheet over every fullscreen window
+            // for the whole session - the compositor composites it each frame
+            // and the window under it can never be the only thing on the
+            // output. Measured with FFXIV's own counter on a static scene:
+            // 98 fps with this mapped and idle, 105 with it unmapped.
+            //
+            // The predicate outlasts the exit deliberately. Unmapping destroys
+            // the QQuickWindow, and a popup's content tree is REPARENTED into
+            // this window while it shows - so the window may only go once
+            // `finishExit()` has released both trees and collapsed the card,
+            // which is exactly the state this reads.
+            //
+            // It reads the card's INPUTS - the open height, the width and the
+            // driver - rather than its drawn height and opacity, and that is
+            // load-bearing rather than tidiness. The drawn ones are derived, and
+            // the card's own across-the-bar coordinate is derived from the
+            // window's size, so a predicate reading them closes a circle through
+            // this very property: measured as `Binding loop detected for
+            // property "visible"` on a real compositor, twice per window, where
+            // the same probe against the assigned geometry logged nothing.
+            visible: overlayWindow.current !== null
+                || overlayWindow.outgoing !== null
+                || overlayWindow.exiting
+                || card.openProgress > 0
+                || card.width > 0
+                || card.openHeight > 0
+            exclusionMode: ExclusionMode.Ignore
+            exclusiveZone: 0
+
+            // Anchoring all four edges makes this window's coordinate space the
+            // screen's, so no bar-edge arithmetic survives at surface level.
+            anchors {
+                top: true
+                bottom: true
+                left: true
+                right: true
+            }
+
+            // Its own namespace, listed in rules.lua's computed-threshold loop
+            // beside the bar and the dock. quickshell:popup was reused at first
+            // because its ignore_alpha = 1 blurs the card's opaque body and
+            // skips its translucent shadow - but a tray item's context menu is
+            // an xdg-popup of whatever surface it was opened from, and popups
+            // inherit the parent surface's rules. Once tray items moved onto
+            // this card their menus inherited that 1, and a translucent menu
+            // body sits below it: the menu stopped being blurred at all.
+            //
+            // The computed threshold serves both, which the constant cannot:
+            // it is above the shadow and below the faintest body, so the opaque
+            // card blurs, its shadow stays sharp, this surface's transparent
+            // pixels are left alone, and the popups opened from the card are
+            // blurred like the ones opened from the bar always were. A
+            // namespace absent from that loop is the real hazard - it falls
+            // through to the catch-all 0.05, under which the transparent pixels
+            // ask the compositor to blur the whole screen.
+            WlrLayershell.namespace: "quickshell:barPopup"
+            WlrLayershell.layer: WlrLayer.Overlay
+
+            mask: Region {
+                item: card
+            }
+
+            // The popup the card is showing or morphing to, and the one still
+            // fading out inside it. Never more than these two content trees are
+            // in a window at once.
+            property var current: null
+            property var outgoing: null
+            property bool exiting: false
+            // Where along the bar the card collapses to on exit. Remembered
+            // rather than recomputed, because the popup that owns it may have
+            // been destroyed by the time the exit runs. One number, not a
+            // rectangle: the card's across-the-bar coordinate is derived from
+            // its live size, so nothing about the parked square is stored.
+            property var exitAnchor: null
+            readonly property bool morphing: card.alongBarAnim.running || card.widthAnim.running
+                || card.heightAnim.running || card.openAnim.running
+
+            readonly property var requested: {
+                const popup = GlobalStates.activeBarPopup;
+                if (!popup || !popup.popupVisible) return null;
+                if (popup.hoverTarget?.QsWindow?.window?.screen !== overlayWindow.modelData) return null;
+                return popup;
+            }
+
+            // ---- the content wave's gate --------------------------------
+            //
+            // The popup's below-the-fold sections hold their entrance until
+            // the card itself has arrived, then cascade
+            // (docs/p3drovfx-motion-measured-2026-08-22.md §2.1: container,
+            // then fill). The card's driver IS a container progress, so like
+            // Edit Mode's drawer this adopter asks the real question through
+            // Appearance.animation.contentsArrived and carries no leadIn - a
+            // lead-in as well would be two waits in front of one wave, only
+            // one of them answerable.
+            //
+            // `opening` is the overlay's own intent - the slot is claimed and
+            // the card is not leaving - never a direction inferred from the
+            // progress: the intent flips at the claim and the progress
+            // follows, so the gate's two branches are entered by different
+            // events and there is no ordering to get wrong.
+            // A landing card is still "open" to its contents: they ride the
+            // card down onto the band and leave with the submerge. Gated on
+            // `exiting` alone the sections left at the first frame of the
+            // exit and an empty plate landed and sank (footage, the Discord
+            // card: a click-opened, released popup).
+            readonly property bool opening: overlayWindow.current !== null
+                && !(overlayWindow.exiting && !overlayWindow.landing)
+            readonly property bool contentsIn: Appearance.animation.contentsArrived(
+                card.openProgress, overlayWindow.opening)
+            // Armed by a FRESH open only, in takeOver's from-idle branch. A
+            // cross-fade takeover finds the card already there, so there is
+            // no container to wait for and the arriving sections stay at full
+            // strength; a re-hover that reverses an exit must not blink out
+            // sections the user is looking at. Both are exactly the states
+            // this flag is false in - which is what spares this surface the
+            // drawer's park-on-every-intent blink without a second notion of
+            // "current".
+            property bool wavePending: false
+
+            onContentsInChanged: {
+                // `opening` is a conjunct deliberately: a hover-out BEFORE
+                // the gate answered flips contentsIn true through the exit
+                // branch (any progress > 0 rides out), and a cascade started
+                // into a collapsing card is the race the gate exists to
+                // close. The armed flag survives that flip, so an exit
+                // reversed by a re-hover still gets the cascade it never had.
+                if (overlayWindow.contentsIn && overlayWindow.wavePending
+                        && overlayWindow.opening) {
+                    overlayWindow.wavePending = false;
+                    sectionWave.enter();
+                }
+            }
+
+            onRequestedChanged: {
+                if (requested) takeOver(requested);
+                else beginExit();
+            }
+
+            function takeOver(popup) {
+                exitTimer.stop();
+                overlayWindow.landing = false;
+                overlayWindow.exiting = false;
+                // No opacity or progress write here: retarget() drives the one
+                // scalar, one turn of the event loop from now, and it is the
+                // only place that knows what the card is opening to. Reversing
+                // an exit from here would ramp the card back up against the
+                // outgoing popup's height for a frame.
+                //
+                // An exit disables the leaving content; a re-hover of the very
+                // widget the card was leaving has to hand its controls back.
+                if (overlayWindow.current?.contentItem)
+                    overlayWindow.current.contentItem.enabled = true;
+
+                if (overlayWindow.current === popup) {
+                    // ...and its content, if the sink's fade had started.
+                    sinkFade.stop();
+                    if (popup.contentItem) popup.contentItem.opacity = 1;
+                    retargetTimer.restart();
+                    return;
+                }
+
+                // A third takeover arriving before the second cross-fade
+                // finished would leave a tree parented with nothing left to
+                // unparent it, so release it here rather than on its fade.
+                if (overlayWindow.outgoing && overlayWindow.outgoing !== popup)
+                    overlayWindow.release(overlayWindow.outgoing);
+                overlayWindow.outgoing = null;
+
+                const previous = overlayWindow.current;
+                if (previous) previous.popupHovered = false;
+                // The wave follows whichever popup holds the card, so settle
+                // it against the outgoing tree BEFORE the slot changes hands:
+                // stopping alone would strand a mid-cascade section at
+                // partial `appear`, and a popup returning later by cross-fade
+                // - where nothing parks or re-enters - would keep it dimmed
+                // for the rest of the session.
+                if (previous && previous !== popup) {
+                    sectionWave.settle();
+                    // A flag armed for the PREVIOUS tree must not survive the
+                    // slot changing hands: hover A from idle, slide to B
+                    // before the gate answers, and the gate would fire
+                    // against B's never-parked sections - snapping them to
+                    // zero to cascade content that was already at full
+                    // strength, which is the opposite of what a cross-fade
+                    // promises. A takeover from idle re-arms below.
+                    overlayWindow.wavePending = false;
+                }
+                overlayWindow.current = popup;
+
+                if (previous && previous !== popup && previous.contentItem) {
+                    overlayWindow.outgoing = previous;
+                    // The outgoing tree fades as a picture, not as a control:
+                    // a click landing on the card mid-morph is aimed at the
+                    // content the pointer moved toward.
+                    previous.contentItem.enabled = false;
+                    // ...and a picture holds still. Left centred in the slot
+                    // - which is already the ARRIVING content's settled box -
+                    // a taller outgoing tree showed its middle band the moment
+                    // the slot shrank: the header cut away, the rows below it
+                    // jumping to the top, then the clip walking over them
+                    // (footage: weather to calendar). Pinned to the host's
+                    // top-left it keeps the top the user was reading and the
+                    // card's edge covers it from below and from the right.
+                    // ...in its OWN host, under the arriving tree's and with
+                    // the leaving popup's padding: in the arriving tree's host
+                    // it stacked on top (reparented last) and drew at full
+                    // strength over the one the pointer had moved to for the
+                    // first frames (footage: weather over calendar), and the
+                    // host's margins had already become the arriving popup's
+                    // padding, so the leaving content jumped by the difference
+                    // on the first frame - 16 px, weather to calendar
+                    // (footage). Same top-left, same padding, no jump.
+                    const leaving = previous.contentItem;
+                    leaving.anchors.centerIn = null;
+                    leaving.parent = leaveHost;
+                    leaving.anchors.top = leaveHost.top;
+                    leaving.anchors.left = leaveHost.left;
+                    contentExit.target = leaving;
+                    contentExit.restart();
+                }
+
+                const arriving = popup.contentItem;
+                // Coming from idle there is no geometry to morph from (the
+                // card is parked at its widget below, before anything animates).
+                const fresh = card.width <= 0 || card.openHeight <= 0;
+                if (arriving) {
+                    arriving.parent = contentSlot;
+                    arriving.anchors.centerIn = contentSlot;
+                    arriving.enabled = true;
+                    contentEnter.stop();
+                    if (fresh && overlayWindow.unrolls) {
+                        // A fused card grows out of the band from nothing, and
+                        // the frame paints its plate at full strength from the
+                        // first row - a fused plate cannot fade, that would be
+                        // the seam. So its content is there from the first
+                        // frame too and the growing plate REVEALS it (the host
+                        // clips, the slot is pinned to the band-side edge):
+                        // the unroll. The pause-then-fade below is the
+                        // takeover's, sized to the outgoing content's fade;
+                        // run on a fresh fused open it left the plate empty
+                        // for its first 200 ms and faded the content into a
+                        // card that had already arrived (burst, 12 ms frames).
+                        // The sections below the fold still park and cascade
+                        // once the card has arrived (wavePending).
+                        arriving.opacity = 1;
+                    } else {
+                        arriving.opacity = 0;
+                        contentEnter.item = arriving;
+                        contentEnter.restart();
+                    }
+                }
+                popup.surfaceWindow = overlayWindow;
+                popup.popupHovered = cardHover.hovered;
+
+                if (fresh) {
+                    overlayWindow.emerging = overlayWindow.joinsFrame && !FrameGeometry.barPlateless;
+                    overlayWindow.park();
+                    // A fresh open arms the wave: the sections below the fold
+                    // are put away before the card is on screen, and the gate
+                    // releases them. Arming and running are two events -
+                    // parking inside enter() would draw the sections at full
+                    // strength for the whole run up to the gate and then
+                    // blink them out to cascade back in, which is the drawer's
+                    // measured mistake restated.
+                    sectionWave.park();
+                    overlayWindow.wavePending = true;
+                }
+                retargetTimer.restart();
+            }
+
+            // The incoming content's implicit size is not readable until it has
+            // been parented into a window and polished, so the first correct
+            // target is one frame away - the same zero-interval deferral, for
+            // the same reason, as the popup window's own updatePosition().
+            function retarget() {
+                // Never under a submerge: the write of openProgress below is
+                // the opening's, and a leaving card re-opened by it lands and
+                // then vanishes at the exit timer instead of submerging. The
+                // Privacy card resizes as its controls collapse on unpin,
+                // which retargets a content-driven card - dismissed by a
+                // click away, that collapse ran under its own exit (footage).
+                // While the card is still LANDING it may follow its content:
+                // the collapse and the landing are one motion there.
+                if (overlayWindow.exiting && !overlayWindow.landing) return;
+                const popup = overlayWindow.current;
+                const content = popup?.contentItem;
+                const target = popup?.hoverTarget;
+                if (!content || !target?.QsWindow?.window) return;
+
+                const margin = Appearance.sizes.elevationMargin;
+                const cardWidth = content.implicitWidth + popup.contentPadding * 2;
+                const cardHeight = content.implicitHeight + popup.contentPadding * 2;
+
+                // The clamp reads the SETTLED size, never the card's animating
+                // one: a rect measured from the far edge of a box that is still
+                // moving crawls behind it.
+                if (overlayWindow.barVertical) {
+                    const base = target.QsWindow.mapFromItem(target, 0, (target.height - cardHeight) / 2).y;
+                    card.alongBar = Math.max(margin, Math.min(base, overlayWindow.height - cardHeight - margin - 15));
+                } else {
+                    const base = target.QsWindow.mapFromItem(target, (target.width - cardWidth) / 2, 0).x;
+                    let lo = margin, hi = overlayWindow.width - cardWidth - margin - 10;
+                    // A fused card sits on the FLAT stretch of its plate's inner
+                    // edge, between the corner radii: clamped to the screen it
+                    // ran past a floating plate's rounded corner, and its
+                    // fillet there had nothing to climb onto (seen live, the
+                    // right end of the bar). A card wider than the stretch is
+                    // centred on it.
+                    // In both states: clamped only while fused, the pin's
+                    // click sent the card back to the screen's clamp as it
+                    // lifted, and its still-forming neck hung past the plate's
+                    // corner for those frames (footage).
+                    const span = overlayWindow.joinSpan();
+                    const screenLo = lo, screenHi = hi;
+                    if (span) {
+                        lo = Math.max(lo, span.min);
+                        hi = Math.min(hi, span.max - cardWidth);
+                        // A card wider than the stretch: the plate stands on
+                        // it as a tab (cardOverhangs) - flush with a corner
+                        // island's outer edge, centred under the centre one or
+                        // the whole plate - and the screen bounds it. Centred
+                        // on the flat and bounded by the released card's
+                        // margin, the card's edge stopped 13 px short of the
+                        // island's, a notch under the island's outer corner.
+                        if (hi < lo) {
+                            const edges = overlayWindow.plateEdges ?? span;
+                            const flush = overlayWindow.islandSection === "right" ? edges.max - cardWidth
+                                : overlayWindow.islandSection === "left" ? edges.min
+                                : (edges.min + edges.max - cardWidth) / 2;
+                            lo = hi = Math.max(0, Math.min(flush, overlayWindow.width - cardWidth));
+                        }
+                    }
+                    card.alongBar = Math.max(lo, Math.min(base, hi));
+                }
+
+                card.width = cardWidth;
+                card.openHeight = cardHeight;
+                card.heroHeight = BarPopupUnroll.heroSectionHeight(content.children, popup.contentPadding);
+                // The driver, written last and only here: the hero and the full
+                // height it interpolates between have to be the arriving
+                // popup's before the ramp can mean anything. Writing 1 while it
+                // is already 1 is not a restart - Qt drops a Behavior write of
+                // the value it is already animating to.
+                card.openProgress = 1;
+                overlayWindow.exitAnchor = overlayWindow.anchorAlongBar();
+            }
+
+            // Where the card parks: the point ALONG the bar, centred on the
+            // widget the card belongs to. The coordinate across the bar is not
+            // part of it - that one is derived from the card's live size, so
+            // the far edges keep their bar-adjacent edge still by construction
+            // rather than by two Behaviors happening to share a curve.
+            function anchorAlongBar() {
+                const popup = overlayWindow.current ?? overlayWindow.outgoing;
+                const target = popup?.hoverTarget;
+                if (!target?.QsWindow?.window) return overlayWindow.exitAnchor;
+
+                const centre = target.QsWindow.mapFromItem(target, target.width / 2, target.height / 2);
+                return (overlayWindow.barVertical ? centre.y : centre.x) - card.parkedSize / 2;
+            }
+
+            function park() {
+                const anchor = overlayWindow.anchorAlongBar();
+                if (anchor === null || anchor === undefined) return;
+                card.animate = false;
+                card.openProgress = 0;
+                card.heroHeight = 0;
+                card.openHeight = card.parkedSize;
+                card.width = card.parkedSize;
+                card.alongBar = anchor;
+                card.animate = true;
+                overlayWindow.exitAnchor = anchor;
+            }
+
+            // Shrink toward the owning widget and fade, on the one scalar, then
+            // collapse. The collapse is not cosmetic: an opacity-0 card still
+            // publishes a full-size input region and would eat every click in
+            // its rectangle.
+            function beginExit() {
+                if (overlayWindow.exiting) return;
+                // Already idle. Returning rather than collapsing again matters:
+                // finishExit() vacates the slot, which re-enters here.
+                if (!overlayWindow.current && !overlayWindow.outgoing
+                        && card.width <= 0 && card.openHeight <= 0) return;
+                if (card.width <= 0 && card.openHeight <= 0) {
+                    overlayWindow.finishExit();
+                    return;
+                }
+                const anchor = overlayWindow.anchorAlongBar();
+                if (anchor === null || anchor === undefined) {
+                    overlayWindow.finishExit();
+                    return;
+                }
+                // Before the progress write, not after: the card's rest height
+                // becomes the parked square's here, and at progress 1 that
+                // changes nothing, so the exit starts where the card already is.
+                overlayWindow.exiting = true;
+                overlayWindow.emerging = false;
+                if (overlayWindow.current?.contentItem)
+                    overlayWindow.current.contentItem.enabled = false;
+                // A released card lands FIRST, then submerges (the grammar's
+                // close: swallow into the band, then sink). `exiting` alone
+                // turns the join attached; the collapse waits for it to
+                // settle, else the card shrank while still coming down and
+                // read as vanishing without ever fusing back (footage).
+                if (overlayWindow.joinsFrame && !FrameGeometry.barPlateless && cardJoin.lift > 0.5) {
+                    overlayWindow.landing = true;
+                    return;
+                }
+                overlayWindow.submerge();
+            }
+            // The exit's second half: the content fades out WHOLE, at the size
+            // it has, and then the card sinks into the band it sits on. Sunk
+            // with its content still up, the collapsing card cropped the
+            // elements inside it as it went (footage) - a fade first is what
+            // leaves the motion one piece.
+            property bool landing: false
+            function submerge() {
+                overlayWindow.landing = false;
+                overlayWindow.sink();
+            }
+            // The sink: the card collapses toward its widget and the content
+            // vanishes IN PLACE as it starts - the fast tier, decelerating,
+            // so it is mostly gone within the collapse's first frames and
+            // the clip has little left to cut - one motion, nothing held.
+            // Sunk with the content up, the clip cut the elements (footage);
+            // a fade held first stalled the close; scaled down with the
+            // card, the content squashed (review: "somehow worse").
+            function sink() {
+                if (!overlayWindow.exiting) return;
+                const content = overlayWindow.current?.contentItem ?? null;
+                if (content && (sinkFade.target !== content || !sinkFade.running)) {
+                    sinkFade.stop();
+                    sinkFade.target = content;
+                    sinkFade.restart();
+                }
+                const anchor = overlayWindow.anchorAlongBar();
+                if (anchor !== null && anchor !== undefined) card.alongBar = anchor;
+                card.width = card.parkedSize;
+                card.openProgress = 0;
+                exitTimer.restart();
+            }
+            NumberAnimation {
+                id: sinkFade
+                property: "opacity"
+                to: 0
+                duration: Appearance.animation.elementMoveFast.duration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Appearance.animationCurves.emphasizedDecel
+            }
+            // The landing is over when the gap is closed and the neck whole,
+            // not when the spring has stopped ringing: the last tenth of a
+            // pixel took half a second to settle, and the card sat fused and
+            // still for it before it sank (measured, 670 ms from dismiss to
+            // submerge).
+            Connections {
+                target: cardJoin
+                function onStateChanged() {
+                    if (overlayWindow.landing && cardJoin.lift < 0.75 && cardJoin.state.neck > 0.9) overlayWindow.submerge();
+                }
+                function onMovingChanged() {
+                    if (!cardJoin.moving && overlayWindow.landing) overlayWindow.submerge();
+                }
+            }
+
+            function finishExit() {
+                exitTimer.stop();
+                contentEnter.stop();
+                contentExit.stop();
+                sinkFade.stop();
+                // The reset the next entrance starts from, made off screen -
+                // the card collapses in this same call. The exit itself never
+                // touches the sections: they ride the container out at full
+                // strength as one rigid piece (measured doc §2.2), so
+                // settle() here is assignment to values they already hold
+                // unless a cascade was interrupted mid-flight, which is
+                // exactly the state it exists to repair. While the leaving
+                // popup still holds the slot, the wave's target is its tree.
+                sectionWave.settle();
+                overlayWindow.wavePending = false;
+
+                const leaving = overlayWindow.current;
+                overlayWindow.release(overlayWindow.outgoing);
+                overlayWindow.release(leaving);
+                overlayWindow.outgoing = null;
+                overlayWindow.current = null;
+                overlayWindow.exiting = false;
+                overlayWindow.landing = false;
+
+                card.animate = false;
+                card.openProgress = 0;
+                card.heroHeight = 0;
+                // The card's height is derived, so emptying the input region
+                // means emptying what it is derived FROM: a zero open height is
+                // zero at every progress.
+                card.openHeight = 0;
+                card.width = 0;
+                card.animate = true;
+
+                if (leaving)
+                    GlobalStates.releaseBarPopup(leaving);
+            }
+
+            function release(popup) {
+                if (!popup) return;
+                // Before the reparent, not after: setParentItem() runs
+                // derefWindow(), which re-evaluates every binding that read the
+                // old window while the item is mid-teardown. A tray menu
+                // anchored to that window segfaulted the shell there.
+                popup.aboutToRelease();
+                const content = popup.contentItem;
+                if (content) {
+                    content.anchors.centerIn = null;
+                    content.anchors.top = undefined;
+                    content.anchors.left = undefined;
+                    content.parent = null;
+                    content.opacity = 1;
+                    content.enabled = true;
+                }
+                popup.popupHovered = false;
+                if (popup.surfaceWindow === overlayWindow) popup.surfaceWindow = null;
+            }
+
+            function updateHover() {
+                if (overlayWindow.current) overlayWindow.current.popupHovered = cardHover.hovered;
+            }
+
+            Timer {
+                id: retargetTimer
+                interval: 0
+                onTriggered: overlayWindow.retarget()
+            }
+
+            // One wave for whichever popup holds the card, never one per
+            // popup - a per-popup runner is ten copies of the drive, one door
+            // over from the per-popup watcher trap (#140). Members are the
+            // content root's children: a popup opts a section in by declaring
+            // `property real appear: 1` and folding it into its own opacity,
+            // scale and rise (bar_popup_unroll.js's entrance helpers). The
+            // HERO section - the first drawn one, whose height the card opens
+            // at - deliberately declares none: the unroll exists so that
+            // section is legible on frame one, and only the sections below
+            // the fold cascade. A popup declaring no `appear` at all (the
+            // tray grid, the privacy card's one-tree morph) yields an empty
+            // wave and keeps today's behaviour.
+            //
+            // The handover trap is answered by WHEN enter() runs: the gate
+            // holds it until the driver crosses contentGate, several frames
+            // after the zero-interval retarget, so the wave never ranks the
+            // reparented tree during the one frame its implicit size is
+            // stale - and StaggerWave itself defers an enter() until its
+            // target is effectively visible, which covers the window's own
+            // map on a fresh open.
+            StaggerWave {
+                id: sectionWave
+                target: overlayWindow.current?.contentItem ?? null
+            }
+
+            // One timer where there were two chained ones. The shrink and the
+            // fade were staged so they would not fight over the same frames;
+            // riding one scalar makes them the same motion, so what is left to
+            // wait for is that motion finishing. The interval is the driver's
+            // own tier, which is also how the motion multiplier reaches it - a
+            // Timer is one of the two things a Behavior's scaled duration does
+            // not cover.
+            Timer {
+                id: exitTimer
+                interval: Appearance.animation.elementMove.duration
+                onTriggered: overlayWindow.finishExit()
+            }
+
+            // Outside-click dismissal belongs to whoever owns the surface, and
+            // that is now this overlay rather than the individual widgets.
+            //
+            // The widgets used to arm their own grabs on their own popup window,
+            // which was sized to the popup, so a click anywhere in the popup was
+            // inside the grab. Pointed at the shared surface those grabs break:
+            // Hyprland classifies a click by the surface's *input region*, and
+            // this surface's region is the card. A grab armed while the card is
+            // still the parked 2*elevationMargin square treats the next click
+            // anywhere as outside and closes the popup. So arm only once the
+            // card has stopped moving and is showing content at full size.
+            HyprlandFocusGrab {
+                id: cardGrab
+                active: !!overlayWindow.current?.pinnedOpen
+                    && !overlayWindow.exiting
+                    && !overlayWindow.morphing
+                    && card.width > Appearance.sizes.elevationMargin * 2
+                windows: [
+                    overlayWindow,
+                    overlayWindow.current?.hoverTarget?.QsWindow?.window,
+                    ...(overlayWindow.current?.extraGrabWindows ?? [])
+                ].filter(window => window)
+                onCleared: overlayWindow.current?.dismissRequested()
+            }
+
+            // Whatever is on the card can change size while it is shown - the
+            // clock ticking a row in, NetworkSpeed's rows changing.
+            //
+            // Those are one-off changes, and deferring them by a tick lets a
+            // burst of them settle into a single retarget. A popup ANIMATING
+            // its own size is the opposite case: the size changes every frame,
+            // so a timer that is restarted every frame never fires until the
+            // animation ends, and the card would sit at its old size for the
+            // whole transition while the content grew past its clip. Those
+            // popups are retargeted on the spot.
+            Connections {
+                target: overlayWindow.current?.contentItem ?? null
+                ignoreUnknownSignals: true
+                function onImplicitWidthChanged() { overlayWindow.retargetNow() }
+                function onImplicitHeightChanged() { overlayWindow.retargetNow() }
+            }
+
+            function retargetNow() {
+                // Content-driven: the card follows the content in the same
+                // tick. (A deferral to the event loop was tried against what
+                // looked like a two-valued layout - it was the sandbox's
+                // grim, a screencast that flipped the Privacy card's "Screen"
+                // section on every frame grabbed - and it put the card's
+                // edge one frame behind the content: a shimmer.)
+                if (overlayWindow.current?.contentDrivesSize) overlayWindow.retarget();
+                else retargetTimer.restart();
+            }
+
+            // The window is unmapped while it has nothing to show (a mapped
+            // screen-sized Overlay surface holds the compositor's fullscreen
+            // fast path shut), and a WlrLayershell window that has just gone
+            // visible does not have its size yet: measured on the live
+            // compositor, it reports 500x500 for the same tick AND through
+            // Qt.callLater, and the real 5120x1330 arrives with the configure
+            // ~50ms later. retarget()'s clamp reads overlayWindow.width and
+            // height, so a retarget on the zero-interval timer ran against
+            // 500x500, `min(base, 500 - cardWidth - margin - 10)` went
+            // negative, and `max(margin, ...)` pinned the card to the
+            // top-left - the calendar card at x=margin under a clock at
+            // screen-centre. Re-run when the geometry actually lands.
+            onWidthChanged: if (overlayWindow.current) overlayWindow.retarget()
+            onHeightChanged: if (overlayWindow.current) overlayWindow.retarget()
+
+            // There is no sensible interpolation between "below the top edge"
+            // and "right of the left edge", so an orientation change idles the
+            // card rather than morphing across it.
+            //
+            // Derived here from the config rather than watched on whichever
+            // popup currently holds the card. Every popup computes the same
+            // value from the same global config, so the per-popup signal says
+            // nothing extra - but a popup that is rebuilt on every open (the
+            // Docker and Discord adapters' Loaders both do) evaluates its own
+            // barEdge binding for the first time *after* a Connections targeting
+            // it attaches, and that initial evaluation is indistinguishable from
+            // an orientation flip. It called finishExit() in the middle of the
+            // takeover that was building the card, stranding it at the parked
+            // 20x20 square: the popup opened as a small dot and only rendered
+            // when the race happened to fall the other way, which is why it took
+            // several clicks (#140).
+            readonly property string barEdge: {
+                if (!Config.options.bar.vertical)
+                    return Config.options.bar.bottom ? "bottom" : "top";
+                return Config.options.bar.bottom ? "right" : "left";
+            }
+            onBarEdgeChanged: overlayWindow.finishExit()
+
+            // Derived here for the same reason barEdge is: the card's own
+            // across-the-bar coordinate is a binding now, and a binding that
+            // reached through whichever popup currently holds the card would
+            // re-evaluate against a null popup on every takeover.
+            readonly property bool barVertical: Config.options.bar.vertical
+            readonly property real barThickness: overlayWindow.barVertical
+                ? Appearance.sizes.verticalBarWidth
+                : Appearance.sizes.barHeight
+
+            // The card and the frame (frame-pin-grammar.md, slice 2). Where
+            // the frame paints the bar's plate as its band the card can be
+            // FUSED to it - on the band's inner edge, no elevation gap, grown
+            // out of the band from nothing and submerged back into it - or
+            // RELEASED, today's card a gap off the band. "auto" follows how it
+            // was opened: hovered is fused, pinned by a click is released, and
+            // the click on a fused card is the lift and the cut. The frame
+            // paints the plate either way (the record below, published like
+            // the dock's under "barPopup"); this card stands down while it
+            // does and keeps the content, the input and the hover.
+            readonly property bool joinsFrame: FrameGeometry.popupsJoinBar && !overlayWindow.barVertical
+            // Islands: the card fuses to its section's island - the bar's
+            // record "barIsland:<section>", painted by the frame at rest and
+            // on the move like the plate - and the card is the drop as it is
+            // on the plate; the record names the section so the frame joins
+            // the card to that island's edge.
+            readonly property bool islandsMode: FrameGeometry.barIslands && !FrameGeometry.barCovers
+            function islandFor(target) {
+                let node = target;
+                while (node) {
+                    if (node.frameIsland !== undefined && node.frameIsland) return node.frameIsland;
+                    node = node.parent;
+                }
+                return null;
+            }
+            readonly property Item island: overlayWindow.islandsMode ? overlayWindow.islandFor(overlayWindow.current?.hoverTarget ?? null) : null
+            readonly property string islandSection: overlayWindow.island?.sectionName ?? ""
+            onIslandSectionChanged: {
+                overlayWindow.takeBarInner();
+                overlayWindow.publishTab();
+            }
+            // The flat stretch of the plate the card fuses to - the bar's plate
+            // or its section's island - between the inner-edge corner radii,
+            // in this window's x; null where nothing is joined. Taken up with
+            // barInner (below), never bound: this window publishes into the
+            // map it would read.
+            property var plateSpan: null
+            // The plate's whole extent along the bar, corners included - what
+            // a card wider than the plate lines its own edge up with.
+            property var plateEdges: null
+            function joinSpan() { return overlayWindow.joinsFrame ? overlayWindow.plateSpan : null; }
+            // An island narrower than the card: the card carries no neck -
+            // fillets at corners past the island's ends would climb onto
+            // nothing - and the island stands on it as a TAB instead: the card
+            // flush with a corner island's outer edge, centred under the
+            // centre one, and every corner where the two meet square (the
+            // island's away-from-band corners, Bar.qml; the card's corner on
+            // the flush side, below), so the pair is one silhouette rather
+            // than a pill resting on a card with a notch at each end (seen
+            // in the sandbox: Resources alone on the right island).
+            readonly property bool cardOverhangs: overlayWindow.plateSpan !== null
+                && (overlayWindow.plateSpan.max - overlayWindow.plateSpan.min) < card.width
+            // How much of the tab is held, per corner, from the geometry
+            // alone: whole while the card is fused and grown, and gone as the
+            // card lifts off or sinks away (tabBase); and for each corner where
+            // the two meet, by how far the card still runs past it - flush or
+            // beyond is square, a corner the card ends a window-rounding
+            // short of is round again. The exit collapses the card's width
+            // toward its widget while it sinks, so its edge leaves the
+            // island's; a hold read off cardOverhangs alone kept the island's
+            // corners square over nothing until the card was gone (burst).
+            readonly property real tabBase: cardJoin.travel <= 0 || overlayWindow.plateEdges === null ? 0
+                : (1 - Math.min(1, cardJoin.lift / cardJoin.travel))
+                  * Math.pow(Math.min(1, card.height / Math.max(1, cardJoin.meniscus)), 2)
+            // An island's corner over the card: `over` is how far the card
+            // runs past it (0 flush, negative short).
+            function tabHoldOver(over: real): real {
+                return Math.max(0, Math.min(1, 1 + over / Appearance.rounding.windowRounding));
+            }
+            readonly property real tabHoldLeft: overlayWindow.tabBase * overlayWindow.tabHoldOver((overlayWindow.plateEdges?.min ?? 0) - card.x)
+            readonly property real tabHoldRight: overlayWindow.tabBase * overlayWindow.tabHoldOver((card.x + card.width) - (overlayWindow.plateEdges?.max ?? 0))
+            // The card's own corner under an island's: square while the
+            // island's edge is within the corner's radius of it, else the
+            // island's square corner would stand over the card's rounding.
+            function cardHoldAt(distance: real): real {
+                return overlayWindow.tabBase * Math.max(0, 1 - Math.abs(distance) / Math.max(1, card.radius));
+            }
+            readonly property real cardHoldLeft: overlayWindow.plateEdges === null ? 0 : overlayWindow.cardHoldAt(overlayWindow.plateEdges.min - card.x)
+            readonly property real cardHoldRight: overlayWindow.plateEdges === null ? 0 : overlayWindow.cardHoldAt(overlayWindow.plateEdges.max - (card.x + card.width))
+            function publishTab() {
+                const name = overlayWindow.modelData?.name ?? "";
+                const l = overlayWindow.tabHoldLeft, r = overlayWindow.tabHoldRight;
+                const held = (l > 0.001 || r > 0.001) && overlayWindow.islandSection !== "";
+                const mine = GlobalStates.barPopupTab?.screen === name;
+                if (held) GlobalStates.barPopupTab = { screen: name, section: overlayWindow.islandSection, left: l, right: r };
+                else if (mine) GlobalStates.barPopupTab = null;
+            }
+            onTabHoldLeftChanged: overlayWindow.publishTab()
+            onTabHoldRightChanged: overlayWindow.publishTab()
+            // The plate moved (the bar's lift, its slide) or the card's state
+            // turned: place the card again on what it now joins - never while
+            // it is leaving. A pinned card dismissed turns fused as it goes,
+            // and a retarget then wrote openProgress back to 1 under the exit,
+            // so the card landed and vanished instead of submerging (footage).
+            function replaceCard() {
+                if (overlayWindow.current) overlayWindow.retarget();
+            }
+            onBarInnerChanged: overlayWindow.replaceCard()
+            onPlateSpanChanged: overlayWindow.replaceCard()
+            onWantsFusedChanged: overlayWindow.replaceCard()
+            // The bar's plate is itself a join on the frame and may be lifted
+            // off the band (frame-pin-grammar.md, the bar row) or slid out by
+            // auto-hide; a popup fuses to the plate's inner edge wherever that
+            // is, read off the bar's record - the same number the frame paints
+            // the join against (Frame.qml joinBandEdgeFor). Measured from the
+            // bar's screen edge; the bar's thickness where there is no record.
+            // Taken up from the event loop, not bound: this window publishes
+            // its own record into the same map, and a binding on the map was
+            // a loop (barInner -> the card's y -> the record -> the map ->
+            // barInner) whether it held the record or only a number derived
+            // from it. Frame.qml takes the map up the same way.
+            property real barInner: overlayWindow.barThickness
+            function takeBarInner() {
+                const joins = GlobalStates.frameJoins[overlayWindow.modelData?.name ?? ""] ?? null;
+                // The plate's record, or the hovered section's island's.
+                const b = joins?.bar ?? (overlayWindow.islandsMode ? joins?.["barIsland:" + overlayWindow.islandSection] ?? null : null);
+                overlayWindow.barInner = !b ? overlayWindow.barThickness
+                    : overlayWindow.barEdge === "bottom" ? overlayWindow.height - b.plate.y : b.plate.y + b.plate.height;
+                if (!b) { overlayWindow.plateSpan = null; overlayWindow.plateEdges = null; return; }
+                const edges = { min: b.plate.x, max: b.plate.x + b.plate.width };
+                const hadEdges = overlayWindow.plateEdges;
+                if (!hadEdges || hadEdges.min !== edges.min || hadEdges.max !== edges.max) overlayWindow.plateEdges = edges;
+                const bottom = overlayWindow.barEdge === "bottom";
+                const rl = bottom ? b.radii.topLeft : b.radii.bottomLeft, rr = bottom ? b.radii.topRight : b.radii.bottomRight;
+                // ...less the fillet's own spread along the plate (about half
+                // the meniscus at the band): the card's edge stopped at the
+                // radius, and the fillet beyond it climbed onto the corner's
+                // curve and ended in the air (seen live, twice).
+                const spread = cardJoin.meniscus * 0.5;
+                const span = { min: b.plate.x + rl + spread, max: b.plate.x + b.plate.width - rr - spread };
+                const was = overlayWindow.plateSpan;
+                if (!was || was.min !== span.min || was.max !== span.max) overlayWindow.plateSpan = span;
+            }
+            Connections {
+                target: GlobalStates
+                function onFrameJoinsChanged() { Qt.callLater(overlayWindow.takeBarInner); }
+            }
+            onBarThicknessChanged: overlayWindow.takeBarInner()
+            readonly property string popupsLook: String(Config.options.appearance.frame.popups ?? "auto")
+            readonly property bool wantsFused: overlayWindow.popupsLook === "fused"
+                || (overlayWindow.popupsLook === "auto" && !(overlayWindow.current?.pinnedOpen ?? false) && !FrameGeometry.barPlateless)
+            // ...and on the way out whatever it was: a released card lands
+            // and swallows into the band before it submerges.
+            // A released card still EMERGES: a fresh open grows out of the
+            // band fused (the dock preview's, the OSD's phases) and lifts off
+            // when the growth arrives - one motion, the frame's own, where a
+            // released card used to unroll from its parked square as before.
+            property bool emerging: false
+            readonly property bool joinAttached: !overlayWindow.joinsFrame || overlayWindow.wantsFused
+                || (overlayWindow.exiting && !FrameGeometry.barPlateless) || overlayWindow.emerging
+            // A bar with no plate: the card is released from its first frame
+            // and the lift RIDES the growth (the OSD's rule, liftRide there) -
+            // no emergence phase, no landing; the one scalar grows the card
+            // out of the bar's edge to its gap and sinks it back.
+            readonly property real liftRide: FrameGeometry.barPlateless ? Math.max(0, Math.min(1, card.openProgress)) : 1
+            readonly property bool cardFused: overlayWindow.joinsFrame && overlayWindow.joinAttached
+            // Whether the card grows out of the bar from NOTHING and sinks
+            // back to nothing, its content revealed by the growth (the
+            // unroll): a fused card, and a released one on a bar with no plate
+            // - it rides the same scalar out of the same edge. Every other
+            // released card grows from the parked square and fades its
+            // content in; on a plateless bar that left a parked-square dot
+            // on the bar edge for the exit timer's length after the card had
+            // gone, and an empty card for the content fade's first 200 ms.
+            readonly property bool unrolls: overlayWindow.cardFused || (overlayWindow.joinsFrame && FrameGeometry.barPlateless)
+            FrameJoin {
+                id: cardJoin
+                anchors.fill: parent
+                plate: card
+                edge: overlayWindow.barEdge
+                attached: overlayWindow.joinAttached
+                travel: Appearance.sizes.elevationMargin
+                bandInset: overlayWindow.barInner
+                color: FrameGeometry.color
+                active: overlayWindow.joinsFrame
+                paintsLocally: false
+                paintsAtRest: true
+            }
+            // The plate's own colour: the band's while fused, the card's
+            // while released, and the change rides the card's colour tier so
+            // the lift and the tint move together.
+            property color platePaint: cardJoin.fused
+                ? FrameGeometry.color
+                : ColorUtils.transparentize(Appearance.colors.colLayer1Base, Appearance.backgroundTransparency)
+            Behavior on platePaint { animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this) }
+            readonly property var frameJoinRecord: {
+                if (!cardJoin.active || !cardJoin.painting || !overlayWindow.modelData) return null;
+                // Nothing to paint for a card with no height - and the neck
+                // grows and shrinks with the card: a fused card is a drop
+                // that grows out of the band and sinks back into it, so its
+                // fillets are as tall as it is. Held whole to the end, a
+                // collapsed card left a stalk under the bar until the exit
+                // timer ran out (measured, ~200 ms).
+                if (card.height <= 3) return null;
+                const grown = Math.pow(Math.min(1, card.height / Math.max(1, cardJoin.meniscus)), 2);
+                // The card's corners at the band square off under an
+                // island's edge (cardHoldLeft/Right, the tab).
+                const heldL = card.radius * (1 - overlayWindow.cardHoldLeft), heldR = card.radius * (1 - overlayWindow.cardHoldRight);
+                const bottom = overlayWindow.barEdge === "bottom";
+                return {
+                    edge: overlayWindow.barEdge,
+                    section: overlayWindow.islandSection,
+                    plate: { x: card.x, y: card.y, width: card.width, height: card.height },
+                    radii: { topLeft: bottom ? card.radius : heldL,
+                             topRight: bottom ? card.radius : heldR,
+                             bottomRight: bottom ? heldR : card.radius,
+                             bottomLeft: bottom ? heldL : card.radius },
+                    gap: cardJoin.state.gap * overlayWindow.liftRide,
+                    // No meniscus where there is nothing to fuse to: a card
+                    // wider than its island, or a bar with no plate.
+                    neck: overlayWindow.cardOverhangs || FrameGeometry.barPlateless ? 0 : cardJoin.state.neck * grown,
+                    bulge: overlayWindow.cardOverhangs || FrameGeometry.barPlateless ? 0 : cardJoin.state.bulge * grown,
+                    meniscus: cardJoin.meniscus, blendPerPixel: cardJoin.blendPerPixel,
+                    climbFraction: cardJoin.climbFraction, color: overlayWindow.platePaint,
+                    // The released card's border, fading in with the lift.
+                    strokeWidth: Appearance.borderWidth.standard * Math.min(1, cardJoin.lift * overlayWindow.liftRide / Math.max(1, cardJoin.travel)),
+                    strokeColor: Appearance.colors.colLayer0Border
+                };
+            }
+            function publishFrameJoin(record) {
+                const name = overlayWindow.modelData?.name ?? "";
+                if (!name) return;
+                GlobalStates.publishFrameJoin(name, "barPopup", record);
+            }
+            onFrameJoinRecordChanged: publishFrameJoin(frameJoinRecord)
+            Component.onCompleted: {
+                overlayWindow.takeBarInner();
+                publishFrameJoin(frameJoinRecord);
+            }
+            Component.onDestruction: {
+                publishFrameJoin(null);
+                if (GlobalStates.barPopupTab?.screen === (overlayWindow.modelData?.name ?? "")) GlobalStates.barPopupTab = null;
+            }
+
+            SequentialAnimation {
+                id: contentEnter
+                property Item item: null
+                // The pause is the outgoing content's whole fade: the arriving
+                // tree starts once the leaving one is gone, so the two are
+                // never both legible (a shorter pause had them overlapping,
+                // footage). The card's move keeps its own tier underneath.
+                PauseAnimation {
+                    duration: Appearance.animation.elementMoveExit.duration
+                }
+                NumberAnimation {
+                    target: contentEnter.item
+                    property: "opacity"
+                    to: 1
+                    duration: Appearance.animation.elementMoveEnter.duration
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: Appearance.animationCurves.emphasizedDecel
+                }
+            }
+
+            NumberAnimation {
+                id: contentExit
+                property: "opacity"
+                to: 0
+                duration: Appearance.animation.elementMoveExit.duration
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Appearance.animationCurves.emphasizedAccel
+                onFinished: {
+                    const leaving = overlayWindow.outgoing;
+                    if (leaving && leaving.contentItem === contentExit.target) {
+                        overlayWindow.release(leaving);
+                        overlayWindow.outgoing = null;
+                    }
+                }
+            }
+
+            StyledRectangularShadow {
+                target: card
+                visible: card.visible && !card.plateOnFrame
+                opacity: card.opacity
+                // A cached shadow renders to an offscreen texture, which a card
+                // whose size changes every frame invalidates every frame.
+                cached: !overlayWindow.morphing
+            }
+
+            Rectangle {
+                id: card
+                // Gates the Behaviors so the card can be placed instantly when
+                // there is no previous geometry to travel from.
+                property bool animate: true
+
+                // THE driver. One `real` 0 -> 1 that the fade and the unroll
+                // both ride, so they cannot disagree about where the card is in
+                // its own transition. Everything derivable from it is derived,
+                // never animated a second time: a second Behavior on a quantity
+                // this one already carries is a second timing to keep in step,
+                // and the one place they would visibly differ is mid-flight,
+                // which is the only place nobody looks.
+                property real openProgress: 0
+                // The growth's arrival ends the emergence: a released card
+                // lifts off from here (the OSD's lesson: the animation's END
+                // came 280 ms after the card looked grown).
+                onOpenProgressChanged: if (overlayWindow.emerging && card.openProgress >= 0.97) overlayWindow.emerging = false
+                // What the card unrolls between. Assigned by retarget(), which
+                // is a turn of the event loop behind the takeover because an
+                // unparented tree does not polish and its implicit size is
+                // stale until it does.
+                property real openHeight: 0
+                property real heroHeight: 0
+                // The parked square on the bar, which the card grows out of and
+                // collapses back into.
+                readonly property real parkedSize: Appearance.sizes.elevationMargin * 2
+                // The card's coordinate ALONG the bar. The only travel left:
+                // the across-the-bar one is derived below.
+                property real alongBar: 0
+
+                width: 0
+                height: BarPopupUnroll.cardHeight(card.openHeight, card.heroHeight,
+                    card.parkedSize, overlayWindow.exiting, card.openProgress, overlayWindow.unrolls)
+                // Bindings, not assignments, and that is what the driver bought.
+                // On the bottom and right edges the bar-adjacent coordinate is a
+                // function of the animating size, which is why this used to be
+                // assigned: two Behaviors easing x and width apart put the
+                // card's edge where its content is not. Deriving it from the
+                // size the driver already produces cannot drift from it, and
+                // neither carries a Behavior of its own, so nothing here is a
+                // target that moves every frame.
+                x: overlayWindow.barVertical
+                    ? (overlayWindow.barEdge === "right"
+                        ? overlayWindow.width - overlayWindow.barThickness - Appearance.sizes.elevationMargin - card.width
+                        : overlayWindow.barThickness + Appearance.sizes.elevationMargin)
+                    : card.alongBar
+                // The gap off the bar: the elevation margin, or - where the
+                // frame joins the card - the join's lift, nothing while fused.
+                readonly property real offBar: overlayWindow.joinsFrame ? cardJoin.lift * overlayWindow.liftRide : Appearance.sizes.elevationMargin
+                y: overlayWindow.barVertical
+                    ? card.alongBar
+                    : (overlayWindow.barEdge === "bottom"
+                        ? overlayWindow.height - overlayWindow.barInner - card.offBar - card.height
+                        : overlayWindow.barInner + card.offBar)
+                // Clamped because the spatial tier overshoots past 1 and
+                // undershoots below 0 on the way back; the geometry keeps the
+                // overshoot deliberately, an alpha cannot use it.
+                opacity: Math.max(0, Math.min(1, card.openProgress))
+                visible: width > 0 && height > 0
+
+                // Thinned by the same background transparency the bar, the
+                // sidebars and the dock draw at, so Settings > Quick's "Shell
+                // opacity" reaches the popups too; opaque with transparency
+                // off, as colLayer1Base always was. The compositor blurs this
+                // surface above PopupBlurThreshold's line, which already sits
+                // below the bar's body - fainter than this card, since the bar
+                // thins colLayer0 by its own opacity as well.
+                // Stood down while the frame paints the plate (the same
+                // silhouette in the same colour, and a translucent fill drawn
+                // twice is darker); the content stays.
+                readonly property bool plateOnFrame: overlayWindow.joinsFrame && cardJoin.drawsPlate
+                color: card.plateOnFrame ? "transparent"
+                    : ColorUtils.transparentize(Appearance.colors.colLayer1Base, Appearance.backgroundTransparency)
+                radius: Appearance.rounding.normal + 4
+                border.width: card.plateOnFrame ? 0 : Appearance.borderWidth.standard
+                border.color: Appearance.colors.colLayer0Border
+
+                // Every tier is taken WHOLE - duration, easing type and curve
+                // together, from the tier's own component. Naming the created
+                // objects is what lets `morphing` ask whether the card is still
+                // travelling: the focus grab must not arm while the card is
+                // still the parked square, and a Behavior does not publish its
+                // own animation until after completion.
+                readonly property NumberAnimation openAnim: Appearance.animation.elementMove.numberAnimation.createObject(card)
+                readonly property NumberAnimation alongBarAnim: Appearance.animation.elementMove.numberAnimation.createObject(card)
+                readonly property NumberAnimation widthAnim: Appearance.animation.elementMove.numberAnimation.createObject(card)
+                readonly property NumberAnimation heightAnim: Appearance.animation.elementMove.numberAnimation.createObject(card)
+
+                // The only Behavior on the driver, and the one tier serves both
+                // directions. A Behavior's animation cannot be swapped after
+                // construction (Qt refuses the second write), so a directional
+                // pair would have to be a duration and a curve written onto a
+                // bare NumberAnimation - half a tier, which is silently
+                // Easing.Linear the day someone drops the curve.
+                Behavior on openProgress {
+                    enabled: card.animate
+                    animation: card.openAnim
+                }
+                // See StyledPopup.contentDrivesSize: a popup animating its
+                // own size must not be chased by the card - through the
+                // landing too, where the card still follows its collapsing
+                // content frame by frame (a Behavior restarted from every
+                // frame's write never left 384; traced) - but not the
+                // submerge, where the card is the shell's again: the Privacy
+                // card dismissed mid-collapse had its width snap to the
+                // parked square while its height was still shrinking, a thin
+                // drip under the bar (footage).
+                readonly property bool followsContent: (overlayWindow.current?.contentDrivesSize ?? false)
+                    && !(overlayWindow.exiting && !overlayWindow.landing)
+                Behavior on alongBar {
+                    enabled: card.animate && !card.followsContent
+                    animation: card.alongBarAnim
+                }
+                Behavior on width {
+                    enabled: card.animate && !card.followsContent
+                    animation: card.widthAnim
+                }
+                // The open height morphs only across a takeover, on the width's
+                // tier: assigned, the card lost its bottom third in one frame
+                // when a shorter popup took over (weather to calendar: 324 to
+                // 216 with no frame between, traced) and the blur it left
+                // behind snapped with it - a flash. An entrance keeps its
+                // unroll (the height rides the driver from the parked square,
+                // no outgoing tree there), a content-driven card keeps
+                // following, and the exit's collapse rides the driver too.
+                Behavior on openHeight {
+                    enabled: card.animate && overlayWindow.outgoing !== null && !card.followsContent
+                    animation: card.heightAnim
+                }
+
+                HoverHandler {
+                    id: cardHover
+                    onHoveredChanged: overlayWindow.updateHover()
+                }
+
+                // Clipping is load-bearing: while the card shrinks, the
+                // outgoing content is larger than the host and would otherwise
+                // paint outside the card's rounded body. Content is inset by
+                // contentPadding on every side, so the rectangular clip never
+                // reaches the corner radii.
+                // The leaving tree's host: under the arriving tree's, inset by
+                // the LEAVING popup's padding, clipped the same way.
+                Item {
+                    id: leaveHost
+                    anchors.fill: parent
+                    anchors.margins: overlayWindow.outgoing?.contentPadding ?? 0
+                    clip: true
+                }
+                Item {
+                    id: contentHost
+                    anchors.fill: parent
+                    anchors.margins: overlayWindow.current?.contentPadding ?? 0
+                    clip: true
+
+                    // The content's own box, held at the SETTLED height for the
+                    // whole unroll and pinned to the top of the host.
+                    //
+                    // Centring the content in a host that is shrinking would
+                    // show the middle band of it while the card is short, so the
+                    // first section - the one the card opens at the height of -
+                    // would be the one thing not on screen on frame one. Holding
+                    // the box still is the other half: a block re-centred
+                    // through every intermediate height reads as being squeezed
+                    // rather than as being revealed, and it is the same reason a
+                    // one-tree widget pins a fading block to its own span's box.
+                    Item {
+                        id: contentSlot
+                        width: parent.width
+                        height: Math.max(0, card.openHeight
+                            - 2 * (overlayWindow.current?.contentPadding ?? 0))
+                    }
+                }
+            }
+        }
+    }
+}

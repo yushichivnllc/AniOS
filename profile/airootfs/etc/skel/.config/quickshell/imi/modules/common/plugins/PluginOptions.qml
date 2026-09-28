@@ -1,0 +1,519 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import qs.services
+import QtQuick.Layouts
+import qs.modules.common
+import qs.modules.common.widgets
+import "gridSizes.js" as GridSizes
+import "option_visibility.js" as OptionVisibility
+
+ColumnLayout {
+    id: root
+
+    required property var manifest
+    spacing: Appearance.spacing.space25
+
+    // These rows edit the DESKTOP, by construction - the same rule the size
+    // row has always had. The surface is a mode the user is already in (Edit
+    // Mode's Lockscreen tab, or the real lock), not a per-widget property:
+    // a widget's own knobs write the surface on screen through PluginState's
+    // default, and a second selector on every card would duplicate the tab.
+    // Named on every read and write below all the same, so a card open while
+    // the lock look is showing still edits the desktop.
+    readonly property string surface: PluginState.desktopSurface
+
+    // The widget's own options come first, because they are what the user
+    // opened this page for. The host's rows used to be concatenated in FRONT of
+    // them - four identical switches before a widget's two or three real
+    // settings, pushing them below the fold and reading as if the plugin had
+    // declared them. They live in their own section below instead.
+    readonly property var widgetOptions: manifest.options || []
+
+    // A visibility rule reads another option by key, and it has to read the
+    // value the WIDGET is using - which, for a key the user has never touched,
+    // is the manifest's default and not `undefined`. So the defaults are
+    // indexed once and every rule reads through them.
+    readonly property var optionDefaults: {
+        const defaults = {};
+        for (const option of root.widgetOptions)
+            defaults[option.key] = option.default;
+        return defaults;
+    }
+    function readOption(key) {
+        return PluginState.option(root.manifest.id, key, root.optionDefaults[key], root.surface, root.surface);
+    }
+
+    // Options declared with the same `group`, consecutively, render under one
+    // subsection heading that names the group, so the manifest does not have
+    // to spell it into every label ("Cookie: sides", "Cookie: hour marks" ...
+    // eleven rows deep - the maintainer's complaint). A run without a group
+    // renders as plain rows. A heading shows only while one of its rows does,
+    // so a digital clock carries no "Cookie clock" heading over nothing.
+    readonly property var optionRuns: {
+        const runs = [];
+        let current = null;
+        for (const option of root.widgetOptions) {
+            const group = option.group || "";
+            if (current === null || current.group !== group) {
+                current = { group: group, options: [] };
+                runs.push(current);
+            }
+            current.options.push(option);
+        }
+        return runs;
+    }
+    function visibleOptions(run) {
+        const shown = [];
+        for (const option of run.options)
+            if (OptionVisibility.visible(option, key => root.readOption(key)))
+                shown.push(option);
+        return shown;
+    }
+    function runVisible(run) {
+        return root.visibleOptions(run).length > 0;
+    }
+    // How a group's rows pack. Consecutive booleans go two to a line - the
+    // Bar page's switch pairs - since a switch is narrow and five of them
+    // one under the other were most of the cookie clock's height; anything
+    // else is a line of its own, in manifest order. (Forcing every choice row
+    // to stack was tried: five labels sitting top-left over their chips read
+    // as uncentred; a row stacks only when its chips cannot fit beside it.)
+    function packLines(options) {
+        const lines = [];
+        for (let index = 0; index < options.length; index++) {
+            const option = options[index];
+            const next = options[index + 1];
+            if (option.type === "boolean" && next && next.type === "boolean") {
+                lines.push({ kind: "pair", options: [option, next] });
+                index++;
+            } else {
+                lines.push({ kind: "single", options: [option] });
+            }
+        }
+        return lines;
+    }
+    // The heading's glyph: the first `groupIcon` any option of the run
+    // declares (the clock reuses its style chips' icons), else the generic one.
+    function runIcon(run) {
+        for (const option of run.options)
+            if (option.groupIcon) return option.groupIcon;
+        return "tune";
+    }
+
+    // Host blur is a desktop-widget mechanism (PluginWidget frost); bar/
+    // overlay-only plugins were getting a dead "Blur background" toggle.
+    readonly property bool hasBlurSurface: manifest.desktopWidget !== undefined
+    // Lock and click-through are host behaviours too (AbstractBackgroundWidget),
+    // not plugin-authored options, so they are synthesized here alongside the
+    // blur row instead of being declared in a manifest `options` array. Their
+    // manifest fields - `desktopWidget.locked` / `desktopWidget.clickThrough` -
+    // only seed the default, which is what keeps a shipped default reversible.
+    //
+    // A row that cannot apply is omitted, not disabled: a control that can
+    // never be enabled is noise. The greying-out this file does elsewhere is
+    // for a row that is *temporarily* inert (`enabledWhen`), which is a
+    // different thing.
+    readonly property var behaviourRows: hasBlurSurface ? [{
+        key: "blurEnabled",
+        type: "boolean",
+        label: "Blur background",
+        icon: "blur_on",
+        default: manifest.blur?.default ?? (manifest.desktopWidget?.blur === true)
+    }, {
+        key: "positionLocked",
+        type: "boolean",
+        label: "Lock position",
+        icon: "lock",
+        default: manifest.desktopWidget?.locked === true
+    }, {
+        key: "clickThrough",
+        type: "boolean",
+        label: "Click through",
+        icon: "do_not_touch",
+        default: manifest.desktopWidget?.clickThrough === true
+    }, {
+        // Turning transparency off makes every desktop widget's panel fully
+        // opaque (PluginState.effectiveBackgroundOpacity). This is the escape
+        // hatch for a widget whose whole point is to be see-through, and it is
+        // the only way to undo a manifest that ships the exemption on.
+        key: "keepTranslucent",
+        type: "boolean",
+        label: "Stay translucent",
+        icon: "opacity",
+        default: manifest.desktopWidget?.keepTranslucent === true
+    }, {
+        // The odd one out among the seeds: travelling with the desktop's
+        // parallax pan is the default, so the manifest field can only turn it
+        // OFF and the seed reads `!== false` rather than `=== true`.
+        key: "followParallax",
+        type: "boolean",
+        label: "Follow parallax",
+        icon: "panorama_horizontal",
+        default: manifest.desktopWidget?.followParallax !== false
+    }] : []
+
+    // The size row and the drag grip are two faces of one value: both read and
+    // write the host's `__gridSize`. The grip is what makes a resize quick; the
+    // row is what makes it discoverable and reachable from the keyboard.
+    //
+    // Not every widget is resizable, and offering a size where the widget has
+    // no layout for it is worse than offering nothing - so this is omitted
+    // rather than disabled unless the manifest names more than one span.
+    readonly property var offeredSizes: GridSizes.offeredSizes(manifest.grid)
+    readonly property var sizeRows: root.offeredSizes.length > 1 ? [{
+        key: "__gridSize",
+        type: "choice",
+        label: "Size",
+        icon: "aspect_ratio",
+        default: GridSizes.formatSize(GridSizes.defaultSize(manifest.grid)),
+        choices: root.offeredSizes.map(size => ({
+            displayName: `${size.cols} × ${size.rows}`,
+            value: GridSizes.formatSize(size)
+        }))
+    }] : []
+
+    Repeater {
+        model: root.optionRuns
+        delegate: Loader {
+            id: runLoader
+            required property var modelData
+            Layout.fillWidth: true
+            readonly property bool shown: root.runVisible(modelData)
+            visible: shown
+            Layout.preferredHeight: shown ? implicitHeight : 0
+            sourceComponent: modelData.group === "" ? plainRun : groupedRun
+
+            // An ungrouped run is plain rows, as the card always drew them.
+            Component {
+                id: plainRun
+                ColumnLayout {
+                    spacing: root.spacing
+                    Repeater {
+                        model: runLoader.modelData.options
+                        delegate: optionRow
+                    }
+                }
+            }
+            // A group is a header with a hairline above it - the way "Widget
+            // behaviour" below separates itself - and its rows packed under
+            // it: consecutive switches two to a line, everything else a full
+            // row - a choice row keeps its label centred beside its chips and
+            // stacks only when the chips cannot fit beside it. Not a card and not plates: surfaces
+            // around rows that are already controls read as one more list,
+            // and their padding cost the height the packing exists to save.
+            Component {
+                id: groupedRun
+                ColumnLayout {
+                    spacing: root.spacing
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Appearance.spacing.space100
+                        implicitHeight: 1
+                        color: Appearance.colors.colOutlineVariant
+                    }
+                    ContentSubsection {
+                        icon: root.runIcon(runLoader.modelData)
+                        title: runLoader.modelData.group
+                        Repeater {
+                            model: root.packLines(root.visibleOptions(runLoader.modelData))
+                            delegate: Loader {
+                                id: lineLoader
+                                required property var modelData
+                                Layout.fillWidth: true
+                                sourceComponent: modelData.kind === "pair" ? pairLine : singleLine
+                                Component {
+                                    id: pairLine
+                                    ConfigRow {
+                                        uniform: true
+                                        // A gutter between the halves: the rows
+                                        // here carry no side padding of their own,
+                                        // so at ConfigRow's 4px the first switch's
+                                        // track touched the second row's icon.
+                                        spacing: Appearance.spacing.space300
+                                        OptionRowItem { optionData: lineLoader.modelData.options[0] }
+                                        OptionRowItem { optionData: lineLoader.modelData.options[1] }
+                                    }
+                                }
+                                Component {
+                                    id: singleLine
+                                    OptionRowItem { optionData: lineLoader.modelData.options[0] }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Every host row reads as one group rather than as more of the widget's own
+    // settings. The same rows appear for every widget - that is the point, and
+    // it is exactly why they should not sit among the plugin's.
+    //
+    // ...and it is also why they are a bar rather than rows. Six booleans as
+    // six full-width switch rows spent 196px of a popup whose scarce axis is
+    // vertical, on six settings whose entire content is on/off - the icon, the
+    // label and the track were three columns of chrome per bit. As icon
+    // toggles they are one 40px line: the selected container carries the
+    // state, and the caption under the bar carries the naming a glyph cannot.
+    ContentSubsection {
+        id: behaviourSection
+        title: Translation.tr("Widget behaviour")
+
+        readonly property string presetPersistLabel: Translation.tr("Keep settings across presets")
+
+        // Written by whichever toggle the pointer is over, read by the caption.
+        // Cleared only by the toggle that wrote it: a pointer crossing from one
+        // toggle to the next delivers the leave and the enter in an order
+        // nothing here controls, so an unconditional clear on a leave blanks
+        // the label the enter just wrote.
+        property string hoveredLabel: ""
+
+        // What the six labels used to say without being pointed at: which of
+        // these are on. The selected container answers that too, but only once
+        // six glyphs have been learned, and this is the settings surface where
+        // they are met for the first time.
+        readonly property string enabledLabels: {
+            const on = [];
+            if (PluginState.presetPersisted(root.manifest.id))
+                on.push(behaviourSection.presetPersistLabel);
+            for (let index = 0; index < root.behaviourRows.length; ++index) {
+                const behaviourRow = root.behaviourRows[index];
+                if (PluginState.option(root.manifest.id, behaviourRow.key, behaviourRow.default, root.surface))
+                    on.push(behaviourRow.label);
+            }
+            return on.join("  ·  ");
+        }
+
+        FlowButtonGroup {
+            id: behaviourBar
+            Layout.fillWidth: true
+            spacing: Appearance.spacing.space50
+
+            // Not a pluginOption on purpose: preset application replaces those,
+            // and this flag decides whether they get replaced (see
+            // presets.sh --apply). It leads the bar because it governs whether
+            // the rest of it survives a preset.
+            BehaviourToggle {
+                id: presetPersistToggle
+                label: behaviourSection.presetPersistLabel
+                buttonIcon: "push_pin"
+                toggled: PluginState.presetPersisted(root.manifest.id)
+                onClicked: PluginState.setPresetPersist(root.manifest.id,
+                    !PluginState.presetPersisted(root.manifest.id))
+            }
+
+            Repeater {
+                model: root.behaviourRows
+                delegate: BehaviourToggle {
+                    required property var modelData
+                    label: modelData.label
+                    buttonIcon: modelData.icon
+                    toggled: PluginState.option(root.manifest.id, modelData.key, modelData.default, root.surface)
+                    onClicked: PluginState.setOption(root.manifest.id, modelData.key,
+                        !PluginState.option(root.manifest.id, modelData.key, modelData.default, root.surface), root.surface)
+                }
+            }
+        }
+
+        StyledText {
+            id: behaviourCaption
+            Layout.fillWidth: true
+            font.pixelSize: Appearance.font.pixelSize.smaller
+            color: Appearance.colors.colSubtext
+            elide: Text.ElideRight
+            // One label channel, not two. A tooltip answers "what is this one"
+            // and nothing else, after a hover apiece, drawn over the toggles
+            // beside it; this answers the same question in a fixed place while
+            // the pointer sweeps the bar, and answers the other one - which of
+            // these are on - while the pointer is nowhere near it.
+            text: behaviourSection.hoveredLabel.length > 0
+                ? behaviourSection.hoveredLabel
+                : (behaviourSection.enabledLabels.length > 0
+                    ? Translation.tr("On: %1").arg(behaviourSection.enabledLabels)
+                    : Translation.tr("Nothing on"))
+        }
+
+        Repeater {
+            model: root.sizeRows
+            delegate: optionRow
+        }
+    }
+
+    // Composed, not written: `IconToolbarButton` is already an icon-only button
+    // whose `toggled` container states are M3's selected/unselected pair, and
+    // the `RippleButton` under it already owns the pointer shape and the single
+    // application of the shared interaction motion. Nothing here adds a hover
+    // scale or an enabled-dim of its own - both compose rather than replace,
+    // and both are lints (lint_interaction_motion_double, lint_disabled_opacity).
+    //
+    // The click is an intent in the same sense a ConfigSwitch's is: `toggled`
+    // is a pure binding on the store and the handler flips the value at its
+    // source, so nothing here can detach the toggle from what it displays.
+    component BehaviourToggle: IconToolbarButton {
+        id: toggle
+        // A glyph cannot label itself, and these six are not self-evident.
+        // The bar's caption names whichever one the pointer is over; this is
+        // the name it shows.
+        property string label: ""
+        property string buttonIcon: "tune"
+
+        implicitHeight: 40
+        text: toggle.buttonIcon
+
+        onHoveredChanged: {
+            if (toggle.hovered)
+                behaviourSection.hoveredLabel = toggle.label;
+            else if (behaviourSection.hoveredLabel === toggle.label)
+                behaviourSection.hoveredLabel = "";
+        }
+    }
+
+    // One row item for every group of rows: they differ in where they come
+    // from and where they are drawn, never in how a row of a given type
+    // behaves. A Repeater hands it its option as `modelData` through the
+    // `optionRow` delegate; a GroupedList plate hands the same through its
+    // own rowDelegate after load - which is why the item itself has no
+    // required property.
+    Component {
+        id: optionRow
+        OptionRowItem {
+            required property var modelData
+            optionData: modelData
+        }
+    }
+
+    component OptionRowItem: Loader {
+        id: optionLoader
+        Layout.fillWidth: true
+        property var optionData: null
+        // `enabledWhen` and `visibleWhen`, one evaluator - see
+        // option_visibility.js for what each spells.
+        visible: OptionVisibility.visible(optionData, key => root.readOption(key))
+        enabled: visible
+        Layout.preferredHeight: visible ? implicitHeight : 0
+
+        sourceComponent: {
+            switch (optionData.type) {
+            case "boolean": return booleanOption;
+            case "choice": return choiceOption;
+            case "shape": return shapeOption;
+            case "color": return colorOption;
+            case "number": return numberOption;
+            case "text": return textOption;
+            default: return null;
+            }
+        }
+
+        Component {
+            id: booleanOption
+            ConfigSwitch {
+                Layout.fillWidth: true
+                leftPadding: 0
+                rightPadding: 0
+                buttonIcon: optionLoader.optionData.icon || "tune"
+                text: optionLoader.optionData.label
+                checked: PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface)
+                onToggleRequested: PluginState.setOption(root.manifest.id, optionLoader.optionData.key,
+                    !PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface), root.surface)
+            }
+        }
+
+        Component {
+            id: choiceOption
+            ConfigSelectionArray {
+                Layout.fillWidth: true
+                // Dense chips when every choice has an icon (the clock's all
+                // do): icon-only, named on hover, the current one named in
+                // the label - the text chips did not fit beside their labels.
+                compact: true
+                text: optionLoader.optionData.label
+                icon: optionLoader.optionData.icon || "tune"
+                options: optionLoader.optionData.choices || []
+                currentValue: PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface)
+                onSelected: value => PluginState.setOption(root.manifest.id, optionLoader.optionData.key, value, root.surface)
+            }
+        }
+
+        // Material shapes are their own preview: a name-chip row for 31
+        // shapes is unreadable even wrapped. Draw the shape.
+        Component {
+            id: shapeOption
+            ConfigSelectionShapeArray {
+                options: (optionLoader.optionData.choices || [])
+                    .map(choice => choice.value ?? choice)
+                // A choice may carry its own enabledWhen (the same rule
+                // spelling option_visibility.js evaluates for rows):
+                // offered always, pickable only while the rule holds.
+                disabledOptions: (optionLoader.optionData.choices || [])
+                    .filter(choice => choice && choice.enabledWhen !== undefined
+                        && !OptionVisibility.rule(choice.enabledWhen, key => root.readOption(key)))
+                    .map(choice => choice.value)
+                currentValue: PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface)
+                onSelected: value => PluginState.setOption(root.manifest.id, optionLoader.optionData.key, value, root.surface)
+            }
+        }
+
+        // A palette role is its own preview too, and the roles are fixed by
+        // the theme rather than by the plugin - so there are no `choices`,
+        // only the swatch row ColorSelectionArray already draws. The empty
+        // string is a real value here: "no override, follow the widget's
+        // own colour", which is why the row pairs with a boolean.
+        Component {
+            id: colorOption
+            ColorSelectionArray {
+                icon: optionLoader.optionData.icon || "palette"
+                text: optionLoader.optionData.label
+                options: (optionLoader.optionData.choices || [])
+                    .map(choice => choice.value ?? choice)
+                currentValue: PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface)
+                onSelected: value => PluginState.setOption(root.manifest.id, optionLoader.optionData.key, value, root.surface)
+            }
+        }
+
+        Component {
+            id: numberOption
+            ConfigSlider {
+                Layout.fillWidth: true
+                text: optionLoader.optionData.label
+                textWidth: optionLoader.optionData.labelWidth ?? 176
+                buttonIcon: optionLoader.optionData.icon || "tune"
+                // A 0..1 (or smaller) range is a fraction; show it as a
+                // percent so the tooltip isn't int-rounded to 0/1.
+                usePercentTooltip: optionLoader.optionData.usePercentTooltip === true
+                    || (optionLoader.optionData.to ?? 100) <= 1
+                from: optionLoader.optionData.from ?? 0
+                to: optionLoader.optionData.to ?? 100
+                value: PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface)
+                onValueModified: {
+                    const step = optionLoader.optionData.step ?? 1;
+                    const rounded = Math.round(newValue / step) * step;
+                    if (rounded !== PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface))
+                        PluginState.setOption(root.manifest.id, optionLoader.optionData.key, rounded, root.surface);
+                }
+            }
+        }
+
+        Component {
+            id: textOption
+            ConfigTextArea {
+                Layout.fillWidth: true
+                buttonIcon: optionLoader.optionData.icon || "text_fields"
+                text: optionLoader.optionData.label
+                placeholderText: optionLoader.optionData.placeholder || ""
+                fieldWidth: 160
+                value: String(PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface))
+                onValueChanged: {
+                    const trimmed = value.trim();
+                    if (trimmed.length === 0) return;
+                    const transformed = optionLoader.optionData.uppercase === true
+                        ? trimmed.toUpperCase() : trimmed;
+                    const normalized = transformed.slice(0, optionLoader.optionData.maxLength ?? 64);
+                    if (normalized !== PluginState.option(root.manifest.id, optionLoader.optionData.key, optionLoader.optionData.default, root.surface))
+                        PluginState.setOption(root.manifest.id, optionLoader.optionData.key, normalized, root.surface);
+                }
+            }
+        }
+    }
+}

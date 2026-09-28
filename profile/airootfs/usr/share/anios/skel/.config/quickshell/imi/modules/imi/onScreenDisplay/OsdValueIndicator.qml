@@ -1,0 +1,105 @@
+import qs.modules.common
+import qs.modules.common.widgets
+import QtQuick
+import QtQuick.Layouts
+import Quickshell.Widgets
+
+Item {
+    id: root
+    required property real value
+    required property string icon
+    required property string name
+    property bool rotateIcon: false
+    property bool scaleIcon: false
+    // Optional replacement for the percentage readout, for values whose unit
+    // is not % (e.g. a colour temperature's "4500K"). Empty keeps the default.
+    property string displayText: ""
+    property alias from: valueProgressBar.from
+    property alias to: valueProgressBar.to
+
+    // Same contract as OsdTextIndicator: the painted body plus a radius with the
+    // Appearance.rounding.full sentinel already resolved, so OnScreenDisplay.qml
+    // can build one blur region without caring which indicator type is loaded.
+    readonly property Item backgroundItem: valueIndicator
+    // The frame paints the pill (frame-pin-grammar.md, the OSD row): the
+    // pill's own fill and shadow stand down, its content stays.
+    property bool plateOnFrame: false
+    readonly property real backgroundRadius: Math.round(valueIndicator.height / 2)
+
+    implicitWidth: Appearance.sizes.osdWidth + 4 * Appearance.sizes.elevationMargin + 80
+    implicitHeight: valueIndicator.implicitHeight + 2 * Appearance.sizes.elevationMargin
+
+    Rectangle {
+        id: valueIndicator
+        anchors {
+            fill: parent
+            margins: Appearance.sizes.elevationMargin
+        }
+        radius: Appearance.rounding.full
+        color: root.plateOnFrame ? "transparent" : Appearance.colors.colLayer0
+        implicitWidth: valueRow.implicitWidth
+        implicitHeight: valueRow.implicitHeight
+
+        RowLayout { 
+            id: valueRow
+            anchors.fill: parent
+            anchors.margins: Appearance.spacing.space75
+            spacing: Appearance.spacing.space100
+
+            Rectangle {
+                id: iconBg
+                Layout.fillHeight: true
+                Layout.alignment: Qt.AlignVCenter
+                width: 40
+                radius: height / 2
+                color: Appearance.colors.colSecondaryContainer
+
+                MaterialSymbol {
+                    id: iconSymbol
+                    anchors.centerIn: parent
+                    color: Appearance.colors.colOnSecondaryContainer
+                    renderType: Text.QtRendering
+                    text: root.icon
+                    iconSize: 25
+                    rotation: 180 * (root.rotateIcon ? value : 0)
+
+                    Behavior on iconSize {
+                        animation: Appearance.animation.elementMoveEnter.numberAnimation.createObject(this)
+                    }
+                    Behavior on rotation {
+                        animation: Appearance.animation.elementMoveEnter.numberAnimation.createObject(this)
+                    }
+                }
+            }
+
+            StyledSlider {
+                id: valueProgressBar
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.alignment: Qt.AlignVCenter
+                configuration: StyledSlider.Configuration.M
+                stopIndicatorValues: []
+                value: root.value
+            }
+
+            Rectangle {
+                id: valueTextBg
+                Layout.fillHeight: true
+                Layout.alignment: Qt.AlignVCenter
+                width: Math.max(46, valueText.implicitWidth + Appearance.spacing.space200)
+                radius: height / 2
+                color: Appearance.colors.colTertiaryContainer
+
+                StyledText {
+                    id: valueText
+                    anchors.centerIn: parent
+                    color: Appearance.colors.colOnTertiaryContainer
+                    font.pixelSize: Appearance.font.pixelSize.normal
+                    font.features: { "tnum": 1 }
+                    font.letterSpacing: 0.2
+                    text: root.displayText !== "" ? root.displayText : Math.round(root.value * 100)
+                }
+            }
+        }
+    }
+}

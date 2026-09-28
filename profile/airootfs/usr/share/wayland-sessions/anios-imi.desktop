@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=AniOS (Immaterial Impulse)
+Comment=Start the AniOS live desktop session with Immaterial Impulse (Quickshell)
+Exec=/usr/local/bin/anios-session --imi
+TryExec=/usr/local/bin/anios-session
+Type=Application
+DesktopNames=Hyprland

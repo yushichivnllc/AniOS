@@ -1,0 +1,33 @@
+-- put former exec-once commands inside the func and former exec commands outside
+hl.on("hyprland.start", function ()
+
+    -- Bar, wallpaper
+    hl.exec_cmd("$HOME/.config/hypr/hyprland/scripts/start_geoclue_agent.sh")
+    -- Force Qt's threaded render loop. On NVIDIA/Wayland Qt otherwise auto-picks
+    -- the basic loop (QML on the GUI thread), which lets a GPU-saturating process
+    -- block the shell for seconds (upstream #2567). The WE-capable quickshell
+    -- wrapper already exports this; setting it here covers base installs too.
+    hl.exec_cmd("QSG_RENDER_LOOP=threaded qs -c $qsConfig")
+    hl.exec_cmd("$HOME/.config/hypr/custom/scripts/__restore_video_wallpaper.sh")
+
+    -- Core components (authentication, lock screen, notification daemon)
+    hl.exec_cmd("gnome-keyring-daemon --start --components=secrets")
+    hl.exec_cmd("hypridle")
+    hl.exec_cmd("dbus-update-activation-environment --all")
+    hl.exec_cmd("sleep 1 && dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP") -- Some fix idk
+
+    -- Audio
+    hl.exec_cmd("easyeffects --hide-window --service-mode")
+
+    -- Clipboard: history
+    --hl.exec_cmd("wl-paste --watch cliphist store")
+    -- The shell watches the clipboard itself (services/Cliphist.qml) and
+    -- refreshes on change; chaining `qs ... ipc call cliphistService update`
+    -- here started a second Quickshell process per copy.
+    hl.exec_cmd("wl-paste --type text --watch cliphist store")
+    hl.exec_cmd("wl-paste --type image --watch cliphist store")
+
+    -- Cursor: theme/size come from the shell config (Settings > Cursor); the
+    -- script's fallbacks match the values that used to be hardcoded here.
+    hl.exec_cmd("$HOME/.config/hypr/hyprland/scripts/apply_saved_cursor.sh")
+end)

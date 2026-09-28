@@ -1,0 +1,308 @@
+pragma ComponentBehavior: Bound
+
+import qs.services
+import qs.modules.common
+import qs.modules.common.widgets
+import qs.modules.common.functions
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+import org.kde.syntaxhighlighting
+
+ColumnLayout {
+    id: root
+    // These are needed on the parent loader
+    property bool editing: false
+    property bool renderMarkdown: true
+    property bool enableMouseSelection: false
+    property var segmentContent: ({})
+    property var segmentLang: "txt"
+    property var messageData: {}
+    property bool isCommandRequest: segmentLang === "command"
+    // A reviewed-tier change request (services/ai/ai_tool_policy.js): the
+    // same approve/reject card as a command, around a one-line summary.
+    property bool isMutationRequest: segmentLang === "mutation"
+    property var displayLang: (isCommandRequest ? "bash" : isMutationRequest ? "plaintext" : segmentLang)
+
+    property real codeBlockBackgroundRounding: Appearance.rounding.small
+    property real codeBlockHeaderPadding: Appearance.spacing.space50
+    property real codeBlockComponentSpacing: Appearance.spacing.space25
+
+    spacing: codeBlockComponentSpacing
+
+    Rectangle { // Code background
+        Layout.fillWidth: true
+        topLeftRadius: codeBlockBackgroundRounding
+        topRightRadius: codeBlockBackgroundRounding
+        bottomLeftRadius: Appearance.rounding.unsharpen
+        bottomRightRadius: Appearance.rounding.unsharpen
+        color: Appearance.colors.colSurfaceContainerHighest
+        implicitHeight: codeBlockTitleBarRowLayout.implicitHeight + codeBlockHeaderPadding * 2
+
+        RowLayout { // Language and buttons
+            id: codeBlockTitleBarRowLayout
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: codeBlockHeaderPadding
+            anchors.rightMargin: codeBlockHeaderPadding
+            spacing: Appearance.spacing.space100
+
+            StyledText {
+                id: codeBlockLanguage
+                Layout.alignment: Qt.AlignLeft
+                Layout.fillWidth: false
+                Layout.topMargin: Appearance.spacing.space100
+                Layout.bottomMargin: Appearance.spacing.space100
+                Layout.leftMargin: Appearance.spacing.space150
+                font.pixelSize: Appearance.font.pixelSize.small
+                font.weight: Font.DemiBold
+                color: Appearance.colors.colOnLayer2
+                text: root.displayLang ? Repository.definitionForName(root.displayLang).name : "plain"
+            }
+
+            Item { Layout.fillWidth: true }
+
+            ButtonGroup {
+                AiMessageControlButton {
+                    id: copyCodeButton
+                    buttonIcon: activated ? "inventory" : "content_copy"
+
+                    onClicked: {
+                        Quickshell.clipboardText = segmentContent
+                        copyCodeButton.activated = true
+                        copyIconTimer.restart()
+                    }
+
+                    Timer {
+                        id: copyIconTimer
+                        interval: 1500
+                        repeat: false
+                        onTriggered: {
+                            copyCodeButton.activated = false
+                        }
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Copy code")
+                    }
+                }
+                AiMessageControlButton {
+                    id: saveCodeButton
+                    buttonIcon: activated ? "check" : "save"
+
+                    onClicked: {
+                        const downloadPath = FileUtils.trimFileProtocol(Directories.downloads)
+                        Quickshell.execDetached(["bash", "-c", 
+                            `echo '${StringUtils.shellSingleQuoteEscape(segmentContent)}' > '${downloadPath}/code.${segmentLang || "txt"}'`
+                        ])
+                        Quickshell.execDetached(["notify-send", 
+                            Translation.tr("Code saved to file"), 
+                            Translation.tr("Saved to %1").arg(`${downloadPath}/code.${segmentLang || "txt"}`),
+                            "-a", "Shell"
+                        ])
+                        saveCodeButton.activated = true
+                        saveIconTimer.restart()
+                    }
+
+                    Timer {
+                        id: saveIconTimer
+                        interval: 1500
+                        repeat: false
+                        onTriggered: {
+                            saveCodeButton.activated = false
+                        }
+                    }
+                    StyledToolTip {
+                        text: Translation.tr("Save to Downloads")
+                    }
+                }
+            }
+        }
+    }
+
+    RowLayout { // Line numbers and code
+        spacing: codeBlockComponentSpacing
+
+        Rectangle { // Line numbers
+            implicitWidth: 40
+            implicitHeight: lineNumberColumnLayout.implicitHeight
+            Layout.fillHeight: true
+            Layout.fillWidth: false
+            topLeftRadius: Appearance.rounding.unsharpen
+            bottomLeftRadius: codeBlockBackgroundRounding
+            topRightRadius: Appearance.rounding.unsharpen
+            bottomRightRadius: Appearance.rounding.unsharpen
+            color: Appearance.colors.colLayer2
+
+            ColumnLayout {
+                id: lineNumberColumnLayout
+                anchors {
+                    left: parent.left
+                    right: parent.right
+                    rightMargin: Appearance.spacing.space100
+                    top: parent.top
+                    topMargin: Appearance.spacing.space100
+                }
+                spacing: 0
+                
+                Repeater {
+                    model: codeTextArea.text.split("\n").length
+                    Text {
+                        required property int index
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignRight
+                        font.family: Appearance.font.family.monospace
+                        font.pixelSize: Appearance.font.pixelSize.small
+                        color: Appearance.colors.colSubtext
+                        horizontalAlignment: Text.AlignRight
+                        text: index + 1
+                    }
+                }
+            }
+        }
+
+        Rectangle { // Code background
+            Layout.fillWidth: true
+            topLeftRadius: Appearance.rounding.unsharpen
+            bottomLeftRadius: Appearance.rounding.unsharpen
+            topRightRadius: Appearance.rounding.unsharpen
+            bottomRightRadius: codeBlockBackgroundRounding
+            color: Appearance.colors.colLayer2
+            implicitHeight: codeColumnLayout.implicitHeight
+
+            ColumnLayout {
+                id: codeColumnLayout
+                anchors.fill: parent
+                spacing: 0
+                Flickable {
+                    id: codeScrollView
+                    Layout.fillWidth: true
+                    implicitHeight: codeTextArea.implicitHeight + 1
+                    contentWidth: codeTextArea.implicitWidth
+                    contentHeight: codeTextArea.implicitHeight
+                    clip: true
+                    // A plain never-interactive Flickable, NOT a ScrollView:
+                    // ScrollView filters its children's wheel events to feed
+                    // its scrollbars, so it swallowed the transcript's scroll
+                    // over every code block even after its inner Flickable
+                    // was made non-interactive. This one cannot claim a
+                    // wheel at all; the horizontal bar below drags.
+                    interactive: false
+                    
+                    ScrollBar.horizontal: StyledScrollBar {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        policy: ScrollBar.AsNeeded
+                        // StyledScrollBar is shaped for a vertical rail: the
+                        // handle's thickness is its contentItem's implicitWidth
+                        // and the rail's end padding is top/bottom. Lying
+                        // horizontal both axes swap, so the thickness has to
+                        // come back as this control's own height (otherwise the
+                        // handle gets availableHeight ~= 0 and never draws) and
+                        // the padding has to move to the ends.
+                        topPadding: Appearance.spacing.space100
+                        bottomPadding: Appearance.spacing.space100
+                        leftPadding: Appearance.spacing.space100
+                        rightPadding: Appearance.spacing.space100
+                        implicitHeight: 4 + topPadding + bottomPadding
+                        // The plate's Flickable is non-interactive, so this bar
+                        // is the only way to bring a long line into view: it
+                        // stays shown whenever the code overflows instead of
+                        // waiting for the shared widget's hover.
+                        active: true
+                        // AsNeeded only fades the handle out; the control keeps
+                        // its band across the bottom of the plate and would take
+                        // presses off the last line of code that fits.
+                        visible: visualSize < 1
+                    }
+
+                    TextArea { // Code
+                        id: codeTextArea
+                        // Short code still fills the plate (selection and
+                        // edit backgrounds span it); long lines overflow
+                        // into the Flickable's contentWidth.
+                        width: Math.max(implicitWidth, codeScrollView.width)
+                        readOnly: !editing
+                        selectByMouse: enableMouseSelection || editing
+                        renderType: Text.NativeRendering
+                        font.family: Appearance.font.family.monospace
+                        font.hintingPreference: Font.PreferNoHinting // Prevent weird bold text
+                        font.pixelSize: Appearance.font.pixelSize.small
+                        selectedTextColor: Appearance.m3colors.m3onSecondaryContainer
+                        selectionColor: Appearance.colors.colSecondaryContainer
+                        // wrapMode: TextEdit.Wrap
+                        color: messageData.thinking ? Appearance.colors.colSubtext : Appearance.colors.colOnLayer1
+
+                        text: segmentContent
+                        onTextChanged: {
+                            segmentContent = text
+                        }
+
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Tab) {
+                                // Insert 4 spaces at cursor
+                                const cursor = codeTextArea.cursorPosition;
+                                codeTextArea.insert(cursor, "    ");
+                                codeTextArea.cursorPosition = cursor + 4;
+                                event.accepted = true;
+                            } else if ((event.key === Qt.Key_C) && event.modifiers == Qt.ControlModifier) {
+                                codeTextArea.copy();
+                                event.accepted = true;
+                            }
+                        }
+
+                        SyntaxHighlighter {
+                            id: highlighter
+                            textEdit: codeTextArea
+                            repository: Repository
+                            definition: Repository.definitionForName(root.displayLang || "plaintext")
+                            theme: Appearance.syntaxHighlightingTheme
+                        }
+                    }
+                }
+                Loader {
+                    active: (root.isCommandRequest || root.isMutationRequest) && root.messageData.functionPending
+                    visible: active
+                    Layout.fillWidth: true
+                    Layout.margins: Appearance.spacing.space100
+                    Layout.topMargin: 0
+                    sourceComponent: RowLayout {
+                        Item { Layout.fillWidth: true }
+                        ButtonGroup {
+                            GroupButton {
+                                contentItem: StyledText {
+                                    text: Translation.tr("Reject")
+                                    font.pixelSize: Appearance.font.pixelSize.small
+                                    color: Appearance.colors.colOnLayer2
+                                }
+                                onClicked: Ai.rejectCommand(root.messageData)
+                            }
+                            GroupButton {
+                                toggled: true
+                                contentItem: StyledText {
+                                    text: Translation.tr("Approve")
+                                    font.pixelSize: Appearance.font.pixelSize.small
+                                    color: Appearance.colors.colOnPrimary
+                                }
+                                onClicked: Ai.approveCommand(root.messageData)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // MouseArea to block scrolling
+            // MouseArea {
+            //     id: codeBlockMouseArea
+            //     anchors.fill: parent
+            //     acceptedButtons: editing ? Qt.NoButton : Qt.LeftButton
+            //     cursorShape: (enableMouseSelection || editing) ? Qt.IBeamCursor : Qt.ArrowCursor
+            //     onWheel: (event) => {
+            //         event.accepted = false
+            //     }
+            // }
+        }
+    }
+}

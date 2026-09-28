@@ -18,7 +18,8 @@ for package in \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
-  pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils rtkit; do
+  pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils rtkit \
+  quickshell matugen; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
 ! grep -qxF linux "$ROOT_DIR/profile/packages.x86_64" || fail "manifest must not request the generic linux kernel"
@@ -55,6 +56,7 @@ for declaration in \
   '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
+  '["/usr/local/bin/anios-switch-desktop"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
@@ -164,6 +166,7 @@ grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-se
   fail "AniOS SDDM session must advertise anios-session as TryExec"
 [[ -x "$AIROOTFS/usr/local/bin/anios-session" ]] || fail "anios-session must be executable"
 [[ -x "$AIROOTFS/usr/local/bin/anios-setup" ]] || fail "anios-setup must be executable"
+[[ -x "$AIROOTFS/usr/local/bin/anios-switch-desktop" ]] || fail "anios-switch-desktop must be executable"
 [[ -x "$AIROOTFS/usr/local/bin/anios-switch-im" ]] || fail "anios-switch-im must be executable"
 [[ -x "$AIROOTFS/usr/local/lib/anios/live-home-setup" ]] || fail "live-home-setup must be executable"
 
@@ -241,7 +244,14 @@ for dotfile in \
   .bashrc .bash_profile .profile .gitconfig .vimrc .nanorc \
   .config/kitty/kitty.conf .config/fish/config.fish \
   .config/fastfetch/config.jsonc .config/MangoHud/MangoHud.conf \
-  .config/gamemode.ini; do
+  .config/gamemode.ini \
+  .config/quickshell/imi/shell.qml \
+  .config/matugen/config.toml \
+  .config/immaterial-impulse/config.json \
+  .config/starship.toml \
+  .config/wlogout/layout \
+  .config/Kvantum/kvantum.kvconfig \
+  .local/share/icons/immaterial-impulse.png; do
   [[ -s "$SKEL/$dotfile" ]] || fail "cài sẵn dotfile bị thiếu: $dotfile"
 done
 
@@ -370,6 +380,7 @@ done
   fail "input-method variables must not leak into the SDDM greeter via /etc/environment"
 
 [[ -s "$AIROOTFS/usr/share/applications/anios-setup.desktop" ]] || fail "the Immaterial Impulse shortcut is missing"
+[[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-imi.desktop" ]] || fail "the Immaterial Impulse Wayland session is missing"
 [[ -s "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
 
 # --- Quyền của script dựng ISO -------------------------------------------

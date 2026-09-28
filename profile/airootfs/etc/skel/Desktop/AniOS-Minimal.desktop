@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Switch to AniOS Minimal
+Comment=Switch to AniOS Minimal (Waybar) desktop
+Exec=anios-switch-desktop minimal
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Settings;System;

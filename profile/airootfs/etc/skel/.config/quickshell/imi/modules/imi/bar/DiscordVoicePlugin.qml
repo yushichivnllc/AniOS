@@ -1,0 +1,94 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Layouts
+import qs.services
+import qs.modules.common
+import qs.modules.common.widgets
+import "../../common/functions/barEdges.js" as BarEdges
+import qs.modules.common.plugins
+import "../../common/plugins/bundled/discordVoice" as DiscordPackage
+
+MouseArea {
+    id: root
+    property bool vertical: Config.options.bar.vertical
+    property bool popupOpen: false
+    readonly property int avatarLimit: PluginState.option("discord_voice", "maxBarAvatars", 4)
+
+    implicitWidth: vertical ? 34 : content.implicitWidth + Appearance.spacing.space100 * 2
+    implicitHeight: vertical ? content.implicitHeight + Appearance.spacing.space50 * 2 : Appearance.sizes.barHeight
+    acceptedButtons: Qt.LeftButton
+    hoverEnabled: false
+    cursorShape: Qt.PointingHandCursor
+    onClicked: root.popupOpen = !root.popupOpen
+
+    // The bar's one open state: the anchor indicator on the popup-facing
+    // edge, as long as the glyph and whatever avatars sit beside it.
+    PopupAnchorIndicator {
+        wraps: content
+        edgeItem: root
+        edge: BarEdges.popupEdge(Config.options.bar.vertical, Config.options.bar.bottom)
+        shown: root.popupOpen
+    }
+
+    RowLayout {
+        id: content
+        anchors.centerIn: parent
+        spacing: Appearance.spacing.space50
+        DiscordPackage.DiscordGlyph {
+            implicitSize: 29
+            iconSize: 17
+            color: DiscordVoice.inVoice
+                ? Appearance.colors.colPrimaryContainer : Appearance.colors.colLayer2
+            // Primary while the popup is up, with the indicator.
+            iconColor: root.popupOpen ? Appearance.colors.colPrimary
+                : DiscordVoice.inVoice ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colSubtext
+        }
+        Row {
+            visible: !root.vertical && DiscordVoice.participantCount > 0
+            spacing: -Appearance.spacing.space50
+            Repeater {
+                model: DiscordVoice.participantModel
+                DiscordPackage.ParticipantAvatar {
+                    // Bound component behavior does not inject `index` into the
+                    // delegate's scope; the overlapping avatar stack needs it to
+                    // order itself, so it has to be taken as a required property.
+                    required property int index
+                    visible: index < root.avatarLimit
+                    avatarSize: 25
+                    z: index
+                }
+            }
+        }
+        StyledText {
+            visible: !root.vertical && DiscordVoice.inVoice
+            text: DiscordVoice.participantCount
+            font.pixelSize: Appearance.font.pixelSize.small
+            font.weight: Font.DemiBold
+            color: Appearance.colors.colOnPrimaryContainer
+        }
+    }
+
+    Loader {
+        id: popupLoader
+        // Loaded while open, and until the overlay has released the card's
+        // content after the exit (StyledPopup.held): unloaded at the click
+        // that closed it, the content was destroyed under the leaving card.
+        // A plain flag, not a binding on the item's own `held`: that binding
+        // re-evaluated while its write was unloading the item - a binding
+        // loop, and a popup destroyed under the overlay's hand.
+        property bool cardHeld: false
+        active: root.popupOpen || popupLoader.cardHeld
+        onLoaded: popupLoader.cardHeld = popupLoader.item?.held ?? false
+        Connections {
+            target: popupLoader.item
+            function onHeldChanged() { popupLoader.cardHeld = popupLoader.item?.held ?? false; }
+        }
+        sourceComponent: DiscordPackage.DiscordVoicePopup {
+            pinnedOpen: root.popupOpen
+            hoverTarget: root
+            // The overlay owns the surface, so it owns the outside-click grab.
+            onDismissRequested: root.popupOpen = false
+        }
+    }
+}
