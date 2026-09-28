@@ -34,8 +34,11 @@ jobs:
     # pacstrap + mksquashfs + xorrisofs cần khá nhiều thời gian và đĩa.
     timeout-minutes: 120
     # Container Arch Linux: có sẵn pacman/git và chạy với quyền root cho mkarchiso.
+    # --privileged là bắt buộc: pacstrap mount /proc, /sys, /dev vào airootfs, mà
+    # container mặc định không có CAP_SYS_ADMIN nên sẽ fail với "permission denied".
     container:
       image: archlinux:base-devel
+      options: --privileged
     defaults:
       run:
         shell: bash
@@ -72,6 +75,22 @@ jobs:
 
       - name: Kiểm tra profile
         run: ./scripts/check-profile.sh
+
+      - name: Kiểm tra quyền mount của container
+        # pacstrap cần mount /proc, /sys, /dev vào airootfs. Thử trước để fail sớm
+        # với thông báo rõ ràng thay vì chờ tới giữa lúc pacstrap.
+        run: |
+          probe="$(mktemp -d)"
+          for fs in proc sys dev tmpfs; do
+            mkdir -p "$probe/$fs"
+            if ! mount -t "$fs" "$fs" "$probe/$fs" 2>/dev/null; then
+              echo "::error::Không mount được filesystem $fs. Thiếu CAP_SYS_ADMIN — hãy thêm 'options: --privileged' vào container trong workflow"
+              exit 1
+            fi
+            umount "$probe/$fs"
+          done
+          rm -rf "$probe"
+          echo "Container có quyền mount, sẵn sàng chạy pacstrap"
 
       - name: Dựng ISO
         run: |
