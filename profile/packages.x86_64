@@ -8,6 +8,8 @@ amd-ucode
 archlinux-keyring
 
 # Hyprland: desktop tối giản, ít hiệu ứng cho máy phòng net
+# Từ 0.55 Hyprland đọc cấu hình Lua (~/.config/hypr/hyprland.lua); hyprlock
+# vẫn dùng định dạng riêng của nó (hyprlock.conf).
 hyprland
 sddm
 xdg-desktop-portal

@@ -78,7 +78,8 @@ jobs:
         # host tool mà mkarchiso yêu cầu (mksquashfs, mkfs.fat, mmd/mcopy, xorriso).
         run: |
           docker exec -i anios-iso-builder bash -e -o pipefail -s <<'ARCH'
-          packages=(archiso squashfs-tools dosfstools mtools libisoburn git)
+          # lua: để scripts/check-profile.sh kiểm tra cú pháp hyprland.lua ngay trên CI.
+          packages=(archiso squashfs-tools dosfstools mtools libisoburn git lua)
           pacman-key --init 2>/dev/null || true
           pacman-key --populate archlinux 2>/dev/null || true
           if ! pacman -Syu --noconfirm --needed "${packages[@]}"; then
@@ -239,9 +240,9 @@ jobs:
             usr/share/sddm/themes/wuwa/fallback.png \
             usr/share/sddm/themes/wuwa/metadata.desktop \
             usr/share/sddm/themes/wuwa/UPSTREAM \
-            usr/share/anios/skel/.config/hypr/hyprland.conf \
+            usr/share/anios/skel/.config/hypr/hyprland.lua \
             usr/share/anios/skel/.config/hypr/hyprlock.conf \
-            home/anios/.config/hypr/hyprland.conf \
+            home/anios/.config/hypr/hyprland.lua \
             home/anios/.bashrc \
             home/anios/Desktop/README.txt; do
             unsquashfs -cat "$squashfs" "$path" >/dev/null ||
@@ -251,7 +252,7 @@ jobs:
 
           unsquashfs -cat "$squashfs" usr/share/sddm/themes/anios/theme.conf |
             grep -qxF 'background=/usr/share/anios/wallpaper.png'
-          unsquashfs -cat "$squashfs" usr/share/anios/skel/.config/hypr/hyprland.conf |
+          unsquashfs -cat "$squashfs" usr/share/anios/skel/.config/hypr/hyprland.lua |
             grep -qF 'swaybg -i /usr/share/anios/wallpaper.png'
 
           # mkarchiso chép airootfs bằng cp --no-preserve=mode, nên nếu quên

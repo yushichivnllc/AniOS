@@ -243,12 +243,30 @@ for dotfile in \
 done
 
 # --- Cấu hình desktop -----------------------------------------------------
-HYPR_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.conf"
+# Hyprland 0.55 trở lên đọc cấu hình Lua (hyprland.lua); định dạng hyprlang
+# (.conf) đã bị thay thế, nên cả hai bản skel chỉ được phép có file .lua.
+HYPR_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua"
+[[ -s "$HYPR_CONF" ]] || fail "hyprland.lua is missing; Hyprland now reads the Lua config"
 grep -qF '/usr/share/anios/wallpaper.png' "$HYPR_CONF" || fail "Hyprland must set the AniOS wallpaper"
 grep -qF 'fcitx5 -d' "$HYPR_CONF" || fail "Hyprland must start fcitx5 for Vietnamese input"
-grep -qF 'bind = $mainMod SHIFT, L, exec, hyprlock' "$HYPR_CONF" || fail "Hyprland must offer the lock screen"
-grep -qF 'exec-once = waybar' "$HYPR_CONF" || fail "Hyprland must start the status bar"
-grep -qF 'bind = $mainMod, D, exec, $menu' "$HYPR_CONF" || fail "Hyprland launcher keybind is missing"
+grep -qF 'hl.dsp.exec_cmd("hyprlock")' "$HYPR_CONF" || fail "Hyprland must offer the lock screen"
+grep -qF 'hl.exec_cmd("waybar")' "$HYPR_CONF" || fail "Hyprland must start the status bar"
+grep -qF 'hl.dsp.exec_cmd(menu)' "$HYPR_CONF" || fail "Hyprland launcher keybind is missing"
+
+# Cú pháp Lua sai sẽ đẩy Hyprland vào màn hình khẩn cấp, nên kiểm tra ngay
+# khi máy dựng có sẵn trình thông dịch Lua (gói lua của Arch).
+for hypr_lua in \
+  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" \
+  "$AIROOTFS/etc/skel/.config/hypr/hyprland.lua"; do
+  [[ -s "$hypr_lua" ]] || fail "missing Hyprland config: $hypr_lua"
+  [[ ! -e "${hypr_lua%.lua}.conf" ]] ||
+    fail "obsolete Hyprland config ${hypr_lua%.lua}.conf: Hyprland now reads hyprland.lua"
+  if command -v luac >/dev/null 2>&1; then
+    luac -p "$hypr_lua" || fail "Lua syntax error in $hypr_lua"
+  elif command -v lua >/dev/null 2>&1; then
+    lua -e "assert(loadfile('$hypr_lua'))" || fail "Lua syntax error in $hypr_lua"
+  fi
+done
 
 # hyprlock thoát ngay nếu không tìm thấy hyprlock.conf, nên phím tắt khoá màn
 # hình chỉ có ý nghĩa khi file cấu hình đi kèm tồn tại.
