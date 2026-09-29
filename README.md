@@ -62,9 +62,30 @@ thì nguyên nhân là `profile/airootfs/` đang chứa file nằm ở **đườ
 
 Ngoại lệ: `/etc/passwd`, `/etc/shadow`, `/etc/issue`... là file "backup" của gói `filesystem` nên pacman cho phép overlay ghi đè — chính archiso dựa vào đó để tạo tài khoản live. `scripts/check-profile.sh` chặn trước nhóm lỗi này cho các đường dẫn đã biết, và `build-iso.sh` in chẩn đoán kèm log `work/mkarchiso.log` khi bản dựng hỏng.
 
+### CI báo `THIẾU etc/alsa/conf.d/...` dù gói đã cài file đó
+
+Nếu bước **Kiểm tra âm thanh trong ảnh live** in ra:
+
+```text
+  THIẾU etc/alsa/conf.d/50-pipewire.conf
+  THIẾU etc/alsa/conf.d/99-pipewire-default.conf
+##[error]Ảnh live thiếu thành phần âm thanh
+```
+
+thì vấn đề thường nằm ở **cách đọc squashfs**, không phải ở ảnh live. Hai file đó **có** trong ảnh nhưng là **symlink tuyệt đối**: PKGBUILD của `pipewire` cài chúng bằng `ln -st`, nên
+
+```text
+/etc/alsa/conf.d/99-pipewire-default.conf -> /usr/share/alsa/alsa.conf.d/99-pipewire-default.conf   (gói pipewire-alsa)
+/etc/alsa/conf.d/50-pipewire.conf         -> /usr/share/alsa/alsa.conf.d/50-pipewire.conf           (gói pipewire-audio)
+```
+
+Các symlink do `systemctl enable` tạo ra (`etc/systemd/user/*.wants/...` -> `/usr/lib/systemd/user/...`) cũng là đường dẫn tuyệt đối. Mà `unsquashfs -cat` **chỉ đi theo symlink tương đối**: gặp symlink tuyệt đối nó in `cat: <đường dẫn> failed to resolve symbolic link` và trả exit code 2 — tức "thiếu file" dù file có thật.
+
+Cách sửa: đọc ảnh live bằng `scripts/check-live-audio.sh`. `unsquashfs` từ chối symlink tuyệt đối ở **cả** `-cat` **lẫn** `-d` khi symlink là thành phần cuối của đường dẫn, nhưng trích **cả thư mục** thì symlink bên trong được giữ nguyên — nên script trích thư mục cha (`etc/alsa/conf.d`, `etc/systemd/user/*.wants`...), lấy đích bằng `readlink`, rồi trích tiếp file đích. Nhờ vậy cả symlink tuyệt đối lẫn file thật đều đọc được. Bài tự kiểm tra `scripts/selftest-check-live-audio.sh` dựng một ảnh live giả có đúng bố cục symlink đó và chạy trong workflow `AniOS profile checks`, nên lỗi kiểu này bị bắt trong vài giây thay vì sau một lượt dựng ISO hàng chục phút.
+
 ## Dựng ISO tự động bằng GitHub Actions
 
-Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, và đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves và cấu hình desktop có thật trong ảnh live) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
+Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves, cấu hình desktop, và giao dàn âm thanh PipeWire cho `scripts/check-live-audio.sh` kiểm tra) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
 
 Khi nào workflow chạy:
 
@@ -143,6 +164,8 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey và tiện ích bổ sung vào Archiso `releng`.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, sao chép dotfile cho tài khoản live) và chạy `mkarchiso`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói, định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn) và cú pháp script ngoại tuyến.
+- `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
+- `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán), xuất artifact và phát hành release.
 - `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request.
 
@@ -150,6 +173,7 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 
 ```bash
 ./scripts/check-profile.sh
+./scripts/selftest-check-live-audio.sh   # kiểm tra logic đọc ảnh live (cần bash, không cần Arch)
 ```
 
 Lệnh kiểm tra không cần Arch Linux. Để tạo và kiểm thử ISO vẫn cần máy Archiso (hoặc máy ảo Arch Linux). Nên boot thử ISO với từng GPU trước khi phát hành.

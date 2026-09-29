@@ -370,133 +370,28 @@ jobs:
           ARCH
 
       - name: Kiểm tra âm thanh trong ảnh live
-        # Không thể "nghe thử" trong CI, nên bước này đọc thẳng airootfs.sfs để
-        # xác nhận dàn âm thanh có thật và tự khởi động cùng phiên live:
-        #   * SPA plugin ALSA (pipewire-audio) + cấu hình ALSA trỏ về PipeWire,
-        #   * unit người dùng của PipeWire, pipewire-pulse và WirePlumber,
-        #   * drop-in default.target và symlink bật sẵn do AniOS thêm vào,
-        #   * công cụ wpctl/pactl/aplay để chẩn đoán ngay trong phiên live.
-        # Trạng thái /etc/systemd/user được in ra trước khi kiểm tra: log của
-        # lượt dựng luôn cho biết ảnh live bật/tắt những unit nào.
+        # Không thể "nghe thử" trong CI nên scripts/check-live-audio.sh đọc thẳng
+        # airootfs.sfs để xác nhận dàn âm thanh có thật và tự khởi động cùng
+        # phiên live: plugin SPA ALSA, cấu hình ALSA trỏ về PipeWire, unit người
+        # dùng của PipeWire/pipewire-pulse/WirePlumber, drop-in cùng symlink do
+        # AniOS bật sẵn, và công cụ chẩn đoán của AniOS.
+        #
+        # Logic nằm trong script chứ không inline ở đây vì nó phải TỰ đi theo
+        # symlink: `unsquashfs -cat` từ chối symlink tuyệt đối, mà
+        # pipewire-alsa/pipewire-audio cài /etc/alsa/conf.d/*.conf và systemd
+        # enable unit người dùng đều bằng symlink tuyệt đối. Script có bài tự
+        # kiểm tra scripts/selftest-check-live-audio.sh, chạy ở workflow
+        # "AniOS profile checks" để bắt lỗi kiểu này trong vài giây thay vì sau
+        # một lượt dựng ISO dài.
         run: |
           docker exec -i anios-iso-builder bash -e -o pipefail -s <<'ARCH'
-          iso="out/$(basename "$(ls -1 out/*.iso)")"
           squashfs=out/airootfs.sfs
           if [[ ! -s "$squashfs" ]]; then
+            iso="out/$(basename "$(ls -1 out/*.iso)")"
             xorriso -indev "$iso" -osirrox on -extract /arch/x86_64/airootfs.sfs "$squashfs"
           fi
-
-          # 1) Toàn bộ trạng thái unit người dùng trong ảnh: vừa là bằng chứng
-          #    cho bước kiểm tra, vừa giúp đọc log khi có sự cố âm thanh.
-          dump=out/anios-user-units
-          rm -rf "$dump"
-          unsquashfs -q -no-progress -d "$dump" "$squashfs" etc/systemd/user >/dev/null || true
-          echo "--- /etc/systemd/user trong ảnh live ---"
-          if [[ -d "$dump/etc/systemd/user" ]]; then
-            find "$dump/etc/systemd/user" -printf '%y %P -> %l\n' | sort
-          else
-            echo "(ảnh live không có /etc/systemd/user)"
-          fi
-
-          # 2) Các tệp mà dàn âm thanh cần có. Thiếu bất kỳ tệp nào thì app
-          #    không mở được thiết bị (libspa-alsa.so) hoặc không có tiếng
-          #    (ALSA chưa trỏ về PipeWire).
-          echo "--- tệp quan trọng của dàn âm thanh ---"
-          missing=0
-          for path in \
-            usr/lib/systemd/user/pipewire.service \
-            usr/lib/systemd/user/pipewire.socket \
-            usr/lib/systemd/user/pipewire-pulse.service \
-            usr/lib/systemd/user/pipewire-pulse.socket \
-            usr/lib/systemd/user/wireplumber.service \
-            usr/bin/pipewire usr/bin/pipewire-pulse usr/bin/wireplumber \
-            usr/bin/wpctl usr/bin/pactl usr/bin/aplay usr/bin/speaker-test usr/bin/alsamixer \
-            usr/lib/spa-0.2/alsa/libspa-alsa.so \
-            usr/share/alsa/alsa.conf.d/50-pipewire.conf \
-            etc/alsa/conf.d/50-pipewire.conf \
-            etc/alsa/conf.d/99-pipewire-default.conf; do
-            if unsquashfs -cat "$squashfs" "$path" >/dev/null 2>&1; then
-              echo "  OK    $path"
-            else
-              echo "  THIẾU $path"
-              missing=1
-            fi
-          done
-          (( ! missing )) ||
-            { echo "::error::Ảnh live thiếu thành phần âm thanh"; exit 1; }
-
-          # 2b) Hai file ALSA vừa kiểm tra do gói pipewire-alsa và pipewire-audio tự
-          #     cài. Overlay của AniOS KHÔNG được ship lại chúng: mkarchiso chép
-          #     profile/airootfs vào work/ trước khi pacstrap cài gói, nên pacman sẽ
-          #     báo "failed to commit transaction (conflicting files)" và bản dựng
-          #     chết giữa chừng. Vì vậy bước này phải xác nhận nội dung file thật sự
-          #     trỏ ALSA về PipeWire, chứ không chỉ là file có tồn tại.
-          alsa_default="$(unsquashfs -cat "$squashfs" etc/alsa/conf.d/99-pipewire-default.conf 2>/dev/null || true)"
-          grep -q 'defaults.pcm.!card pipewire' <<<"$alsa_default" ||\
-            { echo "::error::/etc/alsa/conf.d/99-pipewire-default.conf trong ảnh live không trỏ PCM mặc định về PipeWire"; exit 1; }
-          grep -q 'defaults.ctl.!card pipewire' <<<"$alsa_default" ||\
-            { echo "::error::/etc/alsa/conf.d/99-pipewire-default.conf trong ảnh live không trỏ CTL mặc định về PipeWire"; exit 1; }
-          echo "  OK    ALSA default -> PipeWire (gói pipewire-alsa cài sẵn)"
-          unsquashfs -cat "$squashfs" etc/alsa/conf.d/50-pipewire.conf 2>/dev/null | grep -q 'pipewire' ||\
-            { echo "::error::/etc/alsa/conf.d/50-pipewire.conf trong ảnh live không định nghĩa thiết bị pipewire"; exit 1; }
-          echo "  OK    thiết bị ALSA pcm/ctl pipewire (gói pipewire-audio cài sẵn)"
-
-          # 3) Gói âm thanh phải có mặt trong danh sách gói của ảnh live.
-          for package in \
-            pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber \
-            alsa-card-profiles alsa-utils rtkit; do
-            line="$(grep "^${package} " out/anios-pkglist.txt || true)"
-            [[ -n "$line" ]] || { echo "::error::Ảnh live thiếu gói ${package}"; exit 1; }
-            echo "  OK    $line"
-          done
-
-          # 4) Cấu hình bật sẵn của AniOS: drop-in default.target + symlink.
-          #    Đây là thứ bảo đảm PipeWire/WirePlumber chạy ngay cả khi
-          #    scriptlet của gói không để lại symlink trong chroot lúc dựng.
-          dropin="$(unsquashfs -cat "$squashfs" etc/systemd/user/default.target.d/10-anios-audio.conf 2>/dev/null || true)"
-          for want in pipewire.service pipewire-pulse.service wireplumber.service anios-audio-setup.service; do
-            grep -q "Wants=.*${want}" <<<"$dropin" ||
-              { echo "::error::drop-in âm thanh không nạp ${want}"; exit 1; }
-          done
-          echo "  OK    etc/systemd/user/default.target.d/10-anios-audio.conf"
-
-          for path in \
-            etc/systemd/user/default.target.wants/pipewire.service \
-            etc/systemd/user/default.target.wants/pipewire-pulse.service \
-            etc/systemd/user/default.target.wants/anios-audio-setup.service \
-            etc/systemd/user/sockets.target.wants/pipewire.socket \
-            etc/systemd/user/sockets.target.wants/pipewire-pulse.socket \
-            etc/systemd/user/pipewire.service.wants/wireplumber.service; do
-            # -cat đi theo symlink: lỗi nghĩa là symlink hỏng (unit đổi tên).
-            unsquashfs -cat "$squashfs" "$path" >/dev/null 2>&1 ||
-              { echo "::error::Thiếu hoặc hỏng symlink bật unit âm thanh: $path"; exit 1; }
-            echo "  OK    $path"
-          done
-
-          # 5) Công cụ âm thanh của AniOS phải có trong ảnh và chạy được.
-          perms=out/anios-audio-perms
-          rm -rf "$perms"
-          unsquashfs -q -no-progress -d "$perms" "$squashfs" \
-            usr/local/bin/anios-audio-setup usr/local/bin/anios-audio-check \
-            etc/systemd/user/anios-audio-setup.service >/dev/null ||
-            { echo "::error::Không trích được công cụ âm thanh của AniOS"; exit 1; }
-          for path in \
-            usr/local/bin/anios-audio-setup usr/local/bin/anios-audio-check \
-            etc/systemd/user/anios-audio-setup.service; do
-            [[ -s "$perms/$path" ]] || { echo "::error::Thiếu $path trong ảnh live"; exit 1; }
-          done
-          for tool in usr/local/bin/anios-audio-setup usr/local/bin/anios-audio-check; do
-            mode="$(stat -c '%a' "$perms/$tool")"
-            if [[ "$mode" != 755 ]]; then
-              echo "::error::$tool có quyền $mode, cần 755"
-              exit 1
-            fi
-            echo "  OK    $tool $mode"
-          done
-          bash -n "$perms/usr/local/bin/anios-audio-setup"
-          bash -n "$perms/usr/local/bin/anios-audio-check"
-          grep -q 'anios-audio-setup' "$perms/etc/systemd/user/anios-audio-setup.service"
-          echo "Ảnh live có đủ dàn âm thanh PipeWire và cấu hình tự khởi động của AniOS"
+          ls -lh "$squashfs"
+          /workspace/scripts/check-live-audio.sh "$squashfs" out/anios-pkglist.txt
           ARCH
 
       - name: Dọn container dựng Arch
