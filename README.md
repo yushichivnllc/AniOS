@@ -72,16 +72,24 @@ Nếu bước **Kiểm tra âm thanh trong ảnh live** in ra:
 ##[error]Ảnh live thiếu thành phần âm thanh
 ```
 
-thì vấn đề thường nằm ở **cách đọc squashfs**, không phải ở ảnh live. Hai file đó **có** trong ảnh nhưng là **symlink tuyệt đối**: PKGBUILD của `pipewire` cài chúng bằng `ln -st`, nên
+thì gần như chắc chắn vấn đề nằm ở **cách đọc squashfs**, không phải ở ảnh live. Hai file đó **có** trong ảnh nhưng là **symlink tuyệt đối**: PKGBUILD của `pipewire` cài chúng bằng `ln -st`, nên
 
 ```text
 /etc/alsa/conf.d/99-pipewire-default.conf -> /usr/share/alsa/alsa.conf.d/99-pipewire-default.conf   (gói pipewire-alsa)
 /etc/alsa/conf.d/50-pipewire.conf         -> /usr/share/alsa/alsa.conf.d/50-pipewire.conf           (gói pipewire-audio)
 ```
 
-Các symlink do `systemctl enable` tạo ra (`etc/systemd/user/*.wants/...` -> `/usr/lib/systemd/user/...`) cũng là đường dẫn tuyệt đối. Mà `unsquashfs -cat` **chỉ đi theo symlink tương đối**: gặp symlink tuyệt đối nó in `cat: <đường dẫn> failed to resolve symbolic link` và trả exit code 2 — tức "thiếu file" dù file có thật.
+Các symlink do `systemctl enable` tạo ra (`etc/systemd/user/*.wants/...` -> `/usr/lib/systemd/user/...`) cũng là đường dẫn tuyệt đối. `unsquashfs -cat` **chỉ đi theo symlink tương đối**: gặp symlink tuyệt đối nó in `cat: <đường dẫn> failed to resolve symbolic link` và trả exit code 2 — nên đừng dùng `-cat` để đọc những file này.
 
-Cách sửa: đọc ảnh live bằng `scripts/check-live-audio.sh`. `unsquashfs` từ chối symlink tuyệt đối ở **cả** `-cat` **lẫn** `-d` khi symlink là thành phần cuối của đường dẫn, nhưng trích **cả thư mục** thì symlink bên trong được giữ nguyên — nên script trích thư mục cha (`etc/alsa/conf.d`, `etc/systemd/user/*.wants`...), lấy đích bằng `readlink`, rồi trích tiếp file đích. Nhờ vậy cả symlink tuyệt đối lẫn file thật đều đọc được. Bài tự kiểm tra `scripts/selftest-check-live-audio.sh` dựng một ảnh live giả có đúng bố cục symlink đó và chạy trong workflow `AniOS profile checks`, nên lỗi kiểu này bị bắt trong vài giây thay vì sau một lượt dựng ISO hàng chục phút.
+`unsquashfs -d` thì **trích chính cái symlink** (không đi theo, không cần thêm cờ nào), nhưng chỉ tha cho **thư mục đích gốc** đã tồn tại sẵn: mọi thư mục khác trên đường dẫn mà có sẵn thì nó chết ngay với
+
+```text
+FATAL ERROR: dir_scan: failed to make directory <đường dẫn>, because File exists
+```
+
+(unsquashfs.c, `dir_scan()`: từng thư mục được tạo bằng `mkdir(2)` và `EEXIST` bị coi là lỗi, chỉ `depth == 1` mới được bỏ qua — trừ khi chạy `-force`.) Vì bản cũ trích **mọi thứ vào chung một** `$EXTRACT_DIR`, từ lần trích thứ hai trở đi unsquashfs hỏng và script báo `THIẾU` cho mọi đường dẫn còn lại — kể cả file có thật. Bản cũ còn tự chặn mọi thư mục quá 500 entry (để khỏi phải trích thư mục cha mà nhìn symlink), nên `usr/bin` — nơi có hàng nghìn binary trong ảnh live — bị bỏ qua và mọi binary trong đó cũng bị báo thiếu.
+
+Cách sửa: đọc ảnh live bằng `scripts/check-live-audio.sh`. Script lấy loại entry và đích symlink từ `unsquashfs -ll` (chỉ đọc metadata, **không trích gì** và không đi theo symlink, nên thư mục cha to cỡ nào cũng không ảnh hưởng), rồi trích **đúng entry** cần đọc vào một thư mục đích **mới toanh** cho mỗi lần trích — nhờ vậy không bao giờ gặp lại lỗi `File exists`. Bài tự kiểm tra `scripts/selftest-check-live-audio.sh` dựng một ảnh live giả có đúng bố cục symlink đó, một `usr/bin` khổng lồ và lỗi `File exists` của `unsquashfs`, rồi chạy trong workflow `AniOS profile checks` — nên lỗi kiểu này bị bắt trong vài giây thay vì sau một lượt dựng ISO hàng chục phút.
 
 ## Dựng ISO tự động bằng GitHub Actions
 

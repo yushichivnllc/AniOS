@@ -32,9 +32,38 @@
 #   * symlink do `systemctl enable` tạo ra (default.target.wants/...) cũng trỏ
 #     tới /usr/lib/systemd/user/... bằng đường dẫn tuyệt đối.
 #
-# Vì vậy script tự đi theo symlink: trích THƯ MỤC CHA bằng `unsquashfs -d`
-# (trích cả thư mục thì symlink bên trong được giữ nguyên), đọc đích bằng
-# readlink, rồi trích tiếp file đích.
+# Vì vậy script tự đi theo symlink. Ba điều dưới đây đã được đo trên
+# squashfs-tools 4.6.1 và 4.7.5, và bài tự kiểm tra
+# scripts/selftest-check-live-audio.sh mô phỏng lại đúng cả ba:
+#
+#   1. `unsquashfs -d` trích vào một đích đã có sẵn thư mục trên đường dẫn là lỗi
+#      CHÍ MẠNG (unsquashfs.c, dir_scan()):
+#
+#          int res = mkdir(parent_name, S_IRUSR|S_IWUSR|S_IXUSR);
+#          if(res == -1) {
+#              if((depth != 1 && !force) || errno != EEXIST) {
+#                  EXIT_UNSQUASH_IGNORE("dir_scan: failed to make directory %s,"
+#                      " because %s\n", parent_name, strerror(errno));
+#
+#      Chỉ thư mục đích gốc (depth == 1) mới được phép tồn tại sẵn. Bản cũ trích
+#      mọi thứ vào CHUNG một $EXTRACT_DIR, nên từ lần trích thứ hai trở đi
+#      unsquashfs chết với "dir_scan: failed to make directory /.../usr, because
+#      File exists" và script báo THIẾU gần hết — đúng như log CI. Ở đây mỗi lần
+#      trích dùng một thư mục đích MỚI TOANH, rồi chuyển entry cần dùng vào cây
+#      đệm ($CACHE_DIR).
+#
+#   2. Trích đúng một đường dẫn mà KHÔNG kèm -follow-symlinks/-match thì
+#      unsquashfs giữ nguyên symlink tuyệt đối (nó chỉ đi theo symlink khi được
+#      yêu cầu rõ ràng). Nhờ vậy, khi cần, script vẫn lấy được đích bằng readlink
+#      từ cây đệm — đây là đường dự phòng cho bước 3.
+#
+#   3. Bản cũ còn một lỗi thứ hai: để nhìn thấy symlink tuyệt đối nó trích cả
+#      thư mục cha, và vì /usr/bin của ảnh live có hàng nghìn entry (Steam, Mesa,
+#      Qt...) nó tự chặn bằng ngưỡng SFS_MAX_DIR_ENTRIES=500 — tức bỏ qua luôn
+#      usr/bin và báo THIẾU mọi binary có thật trong đó (pipewire, wpctl, pactl,
+#      aplay...). Cách đúng: hỏi thẳng metadata bằng `unsquashfs -ll`, nó in ra
+#      loại entry và đích symlink mà KHÔNG trích gì, cũng không đi theo symlink,
+#      nên thư mục cha to cỡ nào cũng không ảnh hưởng.
 set -Eeuo pipefail
 
 usage() {
@@ -68,26 +97,16 @@ ok() { echo "  OK    $*"; }
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/anios-audio-check.XXXXXX")"
 cleanup() { rm -rf -- "$WORK_DIR"; }
 trap cleanup EXIT
-EXTRACT_DIR="$WORK_DIR/extract"
-mkdir -p -- "$EXTRACT_DIR"
+# Cây đệm: đúng những entry đã trích, giữ nguyên bản chất (symlink vẫn là symlink).
+CACHE_DIR="$WORK_DIR/cache"
+# Gốc cho các thư mục đích mới toanh của từng lần trích (xem lý do ở trên).
+SCRATCH_ROOT="$WORK_DIR/scratch"
+# Nhớ những thư mục đã trích trọn vẹn, để không trích lại.
+CACHED_DIRS="$WORK_DIR/cached-dirs"
+mkdir -p -- "$CACHE_DIR" "$SCRATCH_ROOT"
+: >"$CACHED_DIRS"
 
 # --- Truy cập squashfs, tự đi theo symlink -------------------------------
-#
-# unsquashfs TỪ CHỐI mọi đường dẫn mà thành phần cuối là symlink tuyệt đối, ở
-# cả hai chế độ (squashfs-tools 4.6.1, 4.7.x và master, hàm follow_path/
-# follow_extract_paths và cat_scan, nhánh SQUASHFS_SYMLINK_TYPE):
-#
-#     /* Symlink must be relative to current directory and not be absolute,
-#      * otherwise we can't follow it, as it is probably outside the Squashfs
-#      * filesystem */
-#     if(symlink[0] == '/') { traversed = FALSE; ... }
-#
-# Nhưng trích CẢ THƯ MỤC thì vẫn giữ nguyên symlink bên trong (create_inode
-# gọi symlink(2) cho từng entry). Vì vậy chiến lược ở đây là:
-#   1. thử trích riêng đường dẫn (rẻ, đủ cho file thường);
-#   2. nếu unsquashfs từ chối — tức entry là symlink tuyệt đối — thì trích thư
-#      mục cha (chỉ khi thư mục đó nhỏ) rồi khảo sát entry ngay trong cây vừa
-#      trích, lấy đích bằng readlink và trích tiếp file đích.
 
 # Chuẩn hoá đường dẫn bên trong ảnh: bỏ '/' đầu, giải quyết '.'/'..'.
 sfs_normalize() {
@@ -115,88 +134,171 @@ sfs_normalize() {
   printf '%s\n' "$joined"
 }
 
-EXTRACTED_DIRS="$WORK_DIR/extracted-dirs"
-: >"$EXTRACTED_DIRS"
+# ---------------------------------------------------------------------------
+# Đọc metadata của một entry: `unsquashfs -ll`, KHÔNG trích gì
+# ---------------------------------------------------------------------------
+# `unsquashfs -ll <đường dẫn>` chỉ đọc metadata và in ra chuỗi thư mục cha rồi
+# tới entry, dạng (unsquashfs_info.c):
+#
+#   lrwxrwxrwx root/root   44 2026-09-29 03:40 squashfs-root/etc/alsa/conf.d/50-pipewire.conf -> /usr/share/alsa/alsa.conf.d/50-pipewire.conf
+#   -rwxr-xr-x root/root  1.2M 2026-09-29 03:40 squashfs-root/usr/bin/pipewire
+#
+# Nó KHÔNG đi theo symlink và KHÔNG trích gì, nên đây là cách duy nhất vừa nhìn
+# được symlink tuyệt đối vừa không phải trích cả thư mục cha (usr/bin có hàng
+# nghìn entry). Đường dẫn không tồn tại thì unsquashfs in chuỗi thư mục cha rồi
+# thoát 0, nên phải nhận diện dòng của CHÍNH entry bằng cách so đúng đường dẫn
+# (5 cột đầu là metadata — quyền, chủ/nhóm, kích thước, ngày, giờ — phần còn lại
+# là đường dẫn, nên tên tệp có dấu cách vẫn không bị cắt sai).
+SFS_LIST_PREFIX="squashfs-root"
+declare -A SFS_ENTRY_INFO=()
 
-# Giới hạn số entry để không bao giờ trích nhầm thư mục khổng lồ (usr/bin...)
-# chỉ vì một đường dẫn bị thiếu.
-SFS_MAX_DIR_ENTRIES=500
-
-# Trích riêng một đường dẫn; thất bại nếu entry là symlink tuyệt đối.
-sfs_extract_single() {
-  local rel="$1"
-  unsquashfs -q -no-progress -d "$EXTRACT_DIR" "$SQUASHFS" "$rel" >/dev/null 2>&1 || return 1
-  [[ -e "$EXTRACT_DIR/$rel" || -L "$EXTRACT_DIR/$rel" ]]
-}
-
-# Trích cả thư mục (giữ nguyên symlink bên trong), mỗi thư mục chỉ một lần.
-sfs_extract_dir() {
-  local dir="$1"
-  if [[ -z "$dir" ]]; then
+# In "<loại>\t<đích>" của entry trong ảnh (loại là ký tự đầu của quyền: - d l),
+# hoặc không in gì nếu ảnh không có đường dẫn đó.
+sfs_image_entry() {
+  local rel info
+  rel="$(sfs_normalize "$1" 2>/dev/null)" || return 0
+  [[ -n "$rel" ]] || return 0
+  if [[ -n "${SFS_ENTRY_INFO[$rel]+có}" ]]; then
+    printf '%s\n' "${SFS_ENTRY_INFO[$rel]}"
     return 0
   fi
-  if grep -qsxF -- "$dir" "$EXTRACTED_DIRS"; then
-    return 0
-  fi
-  unsquashfs -q -no-progress -d "$EXTRACT_DIR" "$SQUASHFS" "$dir" >/dev/null 2>&1 || return 1
-  [[ -d "$EXTRACT_DIR/$dir" ]] || return 1
-  printf '%s\n' "$dir" >>"$EXTRACTED_DIRS"
+  # `|| true`: giữ `set -e` khỏi thoát khi unsquashfs trả lỗi (đường dẫn lạ).
+  info="$(unsquashfs -ll "$SQUASHFS" "$rel" 2>/dev/null | awk -v want="$SFS_LIST_PREFIX/$rel" '
+    {
+      path = $0
+      target = ""
+      pos = index(path, " -> ")
+      if (pos > 0) {
+        target = substr(path, pos + 4)
+        path = substr(path, 1, pos - 1)
+      }
+      if (match(path, /^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[0-9][^[:space:]]*[[:space:]]+[0-9-]+[[:space:]]+[0-9:]+[[:space:]]+/)) {
+        if (substr(path, RLENGTH + 1) == want) {
+          split(substr(path, 1, RLENGTH), field, /[[:space:]]+/)
+          printf "%s\t%s\n", substr(field[1], 1, 1), target
+          exit
+        }
+      }
+    }')" || true
+  SFS_ENTRY_INFO[$rel]="$info"
+  printf '%s\n' "$info"
 }
 
-# Đảm bảo entry có mặt trong cây đã trích để khảo sát bằng test/readlink/cat.
-sfs_prepare() {
-  local rel dir base entries
+# ---------------------------------------------------------------------------
+# Trích entry vào cây đệm
+# ---------------------------------------------------------------------------
+# Trích đúng một đường dẫn vào một thư mục đích MỚI TOANH rồi in đường dẫn thư
+# mục đó ra stdout. Vì sao phải mới: `unsquashfs -d` gọi mkdir(2) cho từng thư
+# mục trên đường dẫn và coi EEXIST là lỗi chí mạng, chỉ tha cho đúng thư mục
+# đích gốc —
+#   FATAL ERROR: dir_scan: failed to make directory /dest/usr, because File exists
+# (unsquashfs.c, dir_scan(); chi tiết trong khối chú thích đầu file) — nên trích
+# lần thứ hai vào cùng một đích luôn thất bại dù entry hoàn toàn bình thường.
+sfs_extract_scratch() {
+  local scratch
+  scratch="$(mktemp -d "$SCRATCH_ROOT/step.XXXXXX")"
+  if unsquashfs -q -no-progress -d "$scratch" "$SQUASHFS" "$@" >/dev/null 2>&1; then
+    printf '%s\n' "$scratch"
+    return 0
+  fi
+  rm -rf -- "$scratch"
+  return 1
+}
+
+# Chuyển entry $2 từ thư mục đích $1 vào cây đệm (giữ nguyên symlink và quyền).
+sfs_cache_put() {
+  local scratch="$1" rel="$2" parent
+  [[ -n "$scratch" && -n "$rel" ]] || return 1
+  [[ -e "$scratch/$rel" || -L "$scratch/$rel" ]] || return 1
+  parent="$(dirname -- "$rel")"
+  mkdir -p -- "$CACHE_DIR/$parent" || return 1
+  rm -rf -- "$CACHE_DIR/$rel"
+  cp -a -- "$scratch/$rel" "$CACHE_DIR/$rel"
+}
+
+# Bảo đảm entry có mặt trong cây đệm, trả 0 nếu nó có thật trong ảnh live.
+sfs_materialize() {
+  local rel scratch rc=0
   rel="$(sfs_normalize "$1")" || return 1
-  if [[ -z "$rel" ]]; then
-    return 1
-  fi
-  if [[ -e "$EXTRACT_DIR/$rel" || -L "$EXTRACT_DIR/$rel" ]]; then
+  [[ -n "$rel" ]] || return 1
+  if [[ -e "$CACHE_DIR/$rel" || -L "$CACHE_DIR/$rel" ]]; then
     return 0
   fi
-  if sfs_extract_single "$rel"; then
+  # Trích đúng entry (không trích thư mục cha): unsquashfs giữ nguyên symlink
+  # tuyệt đối thay vì đi theo nó, vì script không dùng -follow-symlinks/-match —
+  # nếu dùng, follow_path() sẽ từ chối mọi symlink tuyệt đối.
+  scratch="$(sfs_extract_scratch "$rel")" || return 1
+  sfs_cache_put "$scratch" "$rel" || rc=$?
+  rm -rf -- "$scratch"
+  return "$rc"
+}
+
+# Trích cả một thư mục (giữ nguyên symlink bên trong) vào cây đệm.
+sfs_extract_dir() {
+  local dir="$1" scratch
+  [[ -n "$dir" ]] || return 0
+  if grep -qsxF -- "$dir" "$CACHED_DIRS"; then
     return 0
   fi
-  # unsquashfs từ chối: entry nhiều khả năng là symlink tuyệt đối. Trích thư mục
-  # cha để nhìn thấy symlink đó, nhưng bỏ qua thư mục quá lớn.
-  dir="$(dirname -- "$rel")"
-  if [[ "$dir" == "." ]]; then
-    dir=""
-  fi
-  base="${rel##*/}"
-  entries="$(unsquashfs -l "$SQUASHFS" ${dir:+"$dir"} 2>/dev/null | wc -l || true)"
-  if [[ "$entries" =~ ^[0-9]+$ ]] && ((entries > SFS_MAX_DIR_ENTRIES)); then
-    echo "sfs_prepare: bỏ qua trích $dir (${entries} entry, quá lớn) khi tìm $base" >&2
+  scratch="$(sfs_extract_scratch "$dir")" || return 1
+  if [[ ! -d "$scratch/$dir" ]]; then
+    rm -rf -- "$scratch"
     return 1
   fi
-  sfs_extract_dir "$dir" || return 1
-  [[ -e "$EXTRACT_DIR/$dir/$base" || -L "$EXTRACT_DIR/$dir/$base" ]]
+  mkdir -p -- "$CACHE_DIR/$dir"
+  cp -a -- "$scratch/$dir/." "$CACHE_DIR/$dir/"
+  rm -rf -- "$scratch"
+  printf '%s\n' "$dir" >>"$CACHED_DIRS"
 }
 
 # In loại của entry: file | symlink | dir | other | missing.
 sfs_kind() {
-  local rel
+  local rel info kind target
   rel="$(sfs_normalize "$1" 2>/dev/null)" || { printf 'missing\n'; return 0; }
-  sfs_prepare "$rel" || { printf 'missing\n'; return 0; }
-  if [[ -L "$EXTRACT_DIR/$rel" ]]; then
-    printf 'symlink\n'
-  elif [[ -d "$EXTRACT_DIR/$rel" ]]; then
-    printf 'dir\n'
-  elif [[ -f "$EXTRACT_DIR/$rel" ]]; then
-    printf 'file\n'
+  info="$(sfs_image_entry "$rel")"
+  if [[ -n "$info" ]]; then
+    IFS=$'\t' read -r kind target <<<"$info" || true
+    case "$kind" in
+      d) printf 'dir\n' ;;
+      l) printf 'symlink\n' ;;
+      -) printf 'file\n' ;;
+      *) printf 'other\n' ;;
+    esac
+    return 0
+  fi
+  # Không có dòng metadata (định dạng `unsquashfs -ll` đổi ở bản mới, hoặc entry
+  # thuộc loại lạ): lui về cách chắc chắn nhất — trích entry rồi hỏi hệ thống tệp
+  # của cây đệm. Symlink tuyệt đối vẫn được giữ nguyên khi trích nên vẫn nhận ra.
+  if sfs_materialize "$rel"; then
+    if [[ -L "$CACHE_DIR/$rel" ]]; then
+      printf 'symlink\n'
+    elif [[ -d "$CACHE_DIR/$rel" ]]; then
+      printf 'dir\n'
+    elif [[ -f "$CACHE_DIR/$rel" ]]; then
+      printf 'file\n'
+    else
+      printf 'other\n'
+    fi
   else
-    printf 'other\n'
+    printf 'missing\n'
   fi
 }
 
 # In đích của symlink; rỗng nếu entry không phải symlink.
 sfs_link_target() {
-  local rel
+  local rel info kind target
   rel="$(sfs_normalize "$1")" || return 1
-  sfs_prepare "$rel" || return 1
-  if [[ ! -L "$EXTRACT_DIR/$rel" ]]; then
+  info="$(sfs_image_entry "$rel")"
+  if [[ -n "$info" ]]; then
+    IFS=$'\t' read -r kind target <<<"$info" || true
+    [[ "$kind" == "l" ]] || return 0
+    printf '%s\n' "$target"
     return 0
   fi
-  readlink -- "$EXTRACT_DIR/$rel"
+  # Dự phòng: đọc đích từ chính symlink đã trích trong cây đệm.
+  sfs_materialize "$rel" || return 0
+  [[ -L "$CACHE_DIR/$rel" ]] || return 0
+  readlink -- "$CACHE_DIR/$rel"
 }
 
 # Trả về đường dẫn (không có '/' đầu) của file thật sau khi đi theo symlink.
@@ -238,8 +340,9 @@ sfs_has_file() { sfs_resolve "$1" >/dev/null; }
 sfs_read() {
   local rel
   rel="$(sfs_resolve "$1")" || return 1
-  [[ -f "$EXTRACT_DIR/$rel" && ! -L "$EXTRACT_DIR/$rel" ]] || return 1
-  cat -- "$EXTRACT_DIR/$rel"
+  sfs_materialize "$rel" || return 1
+  [[ -f "$CACHE_DIR/$rel" && ! -L "$CACHE_DIR/$rel" ]] || return 1
+  cat -- "$CACHE_DIR/$rel"
 }
 
 # 1) Toàn bộ trạng thái unit người dùng trong ảnh: vừa là bằng chứng cho bước
@@ -247,7 +350,7 @@ sfs_read() {
 #    symlink do systemd enable tạo ra vẫn hiện đúng bản chất của nó.
 echo "--- /etc/systemd/user trong ảnh live ---"
 if sfs_extract_dir etc/systemd/user; then
-  find "$EXTRACT_DIR/etc/systemd/user" -printf '%y %P -> %l\n' | sort | sed 's/^/  /'
+  find "$CACHE_DIR/etc/systemd/user" -printf '%y %P -> %l\n' | sort | sed 's/^/  /'
 else
   echo "  (ảnh live không có /etc/systemd/user)"
 fi
@@ -347,24 +450,17 @@ for path in \
 done
 
 # 5) Công cụ âm thanh của AniOS phải có trong ảnh và chạy được.
-tools_dir="$WORK_DIR/tools"
-mkdir -p -- "$tools_dir"
-unsquashfs -q -no-progress -d "$tools_dir" "$SQUASHFS" \
-  usr/local/bin/anios-audio-setup usr/local/bin/anios-audio-check \
-  etc/systemd/user/anios-audio-setup.service >/dev/null ||
-  fail "Không trích được công cụ âm thanh của AniOS"
-for path in \
-  usr/local/bin/anios-audio-setup usr/local/bin/anios-audio-check \
-  etc/systemd/user/anios-audio-setup.service; do
-  [[ -s "$tools_dir/$path" ]] || fail "Thiếu $path trong ảnh live"
-done
 for tool in usr/local/bin/anios-audio-setup usr/local/bin/anios-audio-check; do
-  mode="$(stat -c '%a' "$tools_dir/$tool")"
+  resolved="$(sfs_resolve "$tool")" || fail "Thiếu $tool trong ảnh live"
+  sfs_materialize "$resolved" || fail "Không trích được $tool từ ảnh live"
+  mode="$(stat -c '%a' "$CACHE_DIR/$resolved")"
   [[ "$mode" == 755 ]] || fail "$tool có quyền $mode, cần 755"
   ok "$tool $mode"
-  bash -n "$tools_dir/$tool" || fail "$tool có lỗi cú pháp shell"
+  bash -n "$CACHE_DIR/$resolved" || fail "$tool có lỗi cú pháp shell"
 done
-grep -q 'anios-audio-setup' "$tools_dir/etc/systemd/user/anios-audio-setup.service" ||
+audio_unit="$(sfs_read etc/systemd/user/anios-audio-setup.service)" ||
+  fail "không đọc được etc/systemd/user/anios-audio-setup.service"
+grep -q 'anios-audio-setup' <<<"$audio_unit" ||
   fail "unit anios-audio-setup.service không chạy anios-audio-setup"
 ok "etc/systemd/user/anios-audio-setup.service"
 
