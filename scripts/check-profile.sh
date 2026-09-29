@@ -19,6 +19,7 @@ for package in \
   udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils rtkit \
+  libpulse \
   quickshell matugen; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
