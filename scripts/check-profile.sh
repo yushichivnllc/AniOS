@@ -406,6 +406,11 @@ done
 # (trỏ ALSA mặc định về PipeWire) và pipewire-audio tự cài
 # /etc/alsa/conf.d/50-pipewire.conf. AniOS không được ship lại những file đó —
 # chỉ cần hai gói này nằm trong manifest là bảo đảm đã đủ.
+#
+# Lưu ý khi kiểm tra ảnh live: hai file /etc/alsa/conf.d/*.conf đó là SYMLINK
+# TUYỆT ĐỐI trỏ về /usr/share/alsa/alsa.conf.d/ (PKGBUILD của pipewire dùng
+# `ln -st`). `unsquashfs -cat` không đi theo symlink tuyệt đối, nên mọi bước
+# đọc chúng trong airootfs.sfs phải dùng scripts/check-live-audio.sh.
 for owned_path in \
   etc/alsa/conf.d/99-pipewire-default.conf \
   etc/alsa/conf.d/50-pipewire.conf \
@@ -426,5 +431,24 @@ done
 # --- Quyền của script dựng ISO -------------------------------------------
 [[ -x "$ROOT_DIR/scripts/build-iso.sh" ]] || fail "build script is not executable"
 [[ -x "$ROOT_DIR/scripts/check-profile.sh" ]] || fail "check script is not executable"
+
+# --- Bước kiểm tra âm thanh của ảnh live ---------------------------------
+# Script này đọc airootfs.sfs sau khi dựng. Nó PHẢI tự đi theo symlink:
+# `unsquashfs -cat` dừng với "failed to resolve symbolic link" và exit code 2
+# khi gặp symlink tuyệt đối, mà /etc/alsa/conf.d/*.conf (pipewire-alsa,
+# pipewire-audio) lẫn các symlink *.wants/* do systemd enable tạo ra đều là
+# symlink tuyệt đối. Bài tự kiểm tra chứng minh điều đó mà không cần dựng ISO.
+LIVE_AUDIO_CHECK="$ROOT_DIR/scripts/check-live-audio.sh"
+LIVE_AUDIO_SELFTEST="$ROOT_DIR/scripts/selftest-check-live-audio.sh"
+[[ -x "$LIVE_AUDIO_CHECK" ]] ||
+  fail "live audio checker is missing or not executable: scripts/check-live-audio.sh"
+[[ -x "$LIVE_AUDIO_SELFTEST" ]] ||
+  fail "live audio selftest is missing or not executable: scripts/selftest-check-live-audio.sh"
+grep -qF 'check-live-audio.sh' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
+  fail "the ISO build workflow must verify the live audio stack with scripts/check-live-audio.sh"
+grep -qF 'sfs_resolve' "$LIVE_AUDIO_CHECK" ||
+  fail "scripts/check-live-audio.sh must follow symlinks itself; unsquashfs -cat cannot read the absolute symlinks pipewire-alsa installs"
+grep -qF 'selftest-check-live-audio.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-check-live-audio.sh"
 
 pass "AniOS profile checks passed (ISO build still requires Arch Linux + archiso)"
