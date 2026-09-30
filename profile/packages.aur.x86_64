@@ -1,0 +1,35 @@
+# Các gói AUR được nướng sẵn vào ảnh live lúc dựng ISO.
+#
+# pacman KHÔNG cài được AUR, nên danh sách này không nằm trong packages.x86_64
+# (manifest đó được pacstrap đọc trực tiếp và chỉ chấp nhận gói của kho chính
+# thức). scripts/build-iso.sh đọc file này, chép nó cùng
+# scripts/anios-aur-build.sh vào profile dựng tạm, rồi mkarchiso chạy
+# /root/customize_airootfs.sh trong chroot của airootfs SAU khi pacstrap cài
+# xong toàn bộ packages.x86_64. Nhờ vậy base-devel, git và mọi thư viện mà gói
+# AUR cần đều đã có mặt trước khi makepkg chạy; công cụ dựng còn thiếu (ví dụ
+# `go` cho yay) do script tự cài tạm trong chroot rồi dọn đi cùng nhóm phụ thuộc
+# mồ côi, nên KHÔNG nằm trong packages.x86_64 và không có trong ISO cuối cùng.
+#
+# Cú pháp mỗi dòng: <tên-gói>[=<phiên-bản>]
+#   - tên gói phải đúng là PackageBase trên AUR (đó là tên repo git/snapshot)
+#   - "=<phiên bản>" (ví dụ coccoc-browser-stable=152.0.7977.124-1) là tuỳ chọn:
+#     ghi ra để chốt phiên bản đã kiểm thử, script chỉ dùng phần tên gói
+#   - dòng bắt đầu bằng "#" và dòng trống được bỏ qua
+#
+# Gói nào KHÔNG dựng được (AUR đổi nguồn, upstream sập, hết đĩa...) thì bản dựng
+# dừng lại kèm nhật ký và gợi ý, chứ không âm thầm phát hành ISO thiếu gói.
+# Muốn dựng ISO không có các gói AUR: sudo ./scripts/build-iso.sh --no-aur
+
+# Trình trợ giúp AUR: người dùng quán net gõ `yay -S <gói>` là cài được ngay,
+# không phải tự clone AUR và chạy makepkg. Dựng từ mã nguồn Go — makedepend `go`
+# chỉ cần lúc dựng nên được cài tạm trong chroot rồi gỡ sạch (xem ghi chú trên).
+# Chọn bản mã nguồn thay vì `yay-bin` để không phụ thuộc binary đóng gói sẵn.
+yay
+
+# Trình duyệt Cốc Cốc của Việt Nam (Chromium, đóng gói lại từ file .deb chính
+# chủ). Phụ thuộc qt5-base và ttf-liberation đã có trong packages.x86_64.
+coccoc-browser-stable
+
+# Launcher Minecraft "Legacy" (llaun.ch) — bản portable, chạy bằng Java.
+# Phụ thuộc java-runtime được jre-openjdk (packages.x86_64) cung cấp.
+legacy-launcher

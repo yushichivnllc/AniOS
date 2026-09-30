@@ -133,6 +133,36 @@ playerctl
 
 # Trình duyệt web
 firefox
+# Cốc Cốc (gói AUR coccoc-browser-stable) cần hai thư viện này lúc chạy; cài sẵn
+# ở đây để trình duyệt mở được ngay trong phiên live mà không phải tải thêm.
+qt5-base
+ttf-liberation
+
+# Ngôn ngữ và công cụ phát triển cài sẵn theo yêu cầu của AniOS
+# python-pip đi kèm python để cài thư viện; npm là giao diện gói của nodejs.
+python
+python-pip
+nodejs
+npm
+# Bộ công cụ dựng gói AUR: makepkg bắt buộc phải có base-devel và git, mà releng
+# của archiso không cài sẵn gói nào trong hai gói đó (git đã nằm ở nhóm tiện ích
+# phía trên). base-devel được GIỮ LẠI trong ảnh live để người dùng gõ
+# `yay -S <gói>` là dựng được ngay trong phiên, không phải tải lại trình biên dịch.
+#
+# `go` (makedepend của yay) cố tình KHÔNG nằm ở đây: scripts/anios-aur-build.sh
+# tự cài nó lúc dựng rồi gỡ đi như một makedepend mồ côi, để ảnh live nhẹ hơn vài
+# trăm MB. Khi người dùng cần dựng gói Go trong phiên live, chính yay sẽ tự cài
+# makedepend đó cho họ.
+base-devel
+
+# Wine: chạy phần mềm và game Windows cũ trong quán net. Kho multilib đã được
+# bật lúc dựng nên wine tự kéo đủ thư viện 32-bit; winetricks giúp tải thêm
+# thư viện Windows (dll) khi game yêu cầu.
+wine
+winetricks
+
+# java-runtime cho legacy-launcher (AUR): launcher Minecraft dạng jar.
+jre-openjdk
 
 # Thông tin hệ thống khi mở TTY cứu hộ và khi cần chẩn đoán GPU
 fastfetch

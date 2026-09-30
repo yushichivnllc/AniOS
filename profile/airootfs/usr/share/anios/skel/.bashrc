@@ -40,6 +40,9 @@ alias la='ls -A --color=auto'
 alias l='ls -CF --color=auto'
 alias fetch='fastfetch'
 alias update='sudo pacman -Syu'
+# yay (trợ lý AUR) đã cài sẵn trong ảnh: cập nhật và cài thêm gói ngoài kho chính thức
+alias update-aur='yay -Syu'
+alias aur-search='yay -Ss'
 alias cls='clear'
 
 # Dấu nhắc lệnh (Prompt) mang màu sắc AniOS

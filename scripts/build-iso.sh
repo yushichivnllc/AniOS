@@ -6,12 +6,15 @@ OUT_DIR="$ROOT_DIR/out"
 WORK_DIR="$ROOT_DIR/work"
 CLEAN_WORK=0
 SKIP_CHECKS=0
+# Gói AUR (yay, coccoc-browser-stable, legacy-launcher) được dựng ngay trong
+# chroot lúc build. Tắt bằng --no-aur khi máy dựng không ra được AUR.
+WITH_AUR=1
 # Giữ nguyên tham số gốc để khi tự gọi lại bằng sudo không mất tuỳ chọn nào.
 ORIG_ARGS=("$@")
 
 usage() {
   cat <<'EOF'
-Usage: sudo ./scripts/build-iso.sh [--output DIR] [--work DIR] [--clean] [--skip-checks]
+Usage: sudo ./scripts/build-iso.sh [--output DIR] [--work DIR] [--clean] [--skip-checks] [--no-aur]
 
 Build AniOS from Archiso's installed releng profile. Requires an up-to-date
 Arch Linux x86_64 host, archiso, network access, and root privileges.
@@ -19,6 +22,10 @@ Arch Linux x86_64 host, archiso, network access, and root privileges.
   --clean        delete the work directory first, so the image is built from
                  scratch instead of reusing a previous airootfs
   --skip-checks  do not run scripts/check-profile.sh before building
+  --no-aur       do not bake in the AUR packages listed in
+                 profile/packages.aur.x86_64 (yay, coccoc-browser-stable,
+                 legacy-launcher). Use this when the build machine cannot reach
+                 aur.archlinux.org; the resulting ISO has no AUR helper.
 EOF
 }
 
@@ -40,6 +47,10 @@ while (($#)); do
       ;;
     --skip-checks)
       SKIP_CHECKS=1
+      shift
+      ;;
+    --no-aur)
+      WITH_AUR=0
       shift
       ;;
     -h|--help)
@@ -228,6 +239,111 @@ install -d -m 0755 -- "$BUILD_PROFILE/airootfs/etc/skel"
 cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
   "$BUILD_PROFILE/airootfs/etc/skel/"
 
+# --- Gói AUR được nướng sẵn vào ảnh live ----------------------------------
+# pacman không cài được AUR, nên các gói trong profile/packages.aur.x86_64 (yay,
+# coccoc-browser-stable, legacy-launcher) phải được makepkg dựng ngay bên trong
+# chroot airootfs. mkarchiso mở đúng một chỗ cho việc đó: hook
+# <airootfs>/root/customize_airootfs.sh, được chạy bằng arch-chroot SAU khi
+# pacstrap cài xong packages.x86_64 và TRƯỚC khi sinh pkglist (hàm
+# _build_iso_base của mkarchiso). Nhờ thứ tự đó:
+#   * base-devel/git và mọi thư viện mà gói AUR cần đã có sẵn trước makepkg;
+#   * gói AUR nằm trong pacman DB của ảnh nên xuất hiện trong
+#     /arch/pkglist.x86_64.txt và `yay -Syu` của phiên live nhận ra chúng.
+#
+# Không dùng cách "dựng sẵn gói rồi khai báo một kho pacman cục bộ trong ảnh":
+# kho đó trỏ vào đường dẫn chỉ tồn tại lúc dựng, nên mọi lệnh pacman của người
+# dùng sau này sẽ báo lỗi không tìm thấy server.
+AUR_MANIFEST="$ROOT_DIR/profile/packages.aur.x86_64"
+AUR_BUILDER="$ROOT_DIR/scripts/anios-aur-build.sh"
+AUR_PKGNAMES=()
+if (( WITH_AUR )); then
+  for aur_component in "$AUR_MANIFEST" "$AUR_BUILDER"; do
+    [[ -s "$aur_component" ]] ||
+      { echo "Missing AniOS AUR component: $aur_component" >&2; exit 1; }
+  done
+  [[ -x "$AUR_BUILDER" ]] ||
+    { echo "AUR build helper is not executable: $AUR_BUILDER" >&2; exit 1; }
+
+  # Hook này bị archiso đánh dấu deprecated nhưng vẫn còn trong mkarchiso. Nếu
+  # một bản archiso tương lai bỏ hẳn nó thì gói AUR sẽ âm thầm biến mất khỏi ảnh,
+  # nên kiểm tra ngay lúc dựng thay vì phát hành ISO thiếu yay/Cốc Cốc.
+  MKARCHISO_BIN="$(command -v mkarchiso)"
+  if ! grep -q 'customize_airootfs.sh' "$MKARCHISO_BIN"; then
+    cat >&2 <<'EOF'
+mkarchiso on this machine no longer runs airootfs/root/customize_airootfs.sh,
+which is the only hook AniOS can use to build AUR packages inside the image.
+
+The AUR packages in profile/packages.aur.x86_64 (yay, coccoc-browser-stable,
+legacy-launcher) would silently be missing from the ISO, so the build stops
+here. Either build with an archiso version that still supports the hook, or run
+`sudo ./scripts/build-iso.sh --no-aur` for an ISO without the AUR packages.
+EOF
+    exit 1
+  fi
+
+  # Danh sách tên gói để đối chiếu sau khi dựng (bỏ comment, khoảng trắng và
+  # phần "=phiên bản" nếu có).
+  mapfile -t AUR_PKGNAMES < <(
+    sed -E -e 's/#.*$//' -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//' -e 's/=.*$//' \
+      "$AUR_MANIFEST" | awk 'NF'
+  )
+  if (( ${#AUR_PKGNAMES[@]} == 0 )); then
+    echo "profile/packages.aur.x86_64 lists no AUR package" >&2
+    exit 1
+  fi
+  printf 'Baking AUR packages into the live image: %s\n' "${AUR_PKGNAMES[*]}"
+
+  # Gói manifest và script dựng gói vào /root/.anios-aur của ảnh. Hook xoá thư mục
+  # này trước khi kết thúc, và bước kiểm tra cuối của script này xác nhận ảnh
+  # không còn sót lại gì.
+  install -d -m 0755 -- "$BUILD_PROFILE/airootfs/root/.anios-aur"
+  install -m 0644 -- "$AUR_MANIFEST" "$BUILD_PROFILE/airootfs/root/.anios-aur/packages.aur.x86_64"
+  install -m 0755 -- "$AUR_BUILDER" "$BUILD_PROFILE/airootfs/root/.anios-aur/anios-aur-build.sh"
+
+  AUR_HOOK="$BUILD_PROFILE/airootfs/root/customize_airootfs.sh"
+  if [[ -e "$AUR_HOOK" ]]; then
+    # releng bắt đầu ship hook riêng: nối phần của AniOS vào sau, không ghi đè.
+    printf '\n' >>"$AUR_HOOK"
+  else
+    cat >"$AUR_HOOK" <<'HOOK_HEAD'
+#!/usr/bin/env bash
+# Hook do scripts/build-iso.sh sinh ra lúc dựng ISO; mkarchiso chạy nó trong
+# chroot airootfs rồi tự xoá đi, nên nó không bao giờ nằm trong ảnh live.
+set -Eeuo pipefail
+
+HOOK_HEAD
+  fi
+  cat >>"$AUR_HOOK" <<'HOOK_BODY'
+# --- AniOS: dựng và cài các gói AUR cài sẵn -------------------------------
+anios_aur_dir=/root/.anios-aur
+anios_aur_status=0
+if [[ ! -s "$anios_aur_dir/anios-aur-build.sh" ]]; then
+  echo "AniOS: missing $anios_aur_dir/anios-aur-build.sh; cannot bake in the AUR packages" >&2
+  anios_aur_status=1
+else
+  # Gọi bằng `bash` để không phụ thuộc bit thực thi (mkarchiso chép airootfs
+  # bằng cp --no-preserve=mode nên quyền 0755 trong repo bị mất).
+  bash "$anios_aur_dir/anios-aur-build.sh" || anios_aur_status=$?
+fi
+rm -rf -- "$anios_aur_dir"
+if (( anios_aur_status != 0 )); then
+  echo "AniOS: the AUR packages could not be built into the image (exit $anios_aur_status)" >&2
+  exit "$anios_aur_status"
+fi
+HOOK_BODY
+  chmod 0755 -- "$AUR_HOOK"
+else
+  printf 'Skipping the AUR packages (--no-aur): the ISO will have no yay/Coc Coc/Legacy Launcher\n'
+fi
+
+# Gói AUR (wine, Cốc Cốc, nodejs, base-devel...) làm airootfs phình thêm vài GB.
+# Báo sớm khi đĩa còn ít chỗ để người dựng biết vì sao bản dựng chết giữa chừng.
+free_kib="$(df -Pk -- "$(dirname -- "$WORK_DIR")" | awk 'NR==2 {print $4}')"
+if (( free_kib < 25 * 1024 * 1024 )); then
+  printf 'Warning: only %s GiB free for the work directory; AniOS needs roughly 25 GiB.\n' \
+    "$((free_kib / 1024 / 1024))" >&2
+fi
+
 # Steam is in Arch's official multilib repository. Enable it only in the
 # temporary build profile; the live image's own pacman.conf is configured too.
 enable_multilib() {
@@ -337,4 +453,65 @@ set -e
 if (( build_status != 0 )); then
   report_file_conflicts "$build_log"
   exit "$build_status"
+fi
+
+# --- Kiểm tra gói AUR có thật trong ảnh vừa dựng --------------------------
+# Hook customize_airootfs.sh là chỗ duy nhất AniOS dựng được gói AUR, và nó bị
+# archiso đánh dấu deprecated. Nếu hook không chạy (archiso đổi, airootfs được
+# tái sử dụng từ lần dựng trước, script dựng gói bị bỏ qua...) thì mkarchiso vẫn
+# báo thành công và cho ra một ISO thiếu yay/Cốc Cốc. Vì vậy phải đối chiếu với
+# pacman DB của chính airootfs vừa dựng — đó là nguồn sự thật mà pkglist trên ISO
+# cũng được sinh ra từ đó.
+if (( WITH_AUR )); then
+  airootfs_dirs=("$WORK_DIR"/*/airootfs)
+  airootfs_dir="${airootfs_dirs[0]}"
+  if [[ ! -d "$airootfs_dir/var/lib/pacman/local" ]]; then
+    echo "Cannot verify the AUR packages: no pacman database in $airootfs_dir" >&2
+    exit 1
+  fi
+
+  installed_packages="$(pacman -Qq --sysroot "$airootfs_dir")"
+  missing_aur=()
+  for aur_pkg in ${AUR_PKGNAMES[@]+"${AUR_PKGNAMES[@]}"}; do
+    if grep -qxF "$aur_pkg" <<<"$installed_packages"; then
+      echo "AUR package baked into the image: $(
+        pacman -Q --sysroot "$airootfs_dir" "$aur_pkg"
+      )"
+    else
+      missing_aur+=("$aur_pkg")
+    fi
+  done
+  if (( ${#missing_aur[@]} > 0 )); then
+    cat >&2 <<EOF
+
+The ISO was produced but these AUR packages are NOT installed in it:
+  ${missing_aur[*]}
+
+That means airootfs/root/customize_airootfs.sh did not run, or
+scripts/anios-aur-build.sh failed without stopping the build. Look for the
+"AniOS:" lines in $build_log, then rebuild with --clean:
+
+  sudo ./scripts/build-iso.sh --clean
+
+Use --no-aur if you deliberately want an ISO without the AUR packages.
+EOF
+    exit 1
+  fi
+
+  # Rác của bước dựng gói AUR không được nằm lại trong ảnh: tài khoản dựng gói,
+  # thư mục hook, và bất kỳ quyền NOPASSWD nào (script dựng gói không dùng sudo,
+  # nên nếu thấy NOPASSWD thì có gì đó đã thay đổi ngoài ý muốn).
+  if grep -qE '^aniosbuild:' "$airootfs_dir/etc/passwd" 2>/dev/null; then
+    echo "The temporary AUR build account is still in the image: /etc/passwd" >&2
+    exit 1
+  fi
+  if [[ -e "$airootfs_dir/root/.anios-aur" ]]; then
+    echo "AUR build leftovers are still in the image: /root/.anios-aur" >&2
+    exit 1
+  fi
+  if grep -Rqs 'NOPASSWD' "$airootfs_dir/etc/sudoers.d/" "$airootfs_dir/etc/sudoers"; then
+    echo "A NOPASSWD sudo rule leaked into the image while building AUR packages" >&2
+    exit 1
+  fi
+  echo "AUR build leftovers cleaned: no build account, no /root/.anios-aur, no NOPASSWD rule"
 fi
