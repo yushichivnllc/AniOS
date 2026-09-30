@@ -122,8 +122,10 @@ Cách bước dựng AUR hoạt động:
   (`pacman -S --asdeps`), cài gói hoàn chỉnh (`pacman -U --asexplicit` để không bị dọn như mồ côi), rồi
   gỡ **đúng** những phụ thuộc mồ côi do bước này tạo ra. `makepkg` không bao giờ chạy dưới quyền root, và
   **không có** luật `sudoers`/`NOPASSWD` nào được thêm vào ảnh.
-- `go` chỉ là makedepend tạm thời của `yay`: nó nằm trong `BUILD_TOOLS=(base-devel git)` được cài trong
-  chroot rồi bị dọn cùng nhóm mồ côi, **không** nằm trong `packages.x86_64` và không có trong ISO cuối cùng.
+- `go` chỉ là makedepend tạm thời của `yay`: nó được cài trong chroot bằng `--asdeps` (bên cạnh nhóm công
+  cụ dựng `BUILD_TOOLS=(base-devel git)`) rồi bị dọn cùng nhóm mồ côi, nên **không** nằm trong
+  `packages.x86_64` và không có trong ISO cuối cùng — dù vậy `base-devel` + `git` vẫn ở lại ảnh vì người
+  dùng phiên live cần chúng để `yay` dựng gói.
 - Cố tình **không** dùng `pacman -Sy` ở đường thường: pacstrap vừa điền sync DB nên cài thẳng bằng DB đó
   giữ cho cả ảnh ở **một snapshot kho**, tránh trạng thái "partial upgrade". Chỉ khi DB sẵn có không cài
   được mới đồng bộ lại kho + keyring rồi thử lần hai.
@@ -137,6 +139,10 @@ Kiểm tra ảnh vừa dựng:
 
 ```bash
 # Đối chiếu ngay trong squashfs: gói AUR + python/nodejs/wine, và không còn tàn dư của bước dựng
+./scripts/check-live-aur.sh work/x86_64/airootfs.sfs
+
+# Tham số thứ hai (pkglist) là tuỳ chọn; CI trích nó từ ISO rồi truyền vào để đối chiếu chéo:
+xorriso -indev out/anios-*.iso -osirrox on -extract /arch/pkglist.x86_64.txt out/anios-pkglist.txt
 ./scripts/check-live-aur.sh work/x86_64/airootfs.sfs out/anios-pkglist.txt
 ```
 
@@ -261,7 +267,7 @@ Chạy cả bốn mất khoảng 10 giây. Khi dựng ISO xong, kiểm tra thêm
 
 ```bash
 ./scripts/check-live-audio.sh work/x86_64/airootfs.sfs
-./scripts/check-live-aur.sh  work/x86_64/airootfs.sfs out/anios-pkglist.txt
+./scripts/check-live-aur.sh  work/x86_64/airootfs.sfs
 ```
 
 Lệnh kiểm tra không cần Arch Linux. Để tạo và kiểm thử ISO vẫn cần máy Archiso (hoặc máy ảo Arch Linux). Nên boot thử ISO với từng GPU trước khi phát hành.
