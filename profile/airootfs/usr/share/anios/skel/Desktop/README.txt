@@ -24,6 +24,18 @@ Hai chế độ giao diện cài sẵn:
 
 Cắm USB/ổ cứng ngoài: ổ sẽ tự hiện trong Thunar và trên thanh trạng thái.
 
+Phần mềm cài sẵn trong ảnh (ngoài Steam, trình duyệt, Discord, VS Code...):
+  Cốc Cốc Browser  trình duyệt Chromium tiếng Việt, tải media tốt
+  Wine + Winetricks  chạy phần mềm/game Windows: wine <file.exe>
+  Legacy Launcher  launcher Minecraft bản classic (llaun.ch) - cần Java
+  Python 3 + pip   lập trình Python (python, pip)
+  Node.js + npm    lập trình JavaScript/TypeScript (node, npm)
+  Java OpenJDK     chạy app Java và Minecraft
+  yay              cài thêm gói từ AUR ngay trong phiên live:
+                     yay -S <tên gói>     cài gói (kể cả gói ngoài kho chính thức)
+                     yay -Syu             cập nhật toàn bộ, gồm cả AUR
+                     hoặc gõ: update-aur
+
 Không có tiếng?
 AniOS tự bật dàn âm thanh PipeWire khi vào phiên, tự bỏ trạng thái tắt tiếng
 mặc định của card ở lần vào desktop đầu tiên sau khi khởi động, và cảnh báo khi

@@ -19,7 +19,9 @@ for package in \
   udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils rtkit \
-  quickshell matugen; do
+  quickshell matugen \
+  python python-pip nodejs npm wine winetricks \
+  base-devel jre-openjdk qt5-base ttf-liberation; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
 ! grep -qxF linux "$ROOT_DIR/profile/packages.x86_64" || fail "manifest must not request the generic linux kernel"
@@ -28,6 +30,13 @@ done
 # wlogout is AUR-only, so pacstrap cannot resolve it from the official Arch
 # repositories. The Quickshell session screen already provides the logout menu.
 ! grep -qxF wlogout "$ROOT_DIR/profile/packages.x86_64" || fail "wlogout is AUR-only; use the built-in Quickshell session menu"
+# packages.x86_64 được pacstrap đọc trực tiếp nên CHỈ được chứa gói của kho chính
+# thức. Gói AUR phải nằm trong profile/packages.aur.x86_64, nơi
+# scripts/anios-aur-build.sh dựng chúng bằng makepkg bên trong chroot.
+for aur_only in yay yay-bin coccoc-browser-stable legacy-launcher; do
+  ! grep -qxF "$aur_only" "$ROOT_DIR/profile/packages.x86_64" ||
+    fail "$aur_only only exists in the AUR; pacstrap cannot resolve it. Move it to profile/packages.aur.x86_64"
+done
 KEYBINDS="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/keybinds.lua"
 for keybinds in "$KEYBINDS" "$AIROOTFS/etc/skel/.config/hypr/hyprland/keybinds.lua"; do
   grep -qF 'hl.dsp.global("quickshell:sessionToggle")' "$keybinds" ||
@@ -450,5 +459,109 @@ grep -qF 'sfs_resolve' "$LIVE_AUDIO_CHECK" ||
   fail "scripts/check-live-audio.sh must follow symlinks itself; unsquashfs -cat cannot read the absolute symlinks pipewire-alsa installs"
 grep -qF 'selftest-check-live-audio.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
   fail "the profile workflow must run scripts/selftest-check-live-audio.sh"
+
+# --- Gói AUR được dựng và cài sẵn lúc build --------------------------------
+# pacman không cài được AUR, nên yay, coccoc-browser-stable và legacy-launcher
+# phải được makepkg dựng BÊN TRONG chroot airootfs (scripts/anios-aur-build.sh,
+# gọi từ hook customize_airootfs.sh mà scripts/build-iso.sh sinh ra). Nhóm kiểm tra
+# dưới đây khoá lại những quyết định dễ bị phá khi sửa tay.
+AUR_MANIFEST="$ROOT_DIR/profile/packages.aur.x86_64"
+AUR_BUILDER="$ROOT_DIR/scripts/anios-aur-build.sh"
+AUR_SELFCHECK="$ROOT_DIR/scripts/selftest-anios-aur-build.sh"
+LIVE_AUR_CHECK="$ROOT_DIR/scripts/check-live-aur.sh"
+LIVE_AUR_SELFCHECK="$ROOT_DIR/scripts/selftest-check-live-aur.sh"
+BUILD_ISO="$ROOT_DIR/scripts/build-iso.sh"
+
+[[ -s "$AUR_MANIFEST" ]] || fail "AUR manifest is missing: profile/packages.aur.x86_64"
+for aur_pkg in yay coccoc-browser-stable legacy-launcher; do
+  grep -qE "^${aur_pkg}(=[^[:space:]]+)?([[:space:]]|#|$)" "$AUR_MANIFEST" ||
+    fail "the AUR manifest must bake $aur_pkg into the live image"
+done
+# Mỗi dòng của manifest là một tên gói, kèm "=phiên bản" nếu muốn chốt bản đã thử.
+# scripts/anios-aur-build.sh cũng chặn dòng sai, nhưng chặn ở đây thì nhanh hơn
+# nhiều so với chờ một lượt dựng ISO.
+if grep -nEv '^[[:space:]]*($|#|[A-Za-z0-9@._+-]+(=[^[:space:]]+)?([[:space:]]+#.*)?$)' "$AUR_MANIFEST"; then
+  fail "invalid line in the AUR manifest"
+fi
+
+# Gói AUR cần thư viện của kho chính thức, và pacstrap phải cài chúng TRƯỚC khi
+# makepkg chạy: jre-openjdk cung cấp java-runtime cho legacy-launcher, qt5-base và
+# ttf-liberation cho Cốc Cốc, base-devel + git cho chính makepkg.
+for runtime_dep in jre-openjdk qt5-base ttf-liberation base-devel git; do
+  grep -qxF "$runtime_dep" "$ROOT_DIR/profile/packages.x86_64" ||
+    fail "the AUR packages need $runtime_dep from the official repositories in packages.x86_64"
+done
+# `go` chỉ là makedepend của yay: script dựng gói tự cài rồi gỡ như gói mồ côi.
+# Nằm trong manifest thì nó ở lại ảnh live và làm ISO nặng thêm vài trăm MB.
+! grep -qxF go "$ROOT_DIR/profile/packages.x86_64" ||
+  fail "go is only a build-time makedepend of yay; keep it out of packages.x86_64"
+
+for aur_script in "$AUR_BUILDER" "$AUR_SELFCHECK" "$LIVE_AUR_CHECK" "$LIVE_AUR_SELFCHECK"; do
+  [[ -x "$aur_script" ]] || fail "missing or not executable: ${aur_script#"$ROOT_DIR/"}"
+done
+
+# makepkg từ chối chạy bằng root, nhưng KHÔNG vì thế mà cấp sudo cho tài khoản
+# dựng gói: phụ thuộc do script cài bằng quyền root sẵn có trong chroot, gói dựng
+# xong cũng do root cài bằng pacman -U.
+grep -qE 'runuser|setpriv' "$AUR_BUILDER" ||
+  fail "the AUR builder must drop privileges (runuser/setpriv): makepkg refuses to run as root"
+grep -q 'userdel' "$AUR_BUILDER" ||
+  fail "the AUR builder must delete its temporary build account so it never ships in the image"
+grep -qF -- '--asexplicit' "$AUR_BUILDER" ||
+  fail "the AUR builder must install built packages with pacman -U --asexplicit"
+grep -qF 'SRCINFO' "$AUR_BUILDER" ||
+  fail "the AUR builder must read dependencies from SRCINFO instead of running PKGBUILD as root"
+grep -qF -- '--asdeps' "$AUR_BUILDER" ||
+  fail "the AUR builder must install build dependencies with --asdeps so they can be removed as orphans"
+grep -qxF 'BUILD_TOOLS=(base-devel git)' "$AUR_BUILDER" ||
+  fail "the AUR builder must install base-devel and git: the releng profile ships neither"
+if grep -nE 'etc/sudoers|NOPASSWD' "$AUR_BUILDER" | grep -vE ':[[:space:]]*#'; then
+  fail "the AUR builder must not create sudoers rules or NOPASSWD rights"
+fi
+if grep -nE '(^|[|&;])[[:space:]]*sudo[[:space:]]' "$AUR_BUILDER" | grep -vE ':[[:space:]]*#'; then
+  fail "the AUR builder must not run commands through sudo"
+fi
+# Một gói dựng hỏng phải làm dừng bản dựng, nếu không ISO sẽ thiếu gói mà CI vẫn
+# xanh (đúng lý do scripts/selftest-anios-aur-build.sh tồn tại).
+grep -qF 'AUR_FAILED' "$AUR_BUILDER" ||
+  fail "the AUR builder must report and fail on packages it could not build"
+
+# build-iso.sh phải sinh hook của mkarchiso, có lối thoát --no-aur, và phải đối
+# chiếu pacman DB của airootfs SAU khi dựng: hook customize_airootfs.sh bị archiso
+# đánh dấu deprecated, nếu nó biến mất thì mkarchiso vẫn báo thành công và cho ra
+# một ISO thiếu gói AUR.
+grep -qF -- '--no-aur' "$BUILD_ISO" ||
+  fail "build-iso.sh must offer --no-aur for machines that cannot reach the AUR"
+grep -qF 'customize_airootfs.sh' "$BUILD_ISO" ||
+  fail "build-iso.sh must generate the airootfs/root/customize_airootfs.sh hook that builds the AUR packages"
+grep -qF 'packages.aur.x86_64' "$BUILD_ISO" ||
+  fail "build-iso.sh must stage the AUR manifest into the temporary build profile"
+grep -qF 'anios-aur-build.sh' "$BUILD_ISO" ||
+  fail "build-iso.sh must stage scripts/anios-aur-build.sh into the temporary build profile"
+grep -qF -- '--sysroot' "$BUILD_ISO" ||
+  fail "build-iso.sh must verify the AUR packages against the airootfs pacman database after the build"
+grep -qF 'aniosbuild' "$BUILD_ISO" ||
+  fail "build-iso.sh must refuse an image that still contains the temporary AUR build account"
+
+# Hook và thư mục dựng gói chỉ được sinh ra lúc build. Nếu nằm sẵn trong
+# profile/airootfs thì mkarchiso chép chúng vào ảnh TRƯỚC pacstrap và chúng ở lại
+# trong ảnh live vĩnh viễn.
+[[ ! -e "$AIROOTFS/root/customize_airootfs.sh" ]] ||
+  fail "profile/airootfs must not ship root/customize_airootfs.sh; build-iso.sh generates it per build"
+[[ ! -e "$AIROOTFS/root/.anios-aur" ]] ||
+  fail "profile/airootfs must not ship root/.anios-aur; build-iso.sh stages it per build"
+if [[ -e "$AIROOTFS/etc/passwd" ]]; then
+  ! grep -qF 'aniosbuild' "$AIROOTFS/etc/passwd" ||
+    fail "the overlay must not contain the temporary AUR build account"
+fi
+
+# CI phải chạy cả hai bài tự kiểm tra (chúng bắt lỗi trong vài giây, không cần
+# Arch Linux) và phải soi ảnh live sau khi dựng.
+for aur_selfcheck in selftest-anios-aur-build.sh selftest-check-live-aur.sh; do
+  grep -qF "$aur_selfcheck" "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+    fail "the profile workflow must run scripts/$aur_selfcheck"
+done
+grep -qF 'check-live-aur.sh' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
+  fail "the ISO build workflow must verify the live image with scripts/check-live-aur.sh"
 
 pass "AniOS profile checks passed (ISO build still requires Arch Linux + archiso)"

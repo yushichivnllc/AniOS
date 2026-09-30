@@ -38,8 +38,10 @@ jobs:
   build:
     name: Dựng ISO
     runs-on: ubuntu-latest
-    # pacstrap + mksquashfs + xorrisofs cần khá nhiều thời gian và đĩa.
-    timeout-minutes: 120
+    # pacstrap + mksquashfs + xorrisofs cần khá nhiều thời gian và đĩa; bước dựng
+    # gói AUR (yay biên dịch từ mã nguồn Go, Cốc Cốc tải .deb vài trăm MB) cộng
+    # thêm wine/nodejs/python làm ảnh phình ra nên lượt dựng dài hơn trước.
+    timeout-minutes: 180
     # Dùng Docker trực tiếp thay cho job `container:`: GitHub Actions tự gắn
     # job container vào network riêng, xung đột với --network=host cần cho pacstrap.
     defaults:
@@ -210,6 +212,32 @@ jobs:
           grep -q '^sddm ' out/anios-pkglist.txt
           grep -q '^ibus ' out/anios-pkglist.txt
           grep -q '^ibus-unikey ' out/anios-pkglist.txt
+          # Gói cài sẵn theo yêu cầu: python, nodejs, wine và bộ công cụ để yay
+          # dựng được gói AUR ngay trong phiên live.
+          for pkg in python python-pip nodejs npm wine winetricks base-devel git \
+                     jre-openjdk qt5-base ttf-liberation; do
+            grep -q "^$pkg " out/anios-pkglist.txt || {
+              echo "::error::Ảnh live thiếu gói $pkg"
+              exit 1
+            }
+          done
+          # Gói AUR: yay (trợ giúp AUR), coccoc-browser-stable (Cốc Cốc),
+          # legacy-launcher (launcher Minecraft). pkglist do mkarchiso sinh ra SAU
+          # bước customize_airootfs.sh nên ba gói này phải có mặt ở đây; bước
+          # "Kiểm tra gói AUR trong ảnh live" bên dưới còn đọc thẳng pacman DB
+          # trong airootfs.sfs để chắc chắn.
+          for pkg in yay coccoc-browser-stable legacy-launcher; do
+            grep -q "^$pkg " out/anios-pkglist.txt || {
+              echo "::error::Gói AUR $pkg không được dựng vào ảnh live"
+              echo "::error::Xem các dòng 'AniOS:' trong log bước 'Dựng ISO'"
+              exit 1
+            }
+          done
+          # `go` chỉ là makedepend của yay lúc dựng; nó phải bị gỡ khỏi ảnh.
+          if grep -q '^go ' out/anios-pkglist.txt; then
+            echo "::error::makedepend 'go' vẫn nằm trong ảnh live (phải được gỡ sau khi dựng yay)"
+            exit 1
+          fi
           ARCH
 
       - name: Kiểm tra định danh và giao diện AniOS trong ảnh live
@@ -392,6 +420,32 @@ jobs:
           fi
           ls -lh "$squashfs"
           /workspace/scripts/check-live-audio.sh "$squashfs" out/anios-pkglist.txt
+          ARCH
+
+      - name: Kiểm tra gói AUR, python, nodejs, wine trong ảnh live
+        # pkglist chỉ nói rằng gói "đã được cài"; bước này đọc thẳng airootfs.sfs
+        # bằng scripts/check-live-aur.sh để xác nhận:
+        #   * yay, coccoc-browser-stable, legacy-launcher có trong pacman DB của
+        #     ảnh (var/lib/pacman/local), kèm binary thật (usr/bin/yay...),
+        #   * python/python-pip, nodejs/npm, wine/winetricks, base-devel/git,
+        #     jre-openjdk, qt5-base, ttf-liberation đều có mặt,
+        #   * bước dựng gói AUR không để lại rác: /root/.anios-aur, hook
+        #     customize_airootfs.sh, /var/tmp/anios-aur-build, tài khoản tạm
+        #     aniosbuild trong /etc/passwd, và KHÔNG có luật sudo NOPASSWD nào
+        #     lọt vào ảnh (scripts/anios-aur-build.sh không dùng sudo).
+        #
+        # Script chỉ hỏi metadata bằng `unsquashfs -ll` và chỉ `-cat` những entry
+        # đã xác nhận là file thường, vì `unsquashfs -cat` từ chối symlink tuyệt
+        # đối (README.md mô tả chi tiết). Logic đó được kiểm chứng ngoại tuyến bởi
+        # scripts/selftest-check-live-aur.sh trong workflow "AniOS profile checks".
+        run: |
+          docker exec -i anios-iso-builder bash -e -o pipefail -s <<'ARCH'
+          squashfs=out/airootfs.sfs
+          if [[ ! -s "$squashfs" ]]; then
+            iso="out/$(basename "$(ls -1 out/*.iso)")"
+            xorriso -indev "$iso" -osirrox on -extract /arch/x86_64/airootfs.sfs "$squashfs"
+          fi
+          /workspace/scripts/check-live-aur.sh "$squashfs" out/anios-pkglist.txt
           ARCH
 
       - name: Dọn container dựng Arch

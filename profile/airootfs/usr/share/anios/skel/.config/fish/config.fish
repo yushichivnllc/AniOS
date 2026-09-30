@@ -20,8 +20,8 @@ if status is-interactive
     if set -q TMUX
         set imi_seq ~/.local/state/quickshell/user/generated/terminal/sequences-pane.txt
     end
-    if test -f 
-        cat 
+    if test -f $imi_seq
+        cat $imi_seq
     end
 
     # Các alias tiện ích AniOS
@@ -30,6 +30,9 @@ if status is-interactive
     alias l="ls -CF --color=auto"
     alias fetch="fastfetch"
     alias update="sudo pacman -Syu"
+    # yay (trợ lý AUR) đã cài sẵn trong ảnh
+    alias update-aur="yay -Syu"
+    alias aur-search="yay -Ss"
     alias cls="clear"
     alias clear="printf '[2J[3J[1;1H'"
 
