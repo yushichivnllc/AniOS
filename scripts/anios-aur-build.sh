@@ -65,6 +65,18 @@ LOG="$SRC_DIR/anios-aur-build.log"
 # chính yay sẽ tự cài makedepend cho họ.
 BUILD_TOOLS=(base-devel git)
 
+# Khởi tạo keyring tạm trong chroot nếu chưa có, để pacman xác thực chữ ký gói
+# khi cài công cụ hoặc phụ thuộc (go, v.v.). archiso không copy keyring từ host
+# sang airootfs nên nếu không khởi tạo trước thì pacman sẽ báo lỗi
+# "keyring is not writable" / "required key missing from keyring".
+init_keyring() {
+  if (( EUID == 0 )) && [[ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ]]; then
+    log "Khởi tạo pacman keyring tạm thời trong chroot..."
+    run_logged pacman-key --init || true
+    run_logged pacman-key --populate archlinux || true
+  fi
+}
+
 AUR_OK=()
 AUR_FAILED=()
 INSTALLED_AS_DEPS=()
@@ -141,6 +153,11 @@ cleanup() {
     if [[ -n "$home_dir" && "$home_dir" != / && "$home_dir" != "$SRC_DIR"* ]]; then
       rm -rf -- "$home_dir"
     fi
+    # pacman-init.service sẽ khởi tạo lại keyring sạch trên tmpfs khi boot ISO
+    # live; dọn keyring tạm sinh lúc build để không để lộ private master key và
+    # tránh xung đột với mount tmpfs của releng.
+    pkill -KILL -u 0 gpg-agent 2>/dev/null || true
+    rm -rf -- /etc/pacman.d/gnupg
   fi
   if [[ -n "$SRC_DIR" && "$SRC_DIR" != / && "$SRC_DIR" != /var && "$SRC_DIR" != /var/tmp ]]; then
     rm -rf -- "$SRC_DIR"
@@ -400,6 +417,8 @@ if (( ${#AUR_PKGBASES[@]} == 0 )); then
 fi
 
 log "AniOS: dựng ${#AUR_PKGBASES[@]} gói AUR vào ảnh live: ${AUR_SPECS[*]}"
+
+init_keyring
 
 # Cố tình KHÔNG dùng -Sy ở đường thường: pacstrap vừa điền sync DB vài phút
 # trước, nên cài thẳng bằng DB đó giữ cho cả ảnh ở MỘT snapshot kho. -Sy giữa
