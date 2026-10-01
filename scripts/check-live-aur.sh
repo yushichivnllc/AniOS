@@ -301,7 +301,7 @@ else
 fi
 
 if (( ERRORS > 0 )); then
-  echo "::error::Ảnh live thiếu $ERRORORS mục của nhóm gói AUR/python/nodejs/wine" >&2
+  echo "::error::Ảnh live thiếu $ERRORS mục của nhóm gói AUR/python/nodejs/wine" >&2
   exit 1
 fi
 

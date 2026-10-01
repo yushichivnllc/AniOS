@@ -276,6 +276,12 @@ status=0
 run_checker "$IMG2" "$out" || status=$?
 (( status != 0 )) || fail "thiếu usr/bin/yay mà script vẫn exit 0"
 grep -qF 'THIẾU usr/bin/yay' "$out" || { cat "$out" >&2; fail "không nêu đúng binary thiếu"; }
+# Dòng tổng kết ::error:: là thứ GitHub Actions hiện thành annotation. Từng có typo
+# ($ERRORORS) khiến `set -u` chết với "unbound variable" ngay tại dòng này.
+grep -qF 'unbound variable' "$out" &&
+  { cat "$out" >&2; fail "bước kiểm tra chết vì biến chưa khai báo thay vì báo tổng số mục thiếu"; }
+grep -qE '^::error::Ảnh live thiếu [1-9][0-9]* mục' "$out" ||
+  { cat "$out" >&2; fail "không in dòng tổng kết ::error:: kèm số mục thiếu"; }
 pass "thiếu binary của gói AUR bị phát hiện"
 
 # --- 3. Gói AUR không nằm trong pacman DB ---------------------------------
