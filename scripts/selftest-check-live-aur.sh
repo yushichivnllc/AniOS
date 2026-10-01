@@ -158,31 +158,33 @@ make_fake_image() {
   mkdir -p -- "$img"/{usr/bin,usr/share/anios,root,home,var/tmp} \
     "$img"/etc/sudoers.d "$img"/var/lib/pacman/local
 
-  # pacman DB: mỗi gói đã cài là một thư mục <tên>-<pkgver>-<pkgrel>-<arch>,
-  # bên trong có desc/files như DB thật.
+  # pacman DB thật (libalpm/be_local.c): mỗi gói đã cài là một thư mục
+  # <tên>-<pkgver>-<pkgrel> (KHÔNG có hậu tố -<arch>; chỉ file .pkg.tar.zst mới
+  # có -<arch>), bên trong có desc/files, kèm tệp ALPM_DB_VERSION ở gốc local/.
+  printf '9\n' >"$img/var/lib/pacman/local/ALPM_DB_VERSION"
   local dbpkgs=(
-    yay-13.0.1-1-x86_64
-    coccoc-browser-stable-152.0.7977.124-1-x86_64
-    legacy-launcher-latest-1-any
-    python-3.13.1-1-x86_64
-    python-pip-24.3.1-1-any
-    nodejs-23.6.0-1-x86_64
-    npm-11.0.0-1-any
-    wine-10.0-1-x86_64
-    winetricks-20240105-1-x86_64
-    base-devel-1-2-x86_64
-    git-2.47.1-1-x86_64
-    jre-openjdk-21.0.2.u13-1-x86_64
-    qt5-base-5.15.17+kde+r150-1-x86_64
-    ttf-liberation-2.1.5-2-any
-    linux-zen-6.13.4.zen1-1-x86_64
-    hyprland-0.55.0-1-x86_64
-    steam-1.0.0.82-1-x86_64
+    yay-13.0.1-1
+    coccoc-browser-stable-152.0.7977.124-1
+    legacy-launcher-latest-1
+    python-3.13.1-1
+    python-pip-24.3.1-1
+    nodejs-23.6.0-1
+    npm-11.0.0-1
+    wine-10.0-1
+    winetricks-20240105-1
+    base-devel-1-2
+    git-2.47.1-1
+    jre-openjdk-21.0.2.u13-1
+    qt5-base-5.15.17+kde+r150-1
+    ttf-liberation-2.1.5-2
+    linux-zen-6.13.4.zen1-1
+    hyprland-0.55.0-1
+    steam-1.0.0.82-1
   )
   local dbpkg
   for dbpkg in "${dbpkgs[@]}"; do
     mkdir -p -- "$img/var/lib/pacman/local/$dbpkg"
-    printf '%%NAME%%\n%s\n' "${dbpkg%-*-*-*}" >"$img/var/lib/pacman/local/$dbpkg/desc"
+    printf '%%NAME%%\n%s\n' "${dbpkg%-*-*}" >"$img/var/lib/pacman/local/$dbpkg/desc"
   done
 
   # Binary của các gói trên.
@@ -287,17 +289,24 @@ pass "thiếu binary của gói AUR bị phát hiện"
 # --- 3. Gói AUR không nằm trong pacman DB ---------------------------------
 IMG3="$SANDBOX/img-nopkg"
 make_fake_image "$IMG3"
-rm -rf -- "$IMG3/var/lib/pacman/local/coccoc-browser-stable-152.0.7977.124-1-x86_64"
+rm -rf -- "$IMG3/var/lib/pacman/local/coccoc-browser-stable-152.0.7977.124-1"
+# Xoá thêm python nhưng giữ python-pip để chắc rằng python-pip-24.3.1-1 không bị
+# nhận nhầm là gói python (hai dấu '-' cuối tách pkgver và pkgrel).
+rm -rf -- "$IMG3/var/lib/pacman/local/python-3.13.1-1"
 out="$SANDBOX/out-nopkg"
 status=0
 run_checker "$IMG3" "$out" || status=$?
 (( status != 0 )) || fail "pacman DB thiếu coccoc-browser-stable mà script vẫn exit 0"
 grep -qF 'THIẾU coccoc-browser-stable không có trong pacman DB' "$out" ||
   { cat "$out" >&2; fail "không nêu đúng gói AUR thiếu trong pacman DB"; }
+grep -qF 'THIẾU python không có trong pacman DB' "$out" ||
+  { cat "$out" >&2; fail "python-pip làm script tưởng nhầm gói python vẫn có trong pacman DB"; }
+grep -qF 'OK    python-pip' "$out" ||
+  { cat "$out" >&2; fail "python-pip vẫn còn trong DB mà không được xác nhận"; }
 # pkglist vẫn còn tên gói -> phải bị bắt, vì ảnh thật mới là thứ người dùng boot.
 grep -qF 'THIẾU coccoc-browser-stable không có trong pkglist' "$out" &&
   fail "pkglist đã bị xoá gói đó khỏi DB mà vẫn báo thiếu pkglist là sai kịch bản"
-pass "gói AUR vắng mặt trong pacman DB của ảnh bị phát hiện"
+pass "gói vắng mặt trong pacman DB của ảnh bị phát hiện (không nhầm python với python-pip)"
 
 # pkglist thiếu gói cũng phải bị bắt (trường hợp hook chạy nhưng pkglist cũ).
 IMG3B="$SANDBOX/img-nopkglist"
