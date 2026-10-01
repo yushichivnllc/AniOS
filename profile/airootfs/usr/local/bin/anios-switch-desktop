@@ -20,7 +20,7 @@ get_current_mode() {
 notify() {
   local title="$1" msg="$2"
   if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-    hyprctl notify -1 5000 "rgb(7aa2f7)" "$title: $msg" 2>/dev/null || true
+    hyprctl notify -1 5000 "rgb(2f6be8)" "$title: $msg" 2>/dev/null || true
   fi
   if command -v notify-send >/dev/null 2>&1; then
     notify-send "$title" "$msg" 2>/dev/null || true

@@ -24,32 +24,32 @@ if status is-interactive
         cat $imi_seq
     end
 
-    # Màu cú pháp Tokyo Night cho chính fish (starship chỉ vẽ dấu nhắc).
+    # Màu cú pháp Gura Blue cho chính fish (starship chỉ vẽ dấu nhắc).
     # Ở chế độ imi, dãy escape của Matugen nạp phía trên sẽ ưu tiên hơn.
-    set -g fish_color_normal c0caf5
-    set -g fish_color_command 7aa2f7
-    set -g fish_color_keyword bb9af7
-    set -g fish_color_quote 9ece6a
-    set -g fish_color_redirection 7dcfff
-    set -g fish_color_end bb9af7
-    set -g fish_color_error f7768e
-    set -g fish_color_param d9deea
-    set -g fish_color_comment 565f89
-    set -g fish_color_match 7dcfff
-    set -g fish_color_search_match --background=2d3446
-    set -g fish_color_selection --background=2d3446
-    set -g fish_color_operator 7dcfff
-    set -g fish_color_escape bb9af7
-    set -g fish_color_autosuggestion 565f89
-    set -g fish_color_cwd 7aa2f7
-    set -g fish_color_user 9ece6a
-    set -g fish_color_host 7dcfff
-    set -g fish_color_status f7768e
-    set -g fish_pager_color_prefix 7dcfff
-    set -g fish_pager_color_completion c0caf5
-    set -g fish_pager_color_description 565f89
-    set -g fish_pager_color_progress 565f89
-    set -g fish_pager_color_selected_background --background=2d3446
+    set -g fish_color_normal eaf4fd
+    set -g fish_color_command 2f6be8
+    set -g fish_color_keyword 7e9bf0
+    set -g fish_color_quote 3ec3d8
+    set -g fish_color_redirection 4ea6ea
+    set -g fish_color_end 7e9bf0
+    set -g fish_color_error d8404f
+    set -g fish_color_param f2f8fe
+    set -g fish_color_comment 55708f
+    set -g fish_color_match 4ea6ea
+    set -g fish_color_search_match --background=1e4266
+    set -g fish_color_selection --background=1e4266
+    set -g fish_color_operator 4ea6ea
+    set -g fish_color_escape 7e9bf0
+    set -g fish_color_autosuggestion 55708f
+    set -g fish_color_cwd 2f6be8
+    set -g fish_color_user 3ec3d8
+    set -g fish_color_host 4ea6ea
+    set -g fish_color_status d8404f
+    set -g fish_pager_color_prefix 4ea6ea
+    set -g fish_pager_color_completion eaf4fd
+    set -g fish_pager_color_description 55708f
+    set -g fish_pager_color_progress 55708f
+    set -g fish_pager_color_selected_background --background=1e4266
 
     # Các alias tiện ích AniOS
     alias ll="ls -lah --color=auto"

@@ -28,7 +28,7 @@ else
     -- của phiên AniOS. Có thể tách ra nhiều file rồi nạp bằng require("ten_file").
     --
     -- Thẩm mỹ (bản "làm đẹp" cho chế độ Minimal):
-    --   * Bảng màu Tokyo Night đồng bộ Waybar / Fuzzel / Foot / Mako / hyprlock.
+    --   * Bảng màu Gura Blue đồng bộ Waybar / Fuzzel / Foot / Mako / hyprlock.
     --   * Viền cửa sổ đang chọn là gradient xanh -> cyan, bo góc 10px.
     --   * Hiệu ứng giữ ở mức RẺ: animation fade/popin ngắn; blur chỉ dành cho các
     --     layer phủ (waybar, fuzzel, mako) qua layerrule, cửa sổ thường KHÔNG blur;
@@ -91,9 +91,9 @@ else
             resize_on_border = true,
 
             col = {
-                -- Viền cửa sổ đang chọn: gradient Tokyo Night xanh -> cyan nghiêng 45 độ.
-                active_border   = "rgba(7aa2f7ff) rgba(7dcfffff) 45deg",
-                inactive_border = "rgba(2d3446ff)",
+                -- Viền cửa sổ đang chọn: gradient Gura Blue xanh -> cyan nghiêng 45 độ.
+                active_border   = "rgba(2f6be8ff) rgba(4ea6eaff) 45deg",
+                inactive_border = "rgba(1e4266ff)",
             },
         },
 

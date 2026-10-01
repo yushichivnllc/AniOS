@@ -232,9 +232,9 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
 
 Bản Minimal giữ triết lý "nhẹ nhưng chỉn chu": cùng một ngôn ngữ thiết kế xuyên suốt mọi thành phần người dùng nhìn thấy.
 
-- **Bảng màu Tokyo Night** (`#171a22` nền, `#7aa2f7` accent, `#7dcfff`/`#bb9af7`/`#9ece6a`/`#e0af68`/`#f7768e` cho trạng thái) dùng chung cho Waybar, Fuzzel, Foot, Mako, hyprlock, prompt starship/fish và `gtk.css`.
+- **Bảng màu "Gura Blue"** trích từ wallpaper Gura (nền xanh trời lưới sáng, chữ GURA trắng, xanh royal đậm, teal, vàng, đỏ): lớp chrome desktop dùng nền navy đậm `#0a1626`, accent xanh royal `#2f6be8`, xanh trời `#4ea6ea`, teal `#3ec3d8`, vàng `#edb62f`, đỏ `#d8404f`, chữ trắng xanh `#eaf4fd`; dùng chung cho Waybar, Fuzzel, Foot, Kitty, Mako, hyprlock, prompt starship/fish, theme SDDM AniOS và `gtk.css`.
 - **Waybar dạng viên thuốc nổi**: nền thanh trong suốt, mỗi module là một pill bo tròn bán trong suốt (được Hyprland blur nhẹ), workspace hiện icon số Nerd Font, đồng hồ kèm lịch tooltip, thêm module CPU/RAM và nút khoá màn hình.
-- **Hiệu ứng rẻ**: viền cửa sổ đang chọn là gradient xanh → cyan, bo góc 10px, shadow mềm chỉ cho cửa sổ nổi, animation fade/popin ngắn; cửa sổ xếp lưới không blur để tiết kiệm GPU.
+- **Hiệu ứng rẻ**: viền cửa sổ đang chọn là gradient xanh royal → xanh trời, bo góc 10px, shadow mềm chỉ cho cửa sổ nổi, animation fade/popin ngắn; cửa sổ xếp lưới không blur để tiết kiệm GPU.
 - **Màn hình khoá hyprlock** dàn cục diện wordmark + đồng hồ lớn + ngày + ô mật khẩu bo tròn, nền wallpaper tự blur, kèm cảnh báo Caps Lock.
 - **Font & icon**: chữ UI dùng Noto Sans (đủ dấu tiếng Việt), terminal dùng font monospace của hệ thống; icon lấy từ `ttf-nerd-fonts-symbols` (Symbols Nerd Font) đã cài sẵn.
 - **Ứng dụng GTK** vào dark theme đồng bộ qua `~/.config/gtk-3.0|4.0/settings.ini` + `gtk.css` (bo góc CSD, thanh cuộn mảnh, màu chọn theo accent). Ở chế độ imi, matugen ghi đè `gtk.css` bằng bảng màu Material.

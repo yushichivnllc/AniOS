@@ -16,14 +16,14 @@ Rectangle {
     width: 640
     height: 480
 
-    property string accentColor: "#7aa2f7"
-    property string accentHoverColor: "#9bb8fa"
-    property string accentPressColor: "#5b86e0"
-    property string textColor: "#dfe4ef"
-    property string dimColor: "#8a93a8"
-    property string surfaceColor: "#171a22"
-    property string fieldColor: "#1e222c"
-    property string borderColor: "#2d3446"
+    property string accentColor: "#2f6be8"
+    property string accentHoverColor: "#6fb5f0"
+    property string accentPressColor: "#1d5be0"
+    property string textColor: "#eaf4fd"
+    property string dimColor: "#7e97b8"
+    property string surfaceColor: "#0a1626"
+    property string fieldColor: "#10233c"
+    property string borderColor: "#1e4266"
 
     property int sessionIndex: session.index
 
