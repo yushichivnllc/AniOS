@@ -26,6 +26,15 @@ jobs:
         # phỏng việc từ chối symlink tuyệt đối của `-cat`) để chắc nó không báo
         # thiếu sai và không bỏ sót rác của bước dựng gói AUR.
         run: ./scripts/selftest-check-live-aur.sh
+      - name: Self-test the NOPASSWD leak check of the ISO build
+        # Bước cuối của scripts/build-iso.sh chỉ chạy sau khi mkarchiso dựng xong
+        # (~25 phút), nên lỗi ở đó chỉ lộ ra rất muộn. Từng có lỗi: gói sudo của Arch
+        # ship /etc/sudoers kèm dòng ví dụ đã comment `# %wheel ... NOPASSWD: ALL`,
+        # grep thô chữ NOPASSWD khớp nó và bản dựng chết với "A NOPASSWD sudo rule
+        # leaked" trên một ảnh sạch. Bài này nạp đúng hàm sudoers_nopasswd_rules từ
+        # build-iso.sh rồi chạy trên airootfs giả: sudoers mặc định phải sạch, còn
+        # luật NOPASSWD thật (kể cả khi ai đó bỏ comment dòng ví dụ) phải bị bắt.
+        run: ./scripts/selftest-build-iso-sudoers.sh
       - name: Self-test the live audio checker
         # scripts/check-live-audio.sh chạy trên airootfs.sfs thật trong workflow
         # dựng ISO. Bài này chạy đúng logic đó trên một ảnh live giả (unsquashfs

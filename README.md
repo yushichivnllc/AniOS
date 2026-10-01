@@ -94,6 +94,21 @@ FATAL ERROR: dir_scan: failed to make directory <đường dẫn>, because File 
 
 Cách sửa: đọc ảnh live bằng `scripts/check-live-audio.sh`. Script lấy loại entry và đích symlink từ `unsquashfs -ll` (chỉ đọc metadata, **không trích gì** và không đi theo symlink, nên thư mục cha to cỡ nào cũng không ảnh hưởng), rồi trích **đúng entry** cần đọc vào một thư mục đích **mới toanh** cho mỗi lần trích — nhờ vậy không bao giờ gặp lại lỗi `File exists`. Bài tự kiểm tra `scripts/selftest-check-live-audio.sh` dựng một ảnh live giả có đúng bố cục symlink đó, một `usr/bin` khổng lồ và lỗi `File exists` của `unsquashfs`, rồi chạy trong workflow `AniOS profile checks` — nên lỗi kiểu này bị bắt trong vài giây thay vì sau một lượt dựng ISO hàng chục phút.
 
+### Lỗi `A NOPASSWD sudo rule leaked into the image`
+
+`mkarchiso` đã báo `Done!`, `build-iso.sh` in `AUR package baked into the image: ...` cho từng gói rồi dừng với:
+
+```text
+A NOPASSWD sudo rule leaked into the image while building AUR packages:
+  etc/sudoers.d/20-foo:1: foo ALL=(ALL) NOPASSWD: ALL
+```
+
+Các dòng thụt vào có dạng `<file trong ảnh>:<số dòng>: <luật>` và là **đúng luật đã lọt vào ảnh**. `scripts/anios-aur-build.sh` không chạm vào sudoers, nên hãy tìm gói hoặc hook nào đã ghi luật đó và bỏ nó đi.
+
+Bản cũ của script (trước khi có hàm `sudoers_nopasswd_rules`) dùng `grep -R NOPASSWD` nên **luôn** báo lỗi này, kể cả trên ảnh hoàn toàn sạch và không in ra dòng nào để lần theo. Nguyên nhân: gói `sudo` của Arch ship `/etc/sudoers` kèm sẵn ví dụ đã comment `# %wheel ALL=(ALL:ALL) NOPASSWD: ALL`, và `base-devel` (cần cho `yay`) kéo gói đó vào ảnh. Hàm mới chỉ tính luật **đang có hiệu lực** trong `etc/sudoers` và `etc/sudoers.d/*` (bỏ qua comment, nhưng `#1000 ...` là uid nên vẫn là luật thật). `scripts/selftest-build-iso-sudoers.sh` khoá hành vi đó và chạy trên mọi push/PR, nên lỗi kiểu này bị bắt trong vài giây thay vì sau một lượt dựng ISO.
+
+Các dòng `warning: database file for 'core' does not exist (use '-Sy' to download)` xuất hiện xen giữa log ở bước này là **vô hại**: `pacman -Q --sysroot` đọc `etc/pacman.conf` của ảnh (khai báo `core`/`extra`/`multilib`) nhưng ảnh không chứa sync database. Chúng không liên quan tới lỗi trên.
+
 ## Gói AUR cài sẵn trong ảnh
 
 `pacstrap` chỉ giải quyết được gói trong kho chính thức của Arch, nên gói AUR **không thể** nằm trong
@@ -134,6 +149,11 @@ Cách bước dựng AUR hoạt động:
   `/var/tmp/anios-aur-build/anios-aur-build.log` trong lúc dựng (`ANIOS_AUR_KEEP_TMP=1` để giữ lại).
 - Ảnh cuối cùng có `/usr/share/anios/aur-packages.txt` ghi `tên_gói=phiên_bản` cho từng gói AUR đã cài, để
   đối chiếu về sau.
+- Ngay sau `mkarchiso`, `build-iso.sh` tự soi lại airootfs: gói AUR có trong pacman DB, không còn tài khoản
+  `aniosbuild` hay `/root/.anios-aur`, và **không có luật `NOPASSWD` nào đang hiệu lực** trong `etc/sudoers`
+  lẫn `etc/sudoers.d/*`. Chỉ luật thật mới tính, comment thì không: `/etc/sudoers` mặc định của gói `sudo` có
+  sẵn dòng ví dụ `# %wheel ALL=(ALL:ALL) NOPASSWD: ALL`, nên một lệnh `grep NOPASSWD` thô sẽ luôn báo nhầm
+  (xem [mục lỗi tương ứng](#lỗi-a-nopasswd-sudo-rule-leaked-into-the-image)).
 
 Kiểm tra ảnh vừa dựng:
 
@@ -249,6 +269,7 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 - `scripts/check-live-aur.sh` — kiểm tra gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
+- `scripts/selftest-build-iso-sudoers.sh` — tự kiểm tra bước "không có luật sudo `NOPASSWD` nào lọt vào ảnh" ở cuối `build-iso.sh` trên airootfs giả: `/etc/sudoers` mặc định của gói `sudo` phải sạch, luật thật phải bị bắt kèm `file:dòng`; không cần Arch Linux.
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
 - `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; cùng gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
@@ -261,9 +282,10 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 ./scripts/selftest-check-live-audio.sh    # logic đọc ảnh live (cần bash, không cần Arch)
 ./scripts/selftest-anios-aur-build.sh     # bước dựng gói AUR trong chroot giả
 ./scripts/selftest-check-live-aur.sh      # bước kiểm tra gói AUR/python/nodejs/wine trong ảnh giả
+./scripts/selftest-build-iso-sudoers.sh   # bước kiểm tra NOPASSWD ở cuối build-iso.sh trên airootfs giả
 ```
 
-Chạy cả bốn mất khoảng 10 giây. Khi dựng ISO xong, kiểm tra thêm ngay trên ảnh thật:
+Chạy cả năm mất khoảng 10 giây. Khi dựng ISO xong, kiểm tra thêm ngay trên ảnh thật:
 
 ```bash
 ./scripts/check-live-audio.sh work/x86_64/airootfs.sfs

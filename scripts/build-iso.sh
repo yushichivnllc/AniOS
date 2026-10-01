@@ -455,6 +455,32 @@ if (( build_status != 0 )); then
   exit "$build_status"
 fi
 
+# In ra "<đường dẫn>:<số dòng>: <luật>" cho mỗi luật sudoers ĐANG CÓ HIỆU LỰC mà
+# cho chạy sudo không cần mật khẩu (tag NOPASSWD) trong etc/sudoers và
+# etc/sudoers.d/* của airootfs $1. Không in gì nghĩa là ảnh sạch.
+#
+# Dòng comment PHẢI bị bỏ qua: gói `sudo` của Arch ship /etc/sudoers kèm sẵn ví dụ
+# đã comment `# %wheel ALL=(ALL:ALL) NOPASSWD: ALL`, nên `grep NOPASSWD` thô luôn
+# khớp và làm hỏng MỌI bản dựng dù ảnh hoàn toàn sạch. Theo sudoers(5), '#' mở
+# đầu một comment trừ khi theo sau là chữ số (`#1000` là uid, vẫn là luật thật).
+#
+# Tự đọc từng file bằng awk (không grep -q cuối pipeline) để `pipefail` không biến
+# SIGPIPE thành "không thấy gì". Đây là bộ phát hiện rò rỉ nên phải fail closed:
+# file đọc không được thì trả exit khác 0 (bước gọi dừng bản dựng), tuyệt đối không
+# coi là "sạch". Bài tự kiểm tra scripts/selftest-build-iso-sudoers.sh nạp đúng hàm
+# này từ file này, nên giữ tên hàm và dấu `}` ở đầu dòng.
+sudoers_nopasswd_rules() {
+  local root="${1%/}" file status=0
+  for file in "$root/etc/sudoers" "$root"/etc/sudoers.d/*; do
+    [[ -f "$file" ]] || continue
+    awk -v label="${file#"$root"/}" '
+      /^[[:space:]]*#([^0-9]|$)/ { next }
+      /NOPASSWD/ { print label ":" FNR ": " $0 }
+    ' "$file" || status=$?
+  done
+  return "$status"
+}
+
 # --- Kiểm tra gói AUR có thật trong ảnh vừa dựng --------------------------
 # Hook customize_airootfs.sh là chỗ duy nhất AniOS dựng được gói AUR, và nó bị
 # archiso đánh dấu deprecated. Nếu hook không chạy (archiso đổi, airootfs được
@@ -509,8 +535,15 @@ EOF
     echo "AUR build leftovers are still in the image: /root/.anios-aur" >&2
     exit 1
   fi
-  if grep -Rqs 'NOPASSWD' "$airootfs_dir/etc/sudoers.d/" "$airootfs_dir/etc/sudoers"; then
-    echo "A NOPASSWD sudo rule leaked into the image while building AUR packages" >&2
+  # Chỉ tính luật đang có hiệu lực (xem sudoers_nopasswd_rules): dòng ví dụ đã
+  # comment trong /etc/sudoers mặc định của gói sudo KHÔNG phải là rò rỉ.
+  nopasswd_rules="$(sudoers_nopasswd_rules "$airootfs_dir")"
+  if [[ -n "$nopasswd_rules" ]]; then
+    {
+      echo "A NOPASSWD sudo rule leaked into the image while building AUR packages:"
+      sed 's/^/  /' <<<"$nopasswd_rules"
+      echo "scripts/anios-aur-build.sh never touches sudoers, so look for the package or hook that wrote this rule."
+    } >&2
     exit 1
   fi
   echo "AUR build leftovers cleaned: no build account, no /root/.anios-aur, no NOPASSWD rule"
