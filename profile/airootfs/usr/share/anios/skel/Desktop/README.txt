@@ -35,6 +35,16 @@ Phần mềm cài sẵn trong ảnh (ngoài Steam, trình duyệt, Discord, VS C
                      yay -S <tên gói>     cài gói (kể cả gói ngoài kho chính thức)
                      yay -Syu             cập nhật toàn bộ, gồm cả AUR
                      hoặc gõ: update-aur
+  AI cục bộ        Ollama backend Vulkan chạy nền (service bật sẵn):
+                     ollama run <tên-model>   chat LLM trong terminal
+                   llama-cpp / whisper-cpp cho dòng lệnh, OpenVINO tăng tốc
+                   trên máy Intel. Tắt service nếu không dùng cho nhẹ RAM:
+                     sudo systemctl disable --now ollama
+  Jan AI           Chat offline kiểu ChatGPT, mở từ launcher (Super+D)
+  LM Studio        Dò và chạy model GGUF bằng giao diện đồ hoạ (Super+D)
+                   Model tải lần đầu cần Internet và nằm trong RAM của phiên
+                   live; muốn giữ model giữa các lần boot thì trỏ OLLAMA_MODELS
+                   (hoặc thư mục model của Jan/LM Studio) sang ổ USB gắn ngoài.
 
 Không có tiếng?
 AniOS tự bật dàn âm thanh PipeWire khi vào phiên, tự bỏ trạng thái tắt tiếng

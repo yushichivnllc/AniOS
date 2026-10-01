@@ -33,3 +33,15 @@ coccoc-browser-stable
 # Launcher Minecraft "Legacy" (llaun.ch) — bản portable, chạy bằng Java.
 # Phụ thuộc java-runtime được jre-openjdk (packages.x86_64) cung cấp.
 legacy-launcher
+
+# --- Ứng dụng AI dạng GUI (chạy offline sau khi tải model) ---
+# Jan AI: bản thay thế ChatGPT mã nguồn mở, chạy 100% offline, tự kèm engine
+# llama.cpp. Bản -bin đóng gói lại từ .deb chính chủ của janhq.
+# Phụ thuộc (bun, uv, webkit2gtk-4.1, libayatana-appindicator...) đều nằm
+# trong kho chính thức nên makepkg không phải dựng thêm gói AUR nào khác.
+jan-bin
+
+# LM Studio: ứng dụng desktop dò và chạy LLM (GGUF) cục bộ, giao diện dễ
+# dùng cho người không rành CLI. Bản -bin cài AppImage chính chủ của
+# lmstudio.ai vào /opt/lm-studio. Giấy phép EULA của upstream.
+lmstudio-bin
