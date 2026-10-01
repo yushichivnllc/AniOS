@@ -1,6 +1,6 @@
 # AniOS
 
-AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland với kernel `linux-zen`, cài sẵn Steam, driver đồ họa mã nguồn mở phổ biến cho Intel/AMD, trình duyệt Cốc Cốc, Wine, Python, Node.js, Java và trợ lý AUR `yay` để cài thêm gói ngay trong phiên live. Hệ thống cài sẵn toàn bộ dotfile của desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) (XephyLon) hoàn toàn offline, hỗ trợ song song 2 chế độ giao diện: **AniOS Minimal (Waybar)** và **Immaterial Impulse (Quickshell)**.
+AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland với kernel `linux-zen`, cài sẵn Steam, driver đồ họa mã nguồn mở phổ biến cho Intel/AMD, trình duyệt Cốc Cốc, Wine, Python, Node.js, Java, trợ lý AUR `yay` để cài thêm gói ngay trong phiên live, cùng **stack AI cục bộ** (Ollama bản Vulkan, llama-cpp, whisper-cpp, OpenVINO và hai ứng dụng GUI Jan AI / LM Studio). Hệ thống cài sẵn toàn bộ dotfile của desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) (XephyLon) hoàn toàn offline, hỗ trợ song song 2 chế độ giao diện: **AniOS Minimal (Waybar)** và **Immaterial Impulse (Quickshell)**.
 
 > Repository này chứa **Archiso profile và script tạo ISO**. File ISO được dựng tự động bằng [GitHub Actions](#dựng-iso-tự-động-bằng-github-actions), hoặc dựng tay trên máy Arch Linux.
 
@@ -265,6 +265,24 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 - Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
 - Hệ thống Live chạy từ ảnh nén trong RAM (zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
+
+## Chạy AI cục bộ
+
+Ảnh live kèm sẵn một stack AI chạy offline (model tải một lần rồi dùng lại không cần mạng):
+
+- **Ollama (bản Vulkan)** — server LLM dùng backend Vulkan nên chạy được trên iGPU Intel lẫn AMD có trong máy phòng net; máy quá cũ không có Vulkan thì tự fallback về CPU. Service `ollama` được bật sẵn trong phiên live:
+  ```bash
+  ollama run llama3.2        # tải model lần đầu (cần mạng) rồi chat trong terminal
+  ollama list                # xem model đã có
+  curl localhost:11434       # API server cho app khác bám vào
+  ```
+  Không dùng tới thì tắt cho nhẹ RAM: `sudo systemctl disable --now ollama`.
+- **llama-cpp / whisper-cpp** — suy luận LLM và nhận dạng tiếng nói (speech-to-text) dạng CLI, kèm backend ggml Vulkan (`ggml-vulkan`) và OpenVINO (`ggml-openvino`) để tăng tốc.
+- **OpenVINO + plugin GPU Intel + intel-compute-runtime** — tối ưu hoá model cho CPU/iGPU Intel (OpenCL/Level Zero).
+- **onnxruntime-cpu** — chạy model định dạng ONNX.
+- **Jan AI** (`jan-bin`) và **LM Studio** (`lmstudio-bin`) — hai ứng dụng GUI nướng sẵn từ AUR lúc dựng ISO, mở từ launcher (`Super+D`): Jan là bản thay thế ChatGPT chạy 100% offline kèm engine llama.cpp, LM Studio dò và chạy model GGUF với giao diện dễ dùng.
+
+Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh phình thêm hàng chục GB). Model tải trong phiên được ghi vào home nằm trong RAM, nên muốn giữ lại giữa các lần boot hãy trỏ `OLLAMA_MODELS` (hoặc thư mục model của Jan/LM Studio) sang ổ USB/ổ cứng gắn ngoài. Ảnh không kèm CUDA/ROCm: máy có GPU rời NVIDIA/AMD mạnh có thể tự cài thêm `ollama-cuda`/`ollama-rocm` bằng `yay`.
 
 ## Cấu trúc repository
 
