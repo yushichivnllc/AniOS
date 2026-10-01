@@ -563,6 +563,11 @@ for aur_selfcheck in selftest-anios-aur-build.sh selftest-check-live-aur.sh; do
 done
 grep -qF 'check-live-aur.sh' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
   fail "the ISO build workflow must verify the live image with scripts/check-live-aur.sh"
+# Thư mục trong var/lib/pacman/local có dạng <tên>-<pkgver>-<pkgrel> (không có
+# hậu tố -<arch>; chỉ file .pkg.tar.zst mới có -<arch>). Nếu regex đòi
+# -(x86_64|any|i686)$ thì mọi gói trong pacman DB thật đều bị báo THIẾU.
+! grep -qE 'x86_64\|any\|i686' "$LIVE_AUR_CHECK" ||
+  fail "check-live-aur.sh must match var/lib/pacman/local/<pkgname>-<pkgver>-<pkgrel> without an -<arch> suffix"
 
 # Bước kiểm tra cuối của build-iso.sh ("không có luật sudo NOPASSWD nào lọt vào
 # ảnh") chỉ được tính luật ĐANG CÓ HIỆU LỰC. Gói sudo của Arch ship /etc/sudoers

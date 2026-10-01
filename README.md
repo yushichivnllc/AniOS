@@ -169,7 +169,7 @@ xorriso -indev out/anios-*.iso -osirrox on -extract /arch/pkglist.x86_64.txt out
 `scripts/check-live-aur.sh` đọc `airootfs.sfs` bằng `unsquashfs -ll`/`-cat` (theo đúng cách đọc symlink
 mô tả ở phần [troubleshooting](#ci-báo-thiếu-etcalsaconfd-dù-gói-đã-cài-file-đó)) và xác nhận: binary của
 từng gói (`usr/bin/yay`, `python3`, `node`, `npm`, `wine`, `winetricks`, `java`, `makepkg`, `git`) có trong
-ảnh; database pacman trong ảnh (`var/lib/pacman/local/<gói>-<phiên bản>-<arch>`) ghi nhận từng gói — đây là
+ảnh; database pacman trong ảnh (`var/lib/pacman/local/<gói>-<pkgver>-<pkgrel>`) ghi nhận từng gói — đây là
 điều kiện để `yay`/`pacman` trong phiên live nhận ra chúng; `pkglist.x86_64` cũng liệt kê chúng; và
 **không** còn tàn dư nào của bước dựng (`root/.anios-aur`, `root/customize_airootfs.sh`,
 `var/tmp/anios-aur-build`, `home/aniosbuild`, dòng `aniosbuild` trong `/etc/passwd`, luật `NOPASSWD` trong

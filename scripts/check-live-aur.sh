@@ -7,7 +7,7 @@
 #
 # Vì sao cần script riêng dù pkglist đã liệt kê tên gói:
 #   * pkglist nằm TRÊN ISO và do mkarchiso sinh ra; đối chiếu thêm pacman DB đọc
-#     thẳng từ squashfs (var/lib/pacman/local/<gói>-<phiên bản>-<arch>) mới chắc
+#     thẳng từ squashfs (var/lib/pacman/local/<gói>-<pkgver>-<pkgrel>) mới chắc
 #     rằng gói thật sự nằm trong ảnh chứ không phải trong file của lượt dựng cũ.
 #   * Gói "có trong danh sách" chưa chắc để lại binary chạy được: script kiểm tra
 #     thêm usr/bin/yay, usr/bin/python3, usr/bin/node, usr/bin/wine,
@@ -169,17 +169,18 @@ LOCAL_DB_CHILDREN="$(sfs_children var/lib/pacman/local)"
 [[ -n "$LOCAL_DB_CHILDREN" ]] ||
   fail "không đọc được var/lib/pacman/local từ $SQUASHFS (ảnh hỏng hoặc unsquashfs lỗi)"
 
-# Thư mục DB có dạng <tên>-<pkgver>-<pkgrel>-<arch>. Tên gói chứa dấu '-' nên
-# không thể tách chính xác tên khỏi phiên bản chỉ bằng chuỗi; vì vậy bước 2 đối
-# chiếu thêm với pkglist (có đúng tên gói ở cột 1) khi CI cung cấp file đó.
+# Thư mục DB của pacman có dạng <tên>-<pkgver>-<pkgrel> (libalpm/be_local.c,
+# _alpm_splitname: không có hậu tố -<arch>, và cả pkgver lẫn pkgrel đều không
+# được chứa dấu '-' nên hai dấu '-' cuối luôn tách chính xác tên gói khỏi phiên
+# bản). Bước 2 vẫn đối chiếu thêm với pkglist (cột 1 là tên gói) khi có file đó.
 db_has_package() {
   local pkg="$1"
-  grep -qE "^${pkg//./\\.}-[^-]+-[^-]+-(x86_64|any|i686)$" <<<"$LOCAL_DB_CHILDREN"
+  grep -qE "^${pkg//./\\.}-[^-]+-[^-]+$" <<<"$LOCAL_DB_CHILDREN"
 }
 
 db_entry_of() {
   local pkg="$1"
-  grep -E "^${pkg//./\\.}-[^-]+-[^-]+-(x86_64|any|i686)$" <<<"$LOCAL_DB_CHILDREN" | head -n1
+  grep -E "^${pkg//./\\.}-[^-]+-[^-]+$" <<<"$LOCAL_DB_CHILDREN" | head -n1
 }
 
 echo "  Gói AUR (dựng lúc build, không có trong kho chính thức):"
