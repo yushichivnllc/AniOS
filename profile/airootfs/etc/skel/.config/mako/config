@@ -1,12 +1,33 @@
-font=monospace 10
-background-color=#202431
-text-color=#d9deea
+# Thông báo AniOS Minimal (mako) — Tokyo Night, bo tròn, phân cấp theo urgency.
+# Nền bán trong suốt để hyprland blur (layerrule namespace "mako").
+font=Noto Sans 10
+background-color=#171a22D9
+text-color=#c0caf5
+border-color=#2d3446
+border-size=2
+border-radius=12
+padding=12
+margin=10
+width=380
+height=120
+default-timeout=6000
+ignore-timeout=0
+max-visible=5
+group-by=app-name,summary
+layer=overlay
+anchor=top-right
+progress-color=#7aa2f7
+
+[urgency=low]
+background-color=#171a22CC
+border-color=#414868
+text-color=#8a93a8
+default-timeout=4000
+
+[urgency=normal]
 border-color=#7aa2f7
-border-size=1
-border-radius=4
-padding=10
-margin=8
-width=320
-height=100
-default-timeout=5000
-max-visible=4
+
+[urgency=critical]
+background-color=#2b1a22E6
+border-color=#f7768e
+default-timeout=0

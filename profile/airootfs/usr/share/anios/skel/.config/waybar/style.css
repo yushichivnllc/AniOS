@@ -1,25 +1,185 @@
+/* Thanh trạng thái AniOS Minimal — bảng màu Tokyo Night.
+ * Nền waybar trong suốt; mỗi module là một "viên thuốc" bo tròn nổi trên
+ * wallpaper. Hyprland blur nhẹ layer "waybar" (xem hyprland-minimal.lua) nên
+ * các viên thuốc bán trong suốt vẫn giữ được độ frosted mà rẻ cho GPU. */
+
 * {
   border: none;
   border-radius: 0;
-  font-family: "DejaVu Sans", "Symbols Nerd Font", sans-serif;
+  font-family: "Noto Sans", "Symbols Nerd Font", sans-serif;
   font-size: 12px;
+  font-weight: 500;
   min-height: 0;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
+
 window#waybar {
-  background: rgba(23, 26, 34, 0.96);
+  background: transparent;
+  color: #c0caf5;
+}
+
+/* Viên thuốc dùng chung */
+#custom-logo,
+#workspaces,
+#window,
+#clock,
+#cpu,
+#memory,
+#network,
+#pulseaudio,
+#tray,
+#custom-lock {
+  background: rgba(23, 26, 34, 0.72);
+  border: 1px solid rgba(45, 52, 70, 0.55);
+  border-radius: 10px;
+  margin: 4px 3px;
+  padding: 0 12px;
+  color: #c0caf5;
+}
+
+#custom-logo:hover,
+#clock:hover,
+#cpu:hover,
+#memory:hover,
+#network:hover,
+#pulseaudio:hover,
+#tray:hover,
+#window:hover {
+  background: rgba(45, 52, 70, 0.85);
+}
+
+/* Wordmark AniOS: chữ đậm, màu accent */
+#custom-logo {
+  color: #7aa2f7;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  padding: 0 14px;
+}
+
+#custom-logo:hover {
+  color: #9bb8fa;
+  background: rgba(122, 162, 247, 0.16);
+}
+
+/* Workspaces: dãy nút số nhỏ trong một viên thuốc */
+#workspaces {
+  padding: 0 6px;
+}
+
+#workspaces button {
+  background: transparent;
+  border-radius: 8px;
+  color: #565f89;
+  font-weight: 600;
+  margin: 3px 2px;
+  padding: 1px 9px;
+}
+
+#workspaces button:hover {
+  background: rgba(45, 52, 70, 0.9);
+  color: #c0caf5;
+}
+
+#workspaces button.active {
+  background: #7aa2f7;
+  color: #10121a;
+}
+
+#workspaces button.urgent {
+  background: rgba(247, 118, 142, 0.2);
+  color: #f7768e;
+}
+
+/* Tiêu đề cửa sổ đang focus */
+#window {
+  color: #9aa4bd;
+  font-weight: 500;
+}
+
+#window:hover {
   color: #d9deea;
 }
-#workspaces button {
-  padding: 0 9px;
-  color: #9aa4bd;
-  background: transparent;
+
+/* Đồng hồ giữa thanh */
+#clock {
+  color: #d9deea;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 0 16px;
 }
-#workspaces button.active {
-  color: #171a22;
-  background: #7aa2f7;
+
+/* Tài nguyên: mỗi thứ một màu trong bảng Tokyo Night */
+#cpu {
+  color: #9ece6a;
 }
-#window, #network, #pulseaudio, #tray, #clock {
-  padding: 0 9px;
+
+#cpu.warning {
+  color: #e0af68;
 }
-#clock { color: #c0caf5; }
-#network.disconnected, #pulseaudio.muted { color: #f7768e; }
+
+#cpu.critical {
+  color: #f7768e;
+}
+
+#memory {
+  color: #bb9af7;
+}
+
+#memory.warning {
+  color: #e0af68;
+}
+
+#memory.critical {
+  color: #f7768e;
+}
+
+#network {
+  color: #7dcfff;
+}
+
+#network.disconnected {
+  color: #f7768e;
+}
+
+#pulseaudio {
+  color: #e0af68;
+}
+
+#pulseaudio.muted {
+  color: #f7768e;
+}
+
+#tray {
+  padding: 0 8px;
+}
+
+#tray > .passive {
+  -gtk-icon-effect: dim;
+}
+
+#tray > .needs-attention {
+  -gtk-icon-effect: highlight;
+}
+
+/* Nút khoá màn hình */
+#custom-lock {
+  color: #8a93a8;
+  padding: 0 11px;
+}
+
+#custom-lock:hover {
+  background: rgba(247, 118, 142, 0.14);
+  color: #f7768e;
+}
+
+/* Tooltip (lịch, thông tin mạng...) */
+tooltip {
+  background: rgba(23, 26, 34, 0.96);
+  border: 1px solid #2d3446;
+  border-radius: 10px;
+}
+
+tooltip label {
+  color: #c0caf5;
+  padding: 6px 10px;
+}

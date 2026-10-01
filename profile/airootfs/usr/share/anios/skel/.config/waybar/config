@@ -1,30 +1,99 @@
 {
   "layer": "top",
   "position": "top",
-  "height": 34,
-  "spacing": 8,
-  "modules-left": ["hyprland/workspaces", "hyprland/window"],
-  "modules-center": [],
-  "modules-right": ["network", "pulseaudio", "tray", "clock"],
+  "height": 36,
+  "spacing": 6,
+  "margin-top": 6,
+  "margin-left": 8,
+  "margin-right": 8,
+  "modules-left": ["custom/logo", "hyprland/workspaces", "hyprland/window"],
+  "modules-center": ["clock"],
+  "modules-right": ["tray", "pulseaudio", "network", "cpu", "memory", "custom/lock"],
+  "custom/logo": {
+    "format": "AniOS",
+    "tooltip-format": "Mở launcher (Super+D)",
+    "on-click": "fuzzel"
+  },
   "hyprland/workspaces": {
     "disable-scroll": true,
     "all-outputs": true,
-    "format": "{name}",
-    "persistent-workspaces": {"*": [1, 2, 3]}
+    "format": "{icon}",
+    "format-icons": {
+      "1": "󰬺",
+      "2": "󰬻",
+      "3": "󰬼",
+      "default": "•"
+    },
+    "persistent-workspaces": {
+      "*": [1, 2, 3]
+    },
+    "on-click": "activate",
+    "tooltip-format": "Workspace {name}"
   },
-  "hyprland/window": {"max-length": 48, "separate-outputs": true},
+  "hyprland/window": {
+    "format": "{title}",
+    "max-length": 42,
+    "separate-outputs": true
+  },
+  "clock": {
+    "format": "󰅐 {:%H:%M}",
+    "tooltip-format": "<big>{:%A, %d/%m/%Y}</big>\n<tt><small>{calendar}</small></tt>",
+    "calendar": {
+      "mode": "month",
+      "mode-mon-col": 3,
+      "weeks-pos": "left",
+      "on-scroll": 1,
+      "format": {
+        "months": "<span color='#7aa2f7'><b>{}</b></span>",
+        "days": "<span color='#c0caf5'>{}</span>",
+        "weeks": "<span color='#565f89'>W{}</span>",
+        "weekdays": "<span color='#7dcfff'><b>{}</b></span>",
+        "today": "<span color='#9ece6a'><b>{}</b></span>"
+      }
+    }
+  },
+  "cpu": {
+    "format": "CPU {usage}%",
+    "interval": 5,
+    "states": {
+      "warning": 70,
+      "critical": 90
+    },
+    "tooltip-format": "Mức dùng CPU: {usage}%\nTải trung bình: {load}"
+  },
+  "memory": {
+    "format": "RAM {percentage}%",
+    "interval": 10,
+    "states": {
+      "warning": 80,
+      "critical": 95
+    },
+    "tooltip-format": "RAM đang dùng: {used:0.1f}G / {total:0.1f}G"
+  },
   "network": {
-    "format-wifi": "Wi-Fi {signalStrength}%",
-    "format-ethernet": "LAN",
-    "format-disconnected": "Offline",
-    "tooltip-format": "{ifname}: {ipaddr}"
+    "format-wifi": "󰖩 {signalStrength}%",
+    "format-ethernet": "󰈀 LAN",
+    "format-disconnected": "󰖪 Offline",
+    "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
+    "on-click": "nm-connection-editor"
   },
   "pulseaudio": {
     "format": "{icon} {volume}%",
-    "format-muted": "󰖁 muted",
-    "format-icons": {"default": ["󰕿", "󰖀", "󰕾"]},
-    "on-click": "pavucontrol"
+    "format-muted": "󰝟 tắt",
+    "format-icons": {
+      "default": ["󰕿", "󰖀", "󰕾"]
+    },
+    "scroll-step": 5,
+    "on-click": "pavucontrol",
+    "tooltip-format": "{desc}: {volume}%"
   },
-  "tray": {"spacing": 8},
-  "clock": {"format": "{:%a %d %b  %H:%M}", "tooltip": true}
+  "tray": {
+    "spacing": 8
+  },
+  "custom/lock": {
+    "format": "󰌾",
+    "tooltip-format": "Khoá màn hình (Super+Shift+L)",
+    "on-click": "hyprlock",
+    "interval": "once"
+  }
 }
