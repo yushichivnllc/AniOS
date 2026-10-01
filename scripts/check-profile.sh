@@ -564,4 +564,19 @@ done
 grep -qF 'check-live-aur.sh' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
   fail "the ISO build workflow must verify the live image with scripts/check-live-aur.sh"
 
+# Bước kiểm tra cuối của build-iso.sh ("không có luật sudo NOPASSWD nào lọt vào
+# ảnh") chỉ được tính luật ĐANG CÓ HIỆU LỰC. Gói sudo của Arch ship /etc/sudoers
+# kèm dòng ví dụ đã comment `# %wheel ALL=(ALL:ALL) NOPASSWD: ALL`, nên một lệnh
+# grep thô chữ NOPASSWD luôn khớp: bản dựng ~25 phút chết ở bước cuối trên một ảnh
+# hoàn toàn sạch. Khoá lại để lỗi đó không quay lại sau một lần sửa tay.
+SUDOERS_SELFTEST="$ROOT_DIR/scripts/selftest-build-iso-sudoers.sh"
+[[ -x "$SUDOERS_SELFTEST" ]] ||
+  fail "missing or not executable: scripts/selftest-build-iso-sudoers.sh"
+grep -qF 'selftest-build-iso-sudoers.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-build-iso-sudoers.sh"
+grep -qE '^sudoers_nopasswd_rules\(\) \{$' "$BUILD_ISO" ||
+  fail "build-iso.sh must define sudoers_nopasswd_rules(): a raw grep for NOPASSWD matches the commented example in the stock /etc/sudoers"
+grep -qF 'sudoers_nopasswd_rules "$airootfs_dir"' "$BUILD_ISO" ||
+  fail "build-iso.sh must check the built image for leaked NOPASSWD rules with sudoers_nopasswd_rules"
+
 pass "AniOS profile checks passed (ISO build still requires Arch Linux + archiso)"
