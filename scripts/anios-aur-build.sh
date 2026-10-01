@@ -202,7 +202,7 @@ parse_manifest() {
 }
 
 # --- Đọc phụ thuộc từ SRCINFO (không thực thi PKGBUILD bằng root) ----------
-# $1: thư mục gói. In ra mỗi dòng một phụ thuộc, đã bỏ ràng buộc phiên bản.
+# $1: thư mục gói. In ra mỗi dòng một phụ thuộc, giữ nguyên ràng buộc phiên bản.
 srcinfo_deps() {
   local pkgdir="$1" generated srcinfo
   srcinfo="$pkgdir/.SRCINFO"
@@ -217,12 +217,13 @@ srcinfo_deps() {
     printf '%s\n' "$generated" >"$pkgdir/.SRCINFO.anios"
     srcinfo="$pkgdir/.SRCINFO.anios"
   fi
-  # depends/makedepends/checkdepends, kể cả biến thể theo kiến trúc
-  # (depends_x86_64). Bỏ phần so sánh phiên bản: pacman tự lo khi cài.
+  # Chỉ depends/makedepends chung và x86_64: makepkg chạy --nocheck,
+  # không cần checkdepends hay thư viện cho i686. Giữ phiên bản để
+  # pacman -T không coi một thư viện quá cũ là đã thoả phụ thuộc.
   sed -n -E \
-    -e 's/^[[:space:]]*(make|check)?depends(_(x86_64|i686|any))?[[:space:]]*=[[:space:]]*(.+)$/\4/p' \
+    -e 's/^[[:space:]]*(make)?depends(_(x86_64))?[[:space:]]*=[[:space:]]*(.+)$/\4/p' \
     -- "$srcinfo" |
-    sed -E -e 's/[<>=].*$//' -e 's/[[:space:]]+$//' |
+    sed -E -e 's/[[:space:]]+$//' |
     awk 'NF && !seen[$0]++'
 }
 
@@ -236,7 +237,7 @@ unsatisfied_deps() {
 }
 
 dep_is_resolvable() {
-  pacman -Sp "$1" >/dev/null 2>&1
+  pacman -Sp --noconfirm -- "$1" >/dev/null 2>&1
 }
 
 # Cài các phụ thuộc còn thiếu bằng quyền root, đánh dấu --asdeps để bước dọn mồ
@@ -259,8 +260,9 @@ install_deps() {
     fi
   done
   if (( ${#skipped[@]} > 0 )); then
-    log "$pkg: bỏ qua phụ thuộc không có trong kho chính thức: ${skipped[*]}"
-    log "$pkg: (nếu gói thật sự cần chúng, makepkg sẽ báo lỗi và bản dựng dừng)"
+    log "$pkg: không phân giải được phụ thuộc trong kho chính thức: ${skipped[*]}"
+    log "$pkg: kiểm tra phiên bản kho hoặc dựng/cài phụ thuộc AUR trước gói này."
+    return 1
   fi
   if (( ${#wanted[@]} == 0 )); then
     log "$pkg: đã đủ phụ thuộc"
@@ -271,7 +273,9 @@ install_deps() {
   run_logged pacman -S --noconfirm --needed --asdeps -- "${wanted[@]}" ||
     die "Không cài được phụ thuộc của $pkg: ${wanted[*]}" \
       "Thử lại sau (mirror có thể đang lỗi), hoặc bỏ gói này khỏi profile/packages.aur.x86_64."
-  INSTALLED_AS_DEPS+=("${wanted[@]}")
+  for dep in "${wanted[@]}"; do
+    INSTALLED_AS_DEPS+=("${dep%%[<>=]*}")
+  done
 }
 
 # --- Chạy makepkg dưới tài khoản thường -----------------------------------
@@ -337,7 +341,7 @@ build_one() {
     # Chuyển quyền trước khi đọc phụ thuộc: nhánh dự phòng của srcinfo_deps chạy
     # `makepkg --printsrcinfo` dưới tài khoản dựng gói, cần thư mục ghi được.
     if (( EUID == 0 )); then
-      chown -R -- "$BUILD_UID:$BUILD_UID" "$SRC_DIR/src/$pkg" "$SRC_DIR/home"
+      chown -R -- "$BUILDER_UID:$BUILDER_GID" "$SRC_DIR/src/$pkg" "$SRC_DIR/home"
     fi
     install_deps "$pkg" || return 1
     # Cờ của makepkg:
@@ -450,8 +454,10 @@ if (( EUID == 0 )); then
       "$BUILD_USER" ||
       die "Không tạo được tài khoản dựng gói '$BUILD_USER' trong airootfs."
   fi
-  install -d -m 0700 -o "$BUILD_UID" -g "$BUILD_UID" -- "$SRC_DIR/home"
-  install -d -m 0755 -o "$BUILD_UID" -g "$BUILD_UID" -- "$SRC_DIR/src"
+  BUILDER_UID="$(id -u "$BUILD_USER")"
+  BUILDER_GID="$(id -g "$BUILD_USER")"
+  install -d -m 0700 -o "$BUILDER_UID" -g "$BUILDER_GID" -- "$SRC_DIR/home"
+  install -d -m 0755 -o "$BUILDER_UID" -g "$BUILDER_GID" -- "$SRC_DIR/src"
 fi
 
 # Vài hệ treo /tmp với noexec làm backend của fakeroot chết. Chỉ khi đó mới dời

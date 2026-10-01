@@ -71,6 +71,9 @@ make_fixture coccoc-browser-stable 'pkgbase = coccoc-browser-stable
 	depends = libx11
 	depends = glibc>=2.38
 	depends_x86_64 = lib32-fake-arch-dep
+	depends_i686 = unavailable-i686-library
+	checkdepends = unavailable-test-tool
+	checkdepends_x86_64 = unavailable-arch-test-tool
 	optdepends = pipewire
 	pkgname = coccoc-browser-stable'
 
@@ -489,10 +492,17 @@ done
 # Phụ thuộc đọc từ .SRCINFO: makedepend go>=1.24 phải cài bằng --asdeps, và biến
 # thể theo kiến trúc depends_x86_64 cũng phải được đọc ra.
 asdeps_targets="$(grep -E '^pacman -S .*--asdeps' "$CALLS" | sed -E 's/^.*--asdeps -- //')"
-grep -qxF go <<<"$asdeps_targets" ||
+grep -qxF 'go>=1.24' <<<"$asdeps_targets" ||
   fail "makedepend 'go>=1.24' của yay không được cài bằng --asdeps (đã cài: ${asdeps_targets:-không có})"
 grep -qxF lib32-fake-arch-dep <<<"$asdeps_targets" ||
   fail "không đọc phụ thuộc theo kiến trúc (depends_x86_64) từ .SRCINFO"
+
+# Phiên bản phải được giữ nguyên khi kiểm tra và khi cài phụ thuộc.
+grep -qF 'pacman -T pacman>6.1 git go>=1.24' "$CALLS" ||
+  fail "đã làm mất ràng buộc phiên bản trước khi kiểm tra phụ thuộc"
+if grep -E '^pacman ' "$CALLS" | grep -q 'unavailable-'; then
+  fail "đã xử lý checkdepends hoặc phụ thuộc i686 dù dựng x86_64 --nocheck"
+fi
 
 # Không cài lại thứ ảnh đã có, không cài dep "ảo" đã được provider thoả mãn.
 if grep -qE '^pacman -S .*--asdeps.* java-runtime' "$CALLS"; then
@@ -542,6 +552,10 @@ if unshare --map-root-user true >/dev/null 2>&1; then
   CALLS_ROOT="$SANDBOX/state.root/calls"
   grep -q '^useradd --system --uid 1412' "$CALLS_ROOT" ||
     fail "không tạo tài khoản dựng gói tạm thời (makepkg từ chối chạy bằng root)"
+  grep -q '^chown -R -- 1412:1413 ' "$CALLS_ROOT" ||
+    fail "quyền nguồn phải dùng GID thật (1413), không phải UID (1412)"
+  grep -q '^install -d -m 0700 -o 1412 -g 1413 ' "$CALLS_ROOT" ||
+    fail "home của builder phải dùng GID thật"
   grep -q '^runuser --user aniosbuild -- env' "$CALLS_ROOT" ||
     fail "makepkg không được chạy qua runuser dưới tài khoản dựng gói"
   grep -q '^userdel aniosbuild' "$CALLS_ROOT" ||
@@ -598,5 +612,22 @@ ANIOS_AUR_KEEP_TMP=1 run_builder "$MANIFEST_OK" user keep || status=$?
 [[ -s "$SANDBOX/airootfs.keep/var/tmp/anios-aur-build/anios-aur-build.log" ]] ||
   fail "ANIOS_AUR_KEEP_TMP=1 không giữ lại nhật ký dựng gói"
 pass "ANIOS_AUR_KEEP_TMP=1 giữ lại thư mục dựng gói và nhật ký"
+
+
+
+# Phụ thuộc bắt buộc không có trong kho: dừng trước makepkg, không báo đủ dep.
+make_fixture missing-dependency 'pkgbase = missing-dependency
+    depends = unavailable-runtime>=2
+    pkgname = missing-dependency'
+printf '%s\n' missing-dependency >"$SANDBOX/packages.aur.missing"
+status=0
+run_builder "$SANDBOX/packages.aur.missing" user missing || status=$?
+(( status != 0 )) || fail "phụ thuộc bắt buộc thiếu mà bản dựng vẫn thành công"
+grep -qF 'không phân giải được phụ thuộc trong kho chính thức: unavailable-runtime>=2' \
+  "$SANDBOX/state.missing/stdout" || fail "không nêu rõ phụ thuộc thiếu"
+if grep -q '^makepkg -f' "$SANDBOX/state.missing/calls"; then
+  fail "vẫn chạy makepkg khi chưa đủ phụ thuộc bắt buộc"
+fi
+pass "phụ thuộc bắt buộc thiếu được báo rõ trước khi dựng"
 
 echo "AniOS AUR build self-test passed"
