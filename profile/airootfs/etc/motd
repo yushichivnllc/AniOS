@@ -1,4 +1,4 @@
-[38;2;122;162;247m  A n i O S  [0m[38;2;138;147;168m— Arch Linux based, Hyprland live gaming desktop[0m
+[38;2;234;244;253m  A n i O S  [0m[38;2;78;166;234m— Arch Linux based, Hyprland live gaming desktop[0m
 
 Phiên live dùng tài khoản [35manios[0m và tự động vào desktop Hyprland.
 Mở ứng dụng: [35mSuper+D[0m (Steam nằm trong launcher và trên Desktop).
@@ -7,4 +7,4 @@ Wi-Fi: biểu tượng mạng trên thanh trạng thái hoặc [35mnmtui[0m ·
 Khi cần cứu hộ: [35mCtrl+Alt+F2[0m mở TTY, [35mCtrl+Alt+F1[0m quay lại desktop. Khoá màn hình: [35mSuper+Shift+L[0m.
 
 Đây là môi trường live tạm thời: file cá nhân và game cài trong phiên sẽ mất khi tắt máy.
-Dự án: [38;2;122;162;247mhttps://github.com/yushichivnllc/AniOS[0m
+Dự án: [38;2;234;244;253mhttps://github.com/yushichivnllc/AniOS[0m

@@ -1,9 +1,9 @@
-# Thông báo AniOS Minimal (mako) — Tokyo Night, bo tròn, phân cấp theo urgency.
+# Thông báo AniOS Minimal (mako) — Gura Blue, bo tròn, phân cấp theo urgency.
 # Nền bán trong suốt để hyprland blur (layerrule namespace "mako").
 font=Noto Sans 10
-background-color=#171a22D9
-text-color=#c0caf5
-border-color=#2d3446
+background-color=#0a1626d9
+text-color=#eaf4fd
+border-color=#1e4266
 border-size=2
 border-radius=12
 padding=12
@@ -16,18 +16,18 @@ max-visible=5
 group-by=app-name,summary
 layer=overlay
 anchor=top-right
-progress-color=#7aa2f7
+progress-color=#2f6be8
 
 [urgency=low]
-background-color=#171a22CC
-border-color=#414868
-text-color=#8a93a8
+background-color=#0a1626cc
+border-color=#2a5680
+text-color=#7e97b8
 default-timeout=4000
 
 [urgency=normal]
-border-color=#7aa2f7
+border-color=#2f6be8
 
 [urgency=critical]
-background-color=#2b1a22E6
-border-color=#f7768e
+background-color=#2a1218e6
+border-color=#d8404f
 default-timeout=0

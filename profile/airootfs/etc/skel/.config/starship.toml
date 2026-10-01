@@ -1,4 +1,4 @@
-# Starship prompt cho AniOS — bảng màu Tokyo Night, hai dòng.
+# Starship prompt cho AniOS — bảng màu Gura Blue, hai dòng.
 # Dòng 1: người dùng · thư mục · git · thời gian chạy lệnh · đồng hồ
 # Dòng 2: dấu nhắc ❯ đổi màu theo kết quả lệnh trước (❯ có trong DejaVu,
 # cài sẵn trong ảnh). Icon md-* dùng Symbols Nerd Font (ttf-nerd-fonts-symbols).
@@ -11,14 +11,14 @@ $character"""
 
 [username]
 show_always = true
-style_user = "bold fg:#9ece6a"
-style_root = "bold fg:#f7768e"
+style_user = "bold fg:#3ec3d8"
+style_root = "bold fg:#d8404f"
 format = "[$user]($style) "
 
 [hostname]
 ssh_only = true
 trim_at = "."
-style = "fg:#7dcfff"
+style = "fg:#4ea6ea"
 format = "[@ $hostname]($style) "
 
 [directory]
@@ -26,19 +26,19 @@ home_symbol = "~"
 read_only = " 󰌾"
 truncation_length = 3
 truncate_to_repo = true
-style = "bold fg:#7aa2f7"
-read_only_style = "fg:#e0af68"
-format = "[in ](fg:#565f89)[$path]($style)[$read_only]($read_only_style) "
+style = "bold fg:#2f6be8"
+read_only_style = "fg:#edb62f"
+format = "[in ](fg:#55708f)[$path]($style)[$read_only]($read_only_style) "
 
 [git_branch]
 symbol = "󰊢"
 truncation_length = 16
 truncation_symbol = "…"
-style = "fg:#bb9af7"
-format = "[on ](fg:#565f89)[$symbol $branch]($style) "
+style = "fg:#7e9bf0"
+format = "[on ](fg:#55708f)[$symbol $branch]($style) "
 
 [git_status]
-style = "fg:#e0af68"
+style = "fg:#edb62f"
 conflicted = "= "
 ahead = "⇡${count} "
 behind = "⇣${count} "
@@ -52,21 +52,21 @@ format = "[$all_status$ahead_behind]($style)"
 
 [cmd_duration]
 min_time = 800
-format = "[took $duration](fg:#9ece6a) "
+format = "[took $duration](fg:#3ec3d8) "
 
 [time]
 disabled = false
 time_format = "%H:%M"
-style = "fg:#565f89"
+style = "fg:#55708f"
 format = "[󰅐 $time]($style)"
 
 [fill]
 symbol = " "
-style = "fg:#2d3446"
+style = "fg:#1e4266"
 
 [character]
-success_symbol = "[❯](bold fg:#9ece6a)"
-error_symbol = "[❯](bold fg:#f7768e)"
+success_symbol = "[❯](bold fg:#3ec3d8)"
+error_symbol = "[❯](bold fg:#d8404f)"
 
 # Các module ồn ào, không cần trong phiên live.
 [package]
