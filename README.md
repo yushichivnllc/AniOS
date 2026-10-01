@@ -225,8 +225,19 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
 - Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+A` mở công cụ kiểm tra âm thanh; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
 - **Màn hình khoá dùng mật khẩu**, không phải cơ chế bảo mật mạnh: nhập `1111` để mở khoá. Tài khoản live và `sudo` dùng cùng mật khẩu; mật khẩu này được tạo sẵn trong ảnh từ lúc build (pacman hook `anios-live-user.hook` viết hash vào `/etc/shadow`) và được `anios-live-home.service` đặt lại ở mỗi lần khởi động như dự phòng. Vì vậy đừng để dữ liệu quan trọng trong phiên live.
 - Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện theme **Wuthering Waves** của Qylock; chọn phiên **AniOS (Hyprland)** rồi nhập `1111` để vào lại. Theme hiện khung nền tĩnh ngay, rồi mới khởi tạo video sau 1,2 giây; nếu thiếu codec video thì khung tĩnh vẫn giữ cho màn hình đăng nhập dùng được. Các lỗi không vào được SDDM đã được xử lý triệt để: tắt tiến trình agetty autologin tty1 của releng để tránh tranh chấp VT, chuẩn hoá UID 1000 và nhóm quyền phần cứng (wheel, video, audio, input, seat) cho tài khoản `anios`, sửa liên kết dịch vụ chuẩn bị thư mục người dùng (`anios-live-home.service`), cấu hình `MinimumUid=500` cho SDDM, bổ sung fallback tài khoản tự động trong theme, và "nướng" mật khẩu `1111` vào `/etc/shadow` từ lúc build bằng pacman hook để đăng nhập thủ công SDDM (stack PAM `sddm` → `pam_unix`) không phụ thuộc vào việc service lúc khởi động có chạy thành công hay không — autologin thì luôn qua được vì dùng stack `sddm-autologin` (kết thúc bằng `pam_permit`).
-- Desktop mặc định tắt blur và animation để giảm tải GPU. `Super+Space` bật/tắt chế độ cửa sổ nổi.
+- Desktop mặc định giữ hiệu ứng ở mức "rẻ" cho iGPU đời cũ: cửa sổ thường **không** blur, animation chỉ là fade/popin ngắn, blur dành riêng cho các lớp phủ bán trong suốt (Waybar, Fuzzel, Mako) qua `layerrule`, còn màn hình khoá hyprlock tự blur nền một lần lúc khoá. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 - **Cấu hình Hyprland** nằm ở `~/.config/hypr/hyprland.lua` (bản sao gốc trong ảnh: `/usr/share/anios/skel/.config/hypr/hyprland.lua`): từ Hyprland 0.55 cấu hình viết bằng Lua thay cho `hyprland.conf` cũ, nên sau khi sửa chỉ cần `Super+Shift+R` để nạp lại. Màn hình khoá dùng định dạng riêng của hyprlock (`~/.config/hypr/hyprlock.conf`).
+
+## Diện mạo AniOS Minimal
+
+Bản Minimal giữ triết lý "nhẹ nhưng chỉn chu": cùng một ngôn ngữ thiết kế xuyên suốt mọi thành phần người dùng nhìn thấy.
+
+- **Bảng màu Tokyo Night** (`#171a22` nền, `#7aa2f7` accent, `#7dcfff`/`#bb9af7`/`#9ece6a`/`#e0af68`/`#f7768e` cho trạng thái) dùng chung cho Waybar, Fuzzel, Foot, Mako, hyprlock, prompt starship/fish và `gtk.css`.
+- **Waybar dạng viên thuốc nổi**: nền thanh trong suốt, mỗi module là một pill bo tròn bán trong suốt (được Hyprland blur nhẹ), workspace hiện icon số Nerd Font, đồng hồ kèm lịch tooltip, thêm module CPU/RAM và nút khoá màn hình.
+- **Hiệu ứng rẻ**: viền cửa sổ đang chọn là gradient xanh → cyan, bo góc 10px, shadow mềm chỉ cho cửa sổ nổi, animation fade/popin ngắn; cửa sổ xếp lưới không blur để tiết kiệm GPU.
+- **Màn hình khoá hyprlock** dàn cục diện wordmark + đồng hồ lớn + ngày + ô mật khẩu bo tròn, nền wallpaper tự blur, kèm cảnh báo Caps Lock.
+- **Font & icon**: chữ UI dùng Noto Sans (đủ dấu tiếng Việt), terminal dùng font monospace của hệ thống; icon lấy từ `ttf-nerd-fonts-symbols` (Symbols Nerd Font) đã cài sẵn.
+- **Ứng dụng GTK** vào dark theme đồng bộ qua `~/.config/gtk-3.0|4.0/settings.ini` + `gtk.css` (bo góc CSD, thanh cuộn mảnh, màu chọn theo accent). Ở chế độ imi, matugen ghi đè `gtk.css` bằng bảng màu Material.
 
 ## Giao diện Immaterial Impulse và Dual Session
 
