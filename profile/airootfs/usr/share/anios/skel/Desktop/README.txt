@@ -13,14 +13,14 @@ Ctrl+Alt+F2      Mở TTY cứu hộ (Ctrl+Alt+F1 để quay lại desktop)
 Super+Shift+E    Thoát phiên Hyprland
 
 Hai chế độ giao diện cài sẵn:
-1. AniOS Minimal: Giao diện nhẹ với Waybar + Mako, tối ưu cho GPU đời cũ.
-2. Immaterial Impulse: Giao diện Material 3 tuyệt đẹp với Quickshell + Matugen.
+1. Immaterial Impulse (mặc định): Giao diện Material 3 tuyệt đẹp (https://github.com/XephyLon/immaterial-impulse) với Quickshell + Matugen và hình nền Gawr Gura.
+2. AniOS Minimal: Giao diện nhẹ với Waybar + Mako, tối ưu cho GPU đời cũ.
 - Chuyển đổi nhanh bất kỳ lúc nào:
     anios-switch-desktop imi       (chuyển sang Immaterial Impulse)
     anios-switch-desktop minimal   (chuyển sang AniOS Minimal)
     hoặc bấm đúp shortcut trên Desktop / phím tắt Super+Alt+M.
 - Chọn phiên tại màn hình đăng nhập SDDM:
-    AniOS (Hyprland - Minimal) hoặc AniOS (Immaterial Impulse).
+    AniOS (Immaterial Impulse) hoặc AniOS (Minimal / Waybar).
 
 Cắm USB/ổ cứng ngoài: ổ sẽ tự hiện trong Thunar và trên thanh trạng thái.
 

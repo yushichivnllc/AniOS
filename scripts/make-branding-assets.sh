@@ -31,16 +31,20 @@ background() {
     -compose over -composite
 }
 
-# Wallpaper của phiên live (swaybg) và màn hình khoá phiên.
-background 2560 1440 430 |
-  convert - -fill "#7aa2f7" -draw "rectangle 1130,1090 1430,1096" \
-    -font "$FONT_BOLD" -fill "#dfe4ef" -pointsize 380 -kerning 14 \
-    -gravity center -annotate '+0-120' 'AniOS' \
-    -font "$FONT_REGULAR" -fill "#8a93a8" -pointsize 58 -kerning 4 \
-    -gravity center -annotate '+0+180' 'Hyprland live gaming desktop' \
-    -font "$FONT_REGULAR" -fill "#6b7385" -pointsize 42 \
-    -gravity south -annotate '+0+110' 'Arch Linux based' \
-    -strip -depth 8 -dither Riemersma -colors 200 "$BRAND_DIR/wallpaper.png"
+# Wallpaper của phiên live (swaybg, Immaterial Impulse) và màn hình khoá phiên.
+# Mặc định giữ nguyên ảnh Gawr Gura đã commit tại profile/branding/wallpaper.png;
+# chỉ sinh lại ảnh nền gradient tối khi file chưa tồn tại hoặc truyền --force-gradient.
+if [[ ! -s "$BRAND_DIR/wallpaper.png" || "${1:-}" == "--force-gradient" ]]; then
+  background 2560 1440 430 |
+    convert - -fill "#7aa2f7" -draw "rectangle 1130,1090 1430,1096" \
+      -font "$FONT_BOLD" -fill "#dfe4ef" -pointsize 380 -kerning 14 \
+      -gravity center -annotate '+0-120' 'AniOS' \
+      -font "$FONT_REGULAR" -fill "#8a93a8" -pointsize 58 -kerning 4 \
+      -gravity center -annotate '+0+180' 'Hyprland live gaming desktop' \
+      -font "$FONT_REGULAR" -fill "#6b7385" -pointsize 42 \
+      -gravity south -annotate '+0+110' 'Arch Linux based' \
+      -strip -depth 8 -dither Riemersma -colors 200 "$BRAND_DIR/wallpaper.png"
+fi
 
 # Nền menu khởi động Syslinux (vesamenu, 640x480 như splash của releng).
 # Chữ ký nằm ở góc dưới bên phải để không đè lên danh sách menu phía trên.

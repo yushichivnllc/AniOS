@@ -19,7 +19,9 @@ for package in \
   udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
-  quickshell matugen \
+  quickshell matugen kirigami syntax-highlighting qt6-positioning qt6-virtualkeyboard \
+  qt6-imageformats qt6-avif-image-plugin qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
+  kdialog ttf-jetbrains-mono-nerd adw-gtk-theme upower libqalculate hyprpicker hyprsunset cava wtype ripgrep eza gnome-keyring \
   python python-pip nodejs npm wine winetricks flatpak \
   base-devel jre-openjdk qt5-base ttf-liberation; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
@@ -280,13 +282,21 @@ for dotfile in \
   .config/fastfetch/config.jsonc .config/MangoHud/MangoHud.conf \
   .config/gamemode.ini \
   .config/quickshell/imi/shell.qml \
+  .config/quickshell/imi/assets/images/default_wallpaper.png \
   .config/matugen/config.toml \
   .config/immaterial-impulse/config.json \
+  .config/immaterial-impulse/plugin-state.json \
+  .config/anios/desktop-mode \
+  .local/state/quickshell/user/generated/colors.json \
+  .local/state/quickshell/user/generated/color.txt \
+  .local/state/quickshell/user/generated/wallpaper/path.txt \
   .config/starship.toml \
   .config/Kvantum/kvantum.kvconfig \
   .local/share/icons/immaterial-impulse.png; do
   [[ -s "$SKEL/$dotfile" ]] || fail "cài sẵn dotfile bị thiếu: $dotfile"
 done
+grep -qxF 'imi' "$SKEL/.config/anios/desktop-mode" ||
+  fail "Immaterial Impulse (imi) must be the default desktop mode in .config/anios/desktop-mode"
 
 # --- Cấu hình desktop -----------------------------------------------------
 # Hyprland 0.55 trở lên đọc cấu hình Lua (hyprland.lua); định dạng hyprlang
@@ -414,6 +424,7 @@ done
 
 [[ -s "$AIROOTFS/usr/share/applications/anios-setup.desktop" ]] || fail "the Immaterial Impulse shortcut is missing"
 [[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-imi.desktop" ]] || fail "the Immaterial Impulse Wayland session is missing"
+[[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-minimal.desktop" ]] || fail "the Minimal Wayland session is missing"
 [[ -s "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
 
 # --- Overlay không được đè lên file do gói pacman sở hữu ------------------

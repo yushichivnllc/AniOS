@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=AniOS (Minimal / Waybar)
+Comment=Start the lightweight AniOS live desktop session (Waybar + Mako + Fuzzel)
+Exec=/usr/local/bin/anios-session --minimal
+TryExec=/usr/local/bin/anios-session
+Type=Application
+DesktopNames=Hyprland

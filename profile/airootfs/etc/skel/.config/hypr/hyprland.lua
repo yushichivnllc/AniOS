@@ -1,10 +1,10 @@
 -- AniOS Live Desktop: Hyprland Master Configuration
 -- Hỗ trợ 2 chế độ giao diện:
--- 1. "minimal" (mặc định): Giao diện nhẹ với Waybar, Mako, Swaybg
--- 2. "imi" (Immaterial Impulse): Giao diện Material 3 với Quickshell, Matugen
+-- 1. "imi" (mặc định - Immaterial Impulse): Giao diện Material 3 với Quickshell, Matugen
+-- 2. "minimal": Giao diện nhẹ với Waybar, Mako, Swaybg
 
 local home = os.getenv("HOME") or ""
-local session_mode = os.getenv("ANIOS_DESKTOP") or "minimal"
+local session_mode = os.getenv("ANIOS_DESKTOP") or "imi"
 
 -- Đọc tuỳ chọn giao diện người dùng nếu có (do anios-switch-desktop ghi ra)
 local mode_file = home .. "/.config/anios/desktop-mode"

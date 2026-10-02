@@ -104,10 +104,12 @@ lib32-vulkan-nouveau
 libva-intel-driver
 intel-media-driver
 
-# Tiện ích và thành phần cần cho Immaterial Impulse có sẵn trong repo
+# Tiện ích và thành phần cần cho Immaterial Impulse (https://github.com/XephyLon/immaterial-impulse)
 quickshell
 matugen
 hypridle
+hyprpicker
+hyprsunset
 bc
 starship
 imagemagick
@@ -117,6 +119,26 @@ qt6-svg
 qt6-multimedia
 qt6-multimedia-ffmpeg
 qt6-5compat
+qt6-avif-image-plugin
+qt6-imageformats
+qt6-positioning
+qt6-quicktimeline
+qt6-sensors
+qt6-tools
+qt6-translations
+qt6-virtualkeyboard
+kirigami
+kdialog
+syntax-highlighting
+ttf-jetbrains-mono-nerd
+adw-gtk-theme
+upower
+libqalculate
+cava
+wtype
+ripgrep
+eza
+gnome-keyring
 # Codecs requested by the Qylock Wuthering Waves SDDM background video
 gst-plugins-base
 gst-plugins-good

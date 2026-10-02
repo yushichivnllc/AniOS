@@ -50,6 +50,7 @@ pre_process() {
     if [ ! -d "$CACHE_DIR"/user/generated ]; then
         mkdir -p "$CACHE_DIR"/user/generated
     fi
+    mkdir -p "$STATE_DIR/user/generated/wallpaper" "$STATE_DIR/user/generated/apps"
 }
 
 post_process() {
@@ -351,12 +352,16 @@ switch() {
 
     "$SCRIPT_DIR/install_matugen_app_themes.sh"
     matugen "${matugen_args[@]}"
-    python3 "$SCRIPT_DIR/apply_matugen_app_themes.py"
-    source "$(eval echo ${IMMATERIAL_IMPULSE_VIRTUAL_ENV:-$ILLOGICAL_IMPULSE_VIRTUAL_ENV})/bin/activate"
-    python3 "$SCRIPT_DIR/generate_colors_material.py" "${generate_colors_material_args[@]}" \
-        > "$STATE_DIR"/user/generated/material_colors.scss
-    deactivate
-    "$SCRIPT_DIR"/applycolor.sh
+    python3 "$SCRIPT_DIR/apply_matugen_app_themes.py" 2>/dev/null || true
+    local venv_activate
+    venv_activate="$(eval echo "${IMMATERIAL_IMPULSE_VIRTUAL_ENV:-$ILLOGICAL_IMPULSE_VIRTUAL_ENV}")/bin/activate"
+    if [[ -f "$venv_activate" ]]; then
+        source "$venv_activate"
+        python3 "$SCRIPT_DIR/generate_colors_material.py" "${generate_colors_material_args[@]}" \
+            > "$STATE_DIR"/user/generated/material_colors.scss
+        deactivate
+    fi
+    "$SCRIPT_DIR"/applycolor.sh 2>/dev/null || true
 
     max_width_desired="$(hyprctl monitors -j | jq '([.[].width] | min)' | xargs)"
     max_height_desired="$(hyprctl monitors -j | jq '([.[].height] | min)' | xargs)"
@@ -388,9 +393,15 @@ main() {
 
     detect_scheme_type_from_image() {
         local img="$1"
-        source "$(eval echo ${IMMATERIAL_IMPULSE_VIRTUAL_ENV:-$ILLOGICAL_IMPULSE_VIRTUAL_ENV})/bin/activate"
-        "$SCRIPT_DIR"/scheme_for_image.py "$img" 2>/dev/null | tr -d '\n'
-        deactivate
+        local venv_activate
+        venv_activate="$(eval echo "${IMMATERIAL_IMPULSE_VIRTUAL_ENV:-$ILLOGICAL_IMPULSE_VIRTUAL_ENV}")/bin/activate"
+        if [[ -f "$venv_activate" ]]; then
+            source "$venv_activate"
+            "$SCRIPT_DIR"/scheme_for_image.py "$img" 2>/dev/null | tr -d '\n'
+            deactivate
+        else
+            echo "scheme-tonal-spot"
+        fi
     }
 
     while [[ $# -gt 0 ]]; do

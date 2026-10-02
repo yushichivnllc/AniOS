@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 # anios-switch-desktop: Chuyển đổi giữa hai giao diện desktop cài sẵn của AniOS:
-# 1. minimal (mặc định): Hyprland + Waybar + Mako + Fuzzel (nhẹ, tiết kiệm RAM/GPU)
-# 2. imi: Immaterial Impulse (Hyprland + Quickshell + Matugen, Material 3)
+# 1. imi (mặc định): Immaterial Impulse (Hyprland + Quickshell + Matugen, Material 3)
+# 2. minimal: Hyprland + Waybar + Mako + Fuzzel (nhẹ, tiết kiệm RAM/GPU)
 
 MODE="${1:-status}"
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/anios"
@@ -13,7 +13,7 @@ get_current_mode() {
   if [[ -f "$MODE_FILE" ]]; then
     tr -d '[:space:]' < "$MODE_FILE"
   else
-    echo "minimal"
+    echo "imi"
   fi
 }
 
@@ -45,6 +45,10 @@ switch_to_imi() {
   if [[ ! -d "$HOME/.config/matugen" && -d "/usr/share/anios/skel/.config/matugen" ]]; then
     mkdir -p "$HOME/.config"
     cp -a /usr/share/anios/skel/.config/matugen "$HOME/.config/"
+  fi
+  if [[ ! -s "$HOME/.local/state/quickshell/user/generated/colors.json" && -d "/usr/share/anios/skel/.local/state/quickshell" ]]; then
+    mkdir -p "$HOME/.local/state"
+    cp -a /usr/share/anios/skel/.local/state/quickshell "$HOME/.local/state/"
   fi
 
   if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
