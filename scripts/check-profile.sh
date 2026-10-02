@@ -17,10 +17,10 @@ for package in \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
-  xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
+  xorg-xwayland ttf-nerd-fonts-symbols firefox ffmpeg mpv gnome-disk-utility flatpak curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
   quickshell matugen kirigami syntax-highlighting qt6-positioning qt6-virtualkeyboard \
-  qt6-imageformats qt6-avif-image-plugin qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
+  qt6-imageformats kimageformats libavif qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
   kdialog ttf-jetbrains-mono-nerd adw-gtk-theme upower libqalculate hyprpicker hyprsunset cava wtype ripgrep eza gnome-keyring \
   python python-pip nodejs npm wine winetricks flatpak \
   base-devel jre-openjdk qt5-base ttf-liberation; do
@@ -81,6 +81,7 @@ for declaration in \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
+  '["/usr/local/bin/anios-persist"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
@@ -142,6 +143,8 @@ for file in \
   "$AIROOTFS/etc/tmpfiles.d/anios.conf" \
   "$AIROOTFS/etc/systemd/zram-generator.conf" \
   "$AIROOTFS/etc/sysctl.d/90-anios-live.conf" \
+  "$AIROOTFS/etc/udev/rules.d/60-anios-usb-readahead.rules" \
+  "$AIROOTFS/etc/systemd/system.conf.d/90-anios.conf" \
   "$AIROOTFS/usr/share/wayland-sessions/anios.desktop"; do
   [[ -s "$file" ]] || fail "expected configuration missing: ${file#"$ROOT_DIR/"}"
 done
@@ -202,6 +205,42 @@ grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-se
   fail "AniOS SDDM session must advertise anios-session as TryExec"
 [[ -x "$AIROOTFS/usr/local/bin/anios-session" ]] || fail "anios-session must be executable"
 [[ -x "$AIROOTFS/usr/local/bin/anios-setup" ]] || fail "anios-setup must be executable"
+[[ -x "$AIROOTFS/usr/local/bin/anios-persist" ]] || fail "anios-persist must be executable"
+# Ổ lưu dữ liệu trên USB: nhãn phải khớp giữa công cụ tạo phân vùng và menu khởi động.
+grep -qF 'LABEL=ANIOS_PERSIST' "$AIROOTFS/usr/local/bin/anios-persist" ||
+  fail "anios-persist must label the storage partition ANIOS_PERSIST"
+# Sober (Flatpak org.vinegarhq.Sober): cài sẵn bằng hook lúc dựng, có launcher tự cài dự phòng.
+[[ -x "$AIROOTFS/usr/local/bin/anios-sober" ]] || fail "anios-sober must be executable"
+grep -qF 'org.vinegarhq.Sober' "$AIROOTFS/usr/local/bin/anios-sober" || fail "anios-sober must launch org.vinegarhq.Sober"
+grep -qF 'flatpak install --system --noninteractive -y flathub org.vinegarhq.Sober' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must bake Sober into the image"
+[[ -s "$AIROOTFS/etc/skel/Desktop/Sober.desktop" ]] || fail "the Sober desktop shortcut is missing"
+# Seanime: server nướng sẵn ở /opt/seanime, chạy bằng service, và Firefox luôn mở
+# giao diện web của nó (trang chủ + trang khởi động).
+SEANIME_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-seanime.service"
+[[ -s "$SEANIME_UNIT" ]] || fail "anios-seanime.service is missing"
+grep -qxF 'ExecStart=/opt/seanime/seanime --datadir /home/anios/.config/Seanime' "$SEANIME_UNIT" ||
+  fail "anios-seanime.service must run /opt/seanime/seanime"
+[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-seanime.service" ]] ||
+  fail "anios-seanime.service is not enabled"
+FIREFOX_POLICY="$AIROOTFS/etc/firefox/policies/policies.json"
+[[ -s "$FIREFOX_POLICY" ]] || fail "Firefox policies.json is missing"
+grep -qF '"URL": "http://127.0.0.1:43211/"' "$FIREFOX_POLICY" ||
+  fail "Firefox homepage must be the Seanime web UI (http://127.0.0.1:43211/)"
+grep -qF '"StartPage": "homepage"' "$FIREFOX_POLICY" ||
+  fail "Firefox must open the homepage on every start"
+grep -qF 'seanime-${SEANIME_VERSION}_Linux_x86_64.tar.gz' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must download the Seanime server"
+PERSIST_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-persist.service"
+[[ -s "$PERSIST_UNIT" ]] || fail "anios-persist.service is missing"
+grep -qxF 'ExecStart=/usr/local/bin/anios-persist auto' "$PERSIST_UNIT" ||
+  fail "anios-persist.service must run 'anios-persist auto'"
+[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-persist.service" ]] ||
+  fail "anios-persist.service is not enabled"
+grep -qF 'copytoram=n' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must disable copytoram so the system is not loaded into RAM"
+grep -qF 'cow_label=ANIOS_PERSIST' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must add cow_label=ANIOS_PERSIST boot entries"
 [[ -x "$AIROOTFS/usr/local/bin/anios-switch-desktop" ]] || fail "anios-switch-desktop must be executable"
 [[ -x "$AIROOTFS/usr/local/bin/anios-switch-im" ]] || fail "anios-switch-im must be executable"
 [[ -x "$AIROOTFS/usr/local/lib/anios/live-home-setup" ]] || fail "live-home-setup must be executable"

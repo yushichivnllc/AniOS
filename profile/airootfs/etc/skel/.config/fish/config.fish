@@ -60,6 +60,7 @@ if status is-interactive
     # yay (trợ lý AUR) đã cài sẵn trong ảnh
     alias update-aur="/usr/local/bin/anios-update --aur"
     alias aur-search="yay -Ss"
+    alias seanime-status="systemctl status anios-seanime --no-pager"
     alias cls="clear"
     alias clear="printf '[2J[3J[1;1H'"
 

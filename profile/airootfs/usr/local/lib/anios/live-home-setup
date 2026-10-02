@@ -49,7 +49,9 @@ find "$home/Desktop" -maxdepth 1 -type f -name '*.desktop' -exec chmod +x {} +
 # `.pkg.tar.zst` vào `/var/cache/pacman/pkg` (cũng nằm trên cowspace) vừa giải nén
 # đè lên `/usr`, rất dễ làm đầy cowspace hoặc cạn inode giữa chừng với lỗi:
 #   "error: could not extract /usr/share/locale/... (Write failed)"
-if [[ -d /run/archiso/cowspace ]] && grep -q ' /run/archiso/cowspace ' /proc/mounts 2>/dev/null; then
+# Khi USB có phân vùng ANIOS_PERSIST (xem `anios-persist`), cowspace là ext4 trên USB:
+# dung lượng đã bằng cả phân vùng, không cần remount tmpfs hay dồn cache sang /tmp.
+if [[ -d /run/archiso/cowspace ]] && [[ "$(findmnt -rno FSTYPE /run/archiso/cowspace 2>/dev/null)" == tmpfs ]]; then
   # Mở rộng cowspace tối thiểu 10G (hoặc 80% RAM nếu máy nhiều RAM) và bỏ giới hạn
   # inode (nr_inodes=0); trang nguội sẽ được nén sang zram.
   mem_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"

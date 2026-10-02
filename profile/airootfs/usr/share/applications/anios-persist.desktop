@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AniOS USB Storage (anios-persist)
+GenericName=Persistent Storage
+Comment=Use the free space of the USB drive as persistent storage for AniOS Live
+Exec=bash -c 'anios-persist; echo; anios-persist setup; echo; read -rp "Nhấn Enter để đóng..." _'
+Icon=drive-removable-media-usb
+Terminal=true
+Categories=Settings;System;

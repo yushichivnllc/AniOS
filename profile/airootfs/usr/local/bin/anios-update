@@ -29,8 +29,12 @@ for arg in "$@"; do
   esac
 done
 
+# Chỉ coi là "live trong RAM" khi lớp ghi là tmpfs. Nếu USB có phân vùng
+# ANIOS_PERSIST (xem `anios-persist`), cowspace là ext4 trên USB, đủ chỗ như hệ
+# thống thường nên cập nhật theo cách thông thường.
 is_live_session() {
-  [[ -d /run/archiso/cowspace ]] && grep -q ' /run/archiso/cowspace ' /proc/mounts 2>/dev/null
+  [[ -d /run/archiso/cowspace ]] || return 1
+  [[ "$(findmnt -rno FSTYPE /run/archiso/cowspace 2>/dev/null)" == tmpfs ]]
 }
 
 prepare_live_space() {

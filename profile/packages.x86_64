@@ -29,6 +29,9 @@ file-roller
 xdg-user-dirs
 xdg-utils
 polkit-gnome
+# Quản lý ổ đĩa/USB bằng giao diện (GNOME Disks: phân vùng, định dạng, SMART, benchmark);
+# cần udisks2 + polkit-gnome (đã có) để mount/format với quyền sudo.
+gnome-disk-utility
 noto-fonts
 noto-fonts-emoji
 ttf-dejavu
@@ -119,7 +122,8 @@ qt6-svg
 qt6-multimedia
 qt6-multimedia-ffmpeg
 qt6-5compat
-qt6-avif-image-plugin
+kimageformats
+libavif
 qt6-imageformats
 qt6-positioning
 qt6-quicktimeline
@@ -161,6 +165,11 @@ playerctl
 
 # Trình duyệt web
 firefox
+
+# Seanime (server nướng sẵn ở /opt/seanime, xem scripts/build-iso.sh): ffmpeg để
+# chuyển mã/trích xuất phụ đề, mpv làm trình phát ngoài.
+ffmpeg
+mpv
 # Cốc Cốc (gói AUR coccoc-browser-stable) cần hai thư viện này lúc chạy; cài sẵn
 # ở đây để trình duyệt mở được ngay trong phiên live mà không phải tải thêm.
 qt5-base

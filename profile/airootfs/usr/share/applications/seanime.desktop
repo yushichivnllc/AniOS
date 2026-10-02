@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Seanime
+GenericName=Anime Library
+Comment=Open the Seanime web interface (server runs in the background)
+Exec=firefox http://127.0.0.1:43211/
+Icon=video-television
+Terminal=false
+Categories=AudioVideo;Video;Network;

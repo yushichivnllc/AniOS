@@ -204,14 +204,92 @@ for boot_dir in efiboot grub syslinux; do
   fi
 done
 
-# Mặc định Archiso chỉ cấp 256 MB RAM cho lớp ghi (cow) của hệ live, nên
-# `pacman -Syyu` hết chỗ giữa chừng. Tăng lên 10G (tmpfs chỉ dùng RAM khi cần
-# và đẩy được trang nguội sang zram).
+# AniOS KHÔNG chạy kiểu Tails ("live trong RAM, tắt máy là mất hết"):
+#   * copytoram=n: không chép ảnh hệ thống vào RAM mà đọc thẳng từ USB (mặc định
+#     Archiso tự bật copytoram khi ảnh < 4 GiB và còn RAM, ngốn vài GB RAM);
+#   * lớp ghi nằm trên phân vùng ANIOS_PERSIST của USB (xem khối bên dưới), nên
+#     dung lượng trống bằng phần còn lại của USB chứ không phụ thuộc RAM.
+# cow_spacesize=10G chỉ còn là dung lượng tmpfs của chế độ dự phòng, dùng ở lần
+# boot đầu tiên (trước khi anios-persist.service tạo phân vùng) hoặc khi USB
+# không còn chỗ trống để tạo phân vùng.
 for boot_dir in efiboot grub syslinux; do
   [[ -d "$BUILD_PROFILE/$boot_dir" ]] || continue
   find "$BUILD_PROFILE/$boot_dir" -type f \( -name '*.conf' -o -name '*.cfg' \) -print0 |
-    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=10G/ }'
+    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=10G copytoram=n/ }'
 done
+
+# --- Lưu trữ bền vững trên phần trống của USB ------------------------------
+# Ghi ISO ra USB chỉ dùng phần đầu đĩa (chỉ đọc). Lần boot đầu tiên,
+# anios-persist.service (`anios-persist auto`) tạo phân vùng ext4 nhãn
+# ANIOS_PERSIST trên phần đĩa còn lại rồi khởi động lại; từ đó menu khởi động dùng
+# nó làm lớp ghi (cow_label) thay cho RAM.
+#
+# GRUB (UEFI) chỉ bật cow_label khi thấy file đánh dấu trên ESP nên mục chính luôn boot
+# được, có hay không có phân vùng. cow_directory gắn với UUID của ISO để bản ISO mới không
+# dùng lại lớp ghi của bản cũ (overlayfs không chịu lớp dưới đã đổi).
+# Syslinux (BIOS) không có điều kiện nên thêm một mục riêng. Nếu cow_label trỏ tới
+# phân vùng không tồn tại thì initramfs rơi vào shell, vì vậy KHÔNG đặt nó vào mục
+# mặc định của Syslinux.
+if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
+  awk '
+    /^default=/ && !injected {
+      print "# Ổ lưu dữ liệu: anios-persist ghi file EFI/BOOT/anios-persist lên ESP của USB sau khi"
+      print "# tạo phân vùng ANIOS_PERSIST. Chỉ kiểm tra file (im lặng) chứ không dùng `search --label`,"
+      print "# vì search in \"error: no such device\" và chờ bấm phím khi chưa có phân vùng."
+      print "set anios_cow=\"\""
+      print "if [ -f \"${cmdpath}/anios-persist\" ]; then"
+      print "    set anios_cow=\"cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID%\""
+      print "fi"
+      print ""
+      injected = 1
+    }
+    # Mục boot chính (và mục accessibility): thêm tham số lưu trữ vào cuối dòng linux.
+    /^[[:space:]]*linux[[:space:]].*archisobasedir=/ { sub(/[[:space:]]*$/, " ${anios_cow}") }
+    { print }
+  ' "$BUILD_PROFILE/grub/grub.cfg" > "$BUILD_PROFILE/grub/grub.cfg.tmp"
+  mv -- "$BUILD_PROFILE/grub/grub.cfg.tmp" "$BUILD_PROFILE/grub/grub.cfg"
+
+  # Mục dự phòng: bỏ qua ổ lưu dữ liệu (ví dụ phân vùng bị lỗi) và chạy thuần RAM.
+  awk '
+    /^menuentry .*--id .archlinux-accessibility./ && !done {
+      print "menuentry \"AniOS Live, chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-ram'"'"' {"
+      print "    set gfxpayload=keep"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=n anios_persist=off %KERNEL_PARAMS%"
+      print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
+      print "}"
+      print ""
+      # Mục ép dùng ổ lưu dữ liệu, phòng khi GRUB không tự dò được nhãn (thiếu module).
+      print "menuentry \"AniOS Live, ép dùng ổ lưu dữ liệu ANIOS_PERSIST (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-persist'"'"' {"
+      print "    set gfxpayload=keep"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=n %KERNEL_PARAMS%"
+      print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
+      print "}"
+      print ""
+      done = 1
+    }
+    { print }
+  ' "$BUILD_PROFILE/grub/grub.cfg" > "$BUILD_PROFILE/grub/grub.cfg.tmp"
+  mv -- "$BUILD_PROFILE/grub/grub.cfg.tmp" "$BUILD_PROFILE/grub/grub.cfg"
+  grep -qF 'cow_label=ANIOS_PERSIST' "$BUILD_PROFILE/grub/grub.cfg" &&
+    grep -qF '${anios_cow}' "$BUILD_PROFILE/grub/grub.cfg" &&
+    grep -qF "anios-ram" "$BUILD_PROFILE/grub/grub.cfg" ||
+    { echo "Failed to add persistent-storage support to grub/grub.cfg" >&2; exit 1; }
+fi
+if [[ -f "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" ]]; then
+  cat >> "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" <<'SYSLINUX_PERSIST'
+
+# Chọn mục này sau lần boot đầu tiên, khi phân vùng ANIOS_PERSIST đã được tạo.
+LABEL anios_persist
+TEXT HELP
+Boot AniOS on BIOS and keep data on the ANIOS_PERSIST partition of the USB drive.
+The partition is created automatically on the first boot (or with: anios-persist setup).
+ENDTEXT
+MENU LABEL AniOS Live (%ARCH%, BIOS) with ^persistent storage
+LINUX /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen
+INITRD /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img
+APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=n %KERNEL_PARAMS%
+SYSLINUX_PERSIST
+fi
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
@@ -261,6 +339,30 @@ ReadexPro[HEXP,wght].ttf|https://raw.githubusercontent.com/google/fonts/main/ofl
 SpaceGrotesk[wght].ttf|https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf
 EOF
 fi
+
+# --- Seanime server (https://seanime.app/download) -------------------------
+# Server Seanime bản Linux x64 kèm giao diện web nhúng sẵn, không có trong kho Arch
+# nên được tải từ GitHub Releases lúc dựng ISO (không đưa binary vào git) và đặt ở
+# /opt/seanime/seanime. anios-seanime.service chạy nó bằng tài khoản live ở cổng
+# 43211, còn /etc/firefox/policies/policies.json đặt trang chủ Firefox là
+# http://127.0.0.1:43211/ nên mỗi lần mở Firefox là hiện giao diện Seanime.
+# Đổi phiên bản: SEANIME_VERSION=3.10.3 ./scripts/build-iso.sh ...
+SEANIME_VERSION="${SEANIME_VERSION:-3.10.3}"
+SEANIME_URL="https://github.com/5rahim/seanime/releases/download/v${SEANIME_VERSION}/seanime-${SEANIME_VERSION}_Linux_x86_64.tar.gz"
+seanime_tmp="$(mktemp -d "${TMPDIR:-/tmp}/anios-seanime.XXXXXX")"
+printf 'Downloading Seanime server %s\n' "$SEANIME_VERSION"
+curl -fSL --retry 3 --retry-delay 5 --max-time 600 -o "$seanime_tmp/seanime.tar.gz" "$SEANIME_URL" ||
+  { rm -rf -- "$seanime_tmp"; echo "Could not download the Seanime server from $SEANIME_URL" >&2; exit 1; }
+tar -xzf "$seanime_tmp/seanime.tar.gz" -C "$seanime_tmp" ||
+  { rm -rf -- "$seanime_tmp"; echo "The Seanime archive is not a valid tar.gz: $SEANIME_URL" >&2; exit 1; }
+seanime_bin="$(find "$seanime_tmp" -type f -name seanime | head -n1)"
+[[ -n "$seanime_bin" ]] ||
+  { rm -rf -- "$seanime_tmp"; echo "No 'seanime' binary inside $SEANIME_URL" >&2; exit 1; }
+install -D -m 0755 -- "$seanime_bin" "$BUILD_PROFILE/airootfs/opt/seanime/seanime"
+rm -rf -- "$seanime_tmp"
+# File ELF x86-64 thật, không phải trang lỗi HTML.
+[[ "$(head -c4 "$BUILD_PROFILE/airootfs/opt/seanime/seanime" | od -An -tx1 | tr -d ' \n')" == 7f454c46 ]] ||
+  { echo "The downloaded Seanime server is not an ELF binary" >&2; exit 1; }
 
 # --- Theme GRUB Evangelion (Ayanami) khi mở AniOS --------------------------
 # Nguồn: https://github.com/Aleph1-9012/Evangelion (themes/ayanami/1080p).
@@ -440,6 +542,43 @@ else
   printf 'Skipping the AUR packages (--no-aur): the ISO will have no yay/Coc Coc/Legacy Launcher\n'
 fi
 
+# --- Sober (Roblox) từ Flathub, cài sẵn vào ảnh ---------------------------
+# Sober chỉ phát hành dạng Flatpak (org.vinegarhq.Sober), nên cài trong chroot airootfs
+# bằng hook customize_airootfs.sh (cùng cơ chế với gói AUR ở trên) vào /var/lib/flatpak.
+# Cài lỗi KHÔNG làm hỏng bản dựng (Flathub hoặc flatpak-trong-chroot có thể trục trặc,
+# và một lượt dựng mất hàng giờ): hook chỉ cảnh báo, còn /usr/local/bin/anios-sober sẽ
+# tự cài cho người dùng ở lần mở đầu tiên. Bỏ qua bước này: ANIOS_SKIP_FLATPAK=1.
+if [[ "${ANIOS_SKIP_FLATPAK:-0}" != 1 ]]; then
+  FLATPAK_HOOK="$BUILD_PROFILE/airootfs/root/customize_airootfs.sh"
+  if [[ -e "$FLATPAK_HOOK" ]]; then
+    printf '\n' >>"$FLATPAK_HOOK"
+  else
+    cat >"$FLATPAK_HOOK" <<'HOOK_HEAD'
+#!/usr/bin/env bash
+# Hook do scripts/build-iso.sh sinh ra lúc dựng ISO; mkarchiso chạy nó trong
+# chroot airootfs rồi tự xoá đi, nên nó không bao giờ nằm trong ảnh live.
+set -Eeuo pipefail
+
+HOOK_HEAD
+  fi
+  cat >>"$FLATPAK_HOOK" <<'HOOK_FLATPAK'
+# --- AniOS: cài sẵn Sober (Flatpak) -----------------------------------------
+if command -v flatpak >/dev/null 2>&1; then
+  if flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo &&
+     flatpak install --system --noninteractive -y flathub org.vinegarhq.Sober; then
+    echo "AniOS: Sober (org.vinegarhq.Sober) đã được cài sẵn vào ảnh"
+  else
+    echo "AniOS WARNING: không cài sẵn được Sober; anios-sober sẽ tự cài ở lần mở đầu tiên" >&2
+  fi
+  # Dọn bộ đệm tải để ảnh không phình thêm.
+  rm -rf -- /var/tmp/flatpak-cache-* /var/lib/flatpak/repo/tmp/* 2>/dev/null || true
+else
+  echo "AniOS WARNING: không có flatpak trong chroot, bỏ qua Sober" >&2
+fi
+HOOK_FLATPAK
+  chmod 0755 -- "$FLATPAK_HOOK"
+fi
+
 # Gói AUR (wine, Cốc Cốc, nodejs, base-devel...) làm airootfs phình thêm vài GB.
 # Báo sớm khi đĩa còn ít chỗ để người dựng biết vì sao bản dựng chết giữa chừng.
 free_kib="$(df -Pk -- "$(dirname -- "$WORK_DIR")" | awk 'NR==2 {print $4}')"
@@ -513,6 +652,9 @@ insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-check" "0:0:755"
 insert_permission "/usr/local/bin/anios-update" "0:0:755"
+insert_permission "/usr/local/bin/anios-persist" "0:0:755"
+insert_permission "/usr/local/bin/anios-sober" "0:0:755"
+insert_permission "/opt/seanime/seanime" "0:0:755"
 insert_permission "/usr/local/lib/anios/create-live-user" "0:0:755"
 insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
 
@@ -526,6 +668,9 @@ for entry in \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
   '["/usr/local/bin/anios-update"]="0:0:755"' \
+  '["/usr/local/bin/anios-persist"]="0:0:755"' \
+  '["/usr/local/bin/anios-sober"]="0:0:755"' \
+  '["/opt/seanime/seanime"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||

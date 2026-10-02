@@ -1,3 +1,3 @@
-# The live environment has no persistent user data. Never reuse this policy on an installed system.
+# The live user has a well-known password. Never reuse this policy on an installed system or with private data.
 # The live user's password is configured by anios-live-home.service at boot.
 anios ALL=(ALL:ALL) PASSWD: ALL
