@@ -13,6 +13,7 @@ on:
     paths:
       - 'profile/**'
       - 'scripts/**'
+      - 'tests/**'
       - '.github/workflows/build-iso.yml'
   # Chạy tay: tab Actions -> Build AniOS ISO -> Run workflow
   workflow_dispatch:
@@ -80,7 +81,7 @@ jobs:
         # host tool mà mkarchiso yêu cầu (mksquashfs, mkfs.fat, mmd/mcopy, xorriso).
         run: |
           docker exec -i anios-iso-builder bash -e -o pipefail -s <<'ARCH'
-          # lua: để scripts/check-profile.sh kiểm tra cú pháp hyprland.lua ngay trên CI.
+          # lua: kiểm tra cú pháp + nạp thử cả hai chế độ Hyprland ngay trên CI.
           packages=(archiso squashfs-tools dosfstools mtools libisoburn git lua)
           pacman-key --init 2>/dev/null || true
           pacman-key --populate archlinux 2>/dev/null || true
