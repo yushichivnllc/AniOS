@@ -66,12 +66,16 @@ bluez-utils
 # PipeWire. Thiếu nó thì dàn âm thanh chạy nhưng không có thiết bị xuất nào.
 # alsa-utils mang aplay/alsamixer/speaker-test cho công cụ chẩn đoán anios-audio-check,
 # còn rtkit cho PipeWire lấy được lập lịch realtime (đỡ nổ tiếng khi chơi game).
+# libpulse mang pactl/paplay và libpulse.so: anios-audio-setup gọi pactl trực tiếp
+# và app (Firefox, game qua SDL2) nói chuyện với pipewire-pulse qua libpulse.so,
+# nên khai báo tường minh thay vì dựa vào phụ thuộc bắc cầu của firefox/pavucontrol.
 pipewire
 pipewire-audio
 pipewire-alsa
 pipewire-pulse
 wireplumber
 alsa-utils
+libpulse
 rtkit
 pavucontrol
 sof-firmware
@@ -162,6 +166,9 @@ base-devel
 # thư viện Windows (dll) khi game yêu cầu.
 wine
 winetricks
+
+# Flatpak: cài và chạy ứng dụng đóng gói sẵn (Flathub) độc lập thư viện hệ thống.
+flatpak
 
 # java-runtime cho legacy-launcher (AUR): launcher Minecraft dạng jar.
 jre-openjdk

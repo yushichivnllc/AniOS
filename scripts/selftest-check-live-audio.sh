@@ -215,6 +215,7 @@ build_fake_image() {
   mkdir -p -- \
     "$image/etc/alsa/conf.d" \
     "$image/usr/share/alsa/alsa.conf.d" \
+    "$image/usr/share/alsa/cards" \
     "$image/usr/lib/systemd/user" \
     "$image/usr/lib/spa-0.2/alsa" \
     "$image/usr/lib/alsa-lib" \
@@ -280,6 +281,19 @@ EOF
   done
   printf 'ELF fake\n' >"$image/usr/lib/spa-0.2/alsa/libspa-alsa.so"
   printf 'ELF fake\n' >"$image/usr/lib/alsa-lib/libasound_module_pcm_pipewire.so"
+  # Nhồi thêm >70 plugin trong usr/lib/alsa-lib và >100 file trong
+  # usr/share/alsa/cards (gồm cả CMI8738-MC8.conf) như ảnh thật: nếu bước in
+  # chẩn đoán khi thiếu file dùng `| head -60` dưới `set -Eeuo pipefail`, lệnh
+  # đứng trước sẽ nhận SIGPIPE và làm cả script chết với exit code 141 trước khi
+  # kịp in `::error::`.
+  for ((i = 1; i <= 80; i++)); do
+    printf 'ELF fake\n' >"$image/usr/lib/alsa-lib/libasound_module_pcm_extra_$i.so"
+  done
+  : >"$image/usr/share/alsa/cards/AACI.conf"
+  : >"$image/usr/share/alsa/cards/CMI8738-MC8.conf"
+  for ((i = 1; i <= 100; i++)); do
+    : >"$image/usr/share/alsa/cards/Card-$i.conf"
+  done
 
   cat >"$image/etc/systemd/user/default.target.d/10-anios-audio.conf" <<'EOF'
 [Unit]
@@ -314,6 +328,7 @@ write_pkglist() {
   cat >"$PKGLIST" <<'EOF'
 alsa-card-profiles 1:1.2.12-1
 alsa-utils 1.2.14-2
+libpulse 17.0+r98+gb096704c0-1
 pipewire 1:1.6.9-1
 pipewire-alsa 1:1.6.9-1
 pipewire-audio 1:1.6.9-1
@@ -349,9 +364,22 @@ expect_pass() {
   fi
 }
 expect_fail() {
-  local label="$1"
-  if run_checker; then
+  local label="$1" rc=0
+  run_checker || rc=$?
+  if ((rc == 0)); then
     echo "  FAIL  $label (mong đợi FAIL nhưng script lại PASS)"
+    failures=$((failures + 1))
+  elif ((rc == 141)); then
+    echo "  FAIL  $label (script chết vì SIGPIPE / exit code 141 thay vì thoát 1 có kiểm soát)"
+    sed 's/^/        /' "$SANDBOX/out.txt"
+    failures=$((failures + 1))
+  elif ((rc != 1)); then
+    echo "  FAIL  $label (mong đợi exit 1 nhưng trả exit $rc)"
+    sed 's/^/        /' "$SANDBOX/out.txt"
+    failures=$((failures + 1))
+  elif ! grep -q '^::error::' "$SANDBOX/out.txt"; then
+    echo "  FAIL  $label (thoát $rc nhưng không in thông báo ::error::)"
+    sed 's/^/        /' "$SANDBOX/out.txt"
     failures=$((failures + 1))
   else
     echo "  OK    $label"
@@ -449,9 +477,21 @@ EOF
 expect_fail "nội dung ALSA mặc định không đưa PCM/CTL về PipeWire"
 
 # File nằm sâu trong thư mục khổng lồ: đúng kiểu báo lỗi mà bản cũ gây ra.
+# Đồng thời kiểm tra mục chẩn đoán "--- những gì thật sự có trong ảnh ở các thư
+# mục âm thanh ---" không chết vì SIGPIPE (exit code 141) khi có >100 file trong
+# usr/share/alsa/cards và >70 plugin trong usr/lib/alsa-lib.
 build_fake_image "$IMAGE"
 rm -f -- "$IMAGE/usr/bin/wpctl"
-expect_fail "thiếu wpctl trong usr/bin khổng lồ (không được coi là thiếu cả thư mục)"
+expect_fail "thiếu wpctl trong usr/bin khổng lồ (không chết với exit code 141 khi in chẩn đoán)"
+if ! grep -qF -- '--- những gì thật sự có trong ảnh ở các thư mục âm thanh ---' "$SANDBOX/out.txt"; then
+  echo "  FAIL  thiếu wpctl nhưng không in danh sách chẩn đoán các thư mục âm thanh"
+  failures=$((failures + 1))
+elif grep -qF 'CMI8738-MC8.conf' "$SANDBOX/out.txt"; then
+  echo "  FAIL  danh sách chẩn đoán bị ngập bởi usr/share/alsa/cards/CMI8738-MC8.conf"
+  failures=$((failures + 1))
+else
+  echo "  OK    danh sách chẩn đoán in đủ cấu hình âm thanh, bỏ qua usr/share/alsa/cards và không bị SIGPIPE 141"
+fi
 
 build_fake_image "$IMAGE"
 rm -f -- "$IMAGE/usr/lib/systemd/user/pipewire.socket"
@@ -474,6 +514,9 @@ expect_fail "anios-audio-setup mất bit thực thi"
 build_fake_image "$IMAGE"
 printf 'pipewire 1:1.6.9-1\n' >"$PKGLIST"
 expect_fail "ảnh live thiếu gói pipewire-alsa"
+write_pkglist
+sed -i '/^libpulse /d' "$PKGLIST"
+expect_fail "ảnh live thiếu gói libpulse (cung cấp pactl)"
 write_pkglist
 
 echo "--- nếu squashfs-tools đổi định dạng \`-ll\` ---"

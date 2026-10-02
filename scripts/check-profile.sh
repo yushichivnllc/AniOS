@@ -18,9 +18,9 @@ for package in \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
-  pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils rtkit \
+  pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
   quickshell matugen \
-  python python-pip nodejs npm wine winetricks \
+  python python-pip nodejs npm wine winetricks flatpak \
   base-devel jre-openjdk qt5-base ttf-liberation; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
@@ -472,6 +472,13 @@ grep -qF 'check-live-audio.sh' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
   fail "the ISO build workflow must verify the live audio stack with scripts/check-live-audio.sh"
 grep -qF 'sfs_resolve' "$LIVE_AUDIO_CHECK" ||
   fail "scripts/check-live-audio.sh must follow symlinks itself; unsquashfs -cat cannot read the absolute symlinks pipewire-alsa installs"
+grep -qF 'libpulse' "$LIVE_AUDIO_CHECK" ||
+  fail "scripts/check-live-audio.sh must verify the libpulse package (provides pactl)"
+grep -qF 'usr/share/alsa/alsa.conf.d/99-pipewire-default.conf' "$LIVE_AUDIO_CHECK" ||
+  fail "scripts/check-live-audio.sh must verify usr/share/alsa/alsa.conf.d/99-pipewire-default.conf"
+if grep -nE '\|[[:space:]]*head([[:space:]]|$)' "$LIVE_AUDIO_CHECK" | grep -vE ':[[:space:]]*#'; then
+  fail "scripts/check-live-audio.sh must not pipe into head under set -o pipefail (causes SIGPIPE / exit code 141)"
+fi
 grep -qF 'selftest-check-live-audio.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
   fail "the profile workflow must run scripts/selftest-check-live-audio.sh"
 
