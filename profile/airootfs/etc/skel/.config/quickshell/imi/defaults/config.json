@@ -64,7 +64,7 @@
     "showSnapLines": true,
     "thumbnailPath": "",
     "wallpaperAnimation": "Peel",
-    "wallpaperPath": "",
+    "wallpaperPath": "/usr/share/anios/wallpaper.png",
     "widgets": {
       "clock": {
         "color": "",

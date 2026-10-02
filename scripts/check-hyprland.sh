@@ -32,7 +32,7 @@ for skel in etc/skel usr/share/anios/skel; do
   echo "OK: Hyprland Lua syntax and smoke tests ($skel)"
 done
 
-for dir in hypr matugen/templates/hyprland; do
+for dir in hypr matugen/templates/hyprland quickshell; do
   diff -qr "$ROOT_DIR/profile/airootfs/etc/skel/.config/$dir" \
            "$ROOT_DIR/profile/airootfs/usr/share/anios/skel/.config/$dir"
 done

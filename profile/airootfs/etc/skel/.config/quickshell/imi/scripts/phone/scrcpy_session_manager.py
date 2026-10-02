@@ -402,7 +402,7 @@ class ScrcpySessionManager:
         if not info or not info.get("title"):
             return
         try:
-            subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:^{info['title']}$"],
+            subprocess.run(["hyprctl", "dispatch", f'hl.dsp.focus({{ window = "title:^{info["title"]}$" }})'],
                            check=False, capture_output=True, timeout=4)
         except Exception:
             pass

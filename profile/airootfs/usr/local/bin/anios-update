@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# anios-update — Trình cập nhật gói an toàn cho phiên AniOS Live (và bản cài đặt).
+#
+# Trong phiên Live USB, `/` nằm trên overlayfs có lớp ghi RAM là `/run/archiso/cowspace`
+# (tmpfs). Khi chạy `pacman -Syu` thông thường:
+#   1. Hàng GB file nén `.pkg.tar.zst` tải về nằm trong RAM cùng lúc với hàng GB
+#      file giải nén vào `/usr`.
+#   2. Khi tổng dung lượng vượt quá `cow_spacesize` hoặc vượt quá `RAM vật lý + zram swap`,
+#      nhân Linux trả về ENOSPC khiến pacman gãy giữa chừng với lỗi:
+#        "error: could not extract /usr/share/locale/.../NetworkManager.mo (Write failed)"
+#
+# Script này tự động:
+#   - Mở rộng `/run/archiso/cowspace` và `/tmp` (bỏ giới hạn inode `nr_inodes=0`).
+#   - Bổ sung zram swap nén `zstd` nếu không gian swap còn trống thấp.
+#   - Cấu hình `NoExtract` (bỏ man/doc/locale ngoại ngữ thừa) và `IgnorePkg` (bỏ
+#     kernel/firmware vô tác dụng trên Live USB) trong `/etc/pacman.conf`.
+#   - Giải phóng rác đã giải nén từ lần chạy lỗi trước (`/usr/src/*`, `/usr/share/man/*`,
+#     `/usr/share/doc/*`, `/var/cache/pacman/pkg/*`).
+#   - Chia nhỏ các gói cần nâng cấp thành từng đợt (batch) và xoá ngay file `.pkg.tar.zst`
+#     sau mỗi đợt để không bao giờ tích tụ hàng GB file nén trong RAM.
+set -euo pipefail
+
+USE_AUR=0
+PASS_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --aur) USE_AUR=1 ;;
+    *) PASS_ARGS+=("$arg") ;;
+  esac
+done
+
+is_live_session() {
+  [[ -d /run/archiso/cowspace ]] && grep -q ' /run/archiso/cowspace ' /proc/mounts 2>/dev/null
+}
+
+prepare_live_space() {
+  echo "==> [AniOS] Đang tối ưu bộ nhớ RAM (cowspace + zram) cho phiên Live..."
+
+  # 1. Mở rộng giới hạn mount tmpfs của cowspace và /tmp lên tối thiểu 12G, không giới hạn inode
+  sudo mount -o remount,size=12G,nr_inodes=0 /run/archiso/cowspace 2>/dev/null || true
+  sudo mount -o remount,size=12G,nr_inodes=0 /tmp 2>/dev/null || true
+
+  # 2. tmpfs chỉ ghi được khi tổng (RAM trống + Swap trống) còn chỗ.
+  # Nếu SwapFree < 6 GB, tạo thêm một thiết bị zram nén zstd 12 GB ngay lập tức.
+  local swap_free_kib
+  swap_free_kib="$(awk '/^SwapFree:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  if (( swap_free_kib < 6291456 )); then
+    sudo modprobe zram 2>/dev/null || true
+    if [[ -r /sys/class/zram-control/hot_add ]]; then
+      local zdev_num zdev
+      zdev_num="$(sudo cat /sys/class/zram-control/hot_add 2>/dev/null || true)"
+      if [[ -n "$zdev_num" && -b "/dev/zram${zdev_num}" ]]; then
+        zdev="/dev/zram${zdev_num}"
+        echo zstd | sudo tee "/sys/block/zram${zdev_num}/comp_algorithm" >/dev/null 2>&1 || true
+        echo 12G  | sudo tee "/sys/block/zram${zdev_num}/disksize" >/dev/null 2>&1 || true
+        sudo mkswap "$zdev" >/dev/null 2>&1 || true
+        sudo swapon -p 200 "$zdev" 2>/dev/null || true
+      fi
+    fi
+  fi
+
+  # 3. Cấu hình /etc/pacman.conf cho phiên Live (NoExtract + IgnorePkg)
+  if [[ -f /etc/pacman.conf ]] && ! grep -qF '# anios-live-pacman-tuning' /etc/pacman.conf; then
+    sudo sed -i '/^\[options\]/a \
+# anios-live-pacman-tuning\
+IgnorePkg = linux-zen linux-zen-headers linux-firmware linux-firmware-whence\
+NoExtract = usr/share/doc/* usr/share/gtk-doc/* usr/share/help/* usr/share/info/* usr/share/man/* usr/share/locale/* !usr/share/locale/en* !usr/share/locale/vi* !usr/share/locale/locale.alias' /etc/pacman.conf || true
+  fi
+
+  # 4. Xoá bộ nhớ đệm gói cũ và các thư mục tài liệu/source chiếm RAM từ lần chạy dở trước
+  sudo rm -rf /var/lib/pacman/db.lck \
+              /var/cache/pacman/pkg/* \
+              /tmp/pacman-pkg-cache/* \
+              /usr/src/* \
+              /usr/share/man/* \
+              /usr/share/doc/* \
+              /usr/share/gtk-doc/* \
+              /usr/share/help/* 2>/dev/null || true
+}
+
+if is_live_session; then
+  prepare_live_space
+fi
+
+# Nếu người dùng truyền tham số riêng (ví dụ `anios-update -S networkmanager`), chạy trực tiếp
+if (( ${#PASS_ARGS[@]} > 0 )); then
+  if (( USE_AUR )) && command -v yay >/dev/null 2>&1; then
+    yay "${PASS_ARGS[@]}"
+  else
+    sudo pacman "${PASS_ARGS[@]}"
+  fi
+  sudo rm -rf /var/cache/pacman/pkg/* /tmp/pacman-pkg-cache/* 2>/dev/null || true
+  exit 0
+fi
+
+echo "==> [AniOS] Đồng bộ cơ sở dữ liệu gói..."
+sudo pacman -Sy
+
+if is_live_session; then
+  # Lấy danh sách gói cần nâng cấp và cài theo từng đợt 15 gói để không tích tụ
+  # hàng GB file .pkg.tar.zst trong RAM cùng lúc với file giải nén.
+  mapfile -t pkgs < <(pacman -Quq 2>/dev/null || true)
+  if (( ${#pkgs[@]} == 0 )); then
+    echo "==> [AniOS] Tất cả các gói hệ thống đã ở phiên bản mới nhất."
+  else
+    echo "==> [AniOS] Nâng cấp ${#pkgs[@]} gói theo từng đợt nhỏ để tiết kiệm RAM..."
+    batch_size=15
+    for (( i = 0; i < ${#pkgs[@]}; i += batch_size )); do
+      batch=("${pkgs[@]:i:batch_size}")
+      echo "==> [AniOS] Đợt $(( i / batch_size + 1 )): ${batch[*]}"
+      sudo pacman -S --needed --noconfirm "${batch[@]}"
+      sudo rm -rf /var/cache/pacman/pkg/* /tmp/pacman-pkg-cache/* 2>/dev/null || true
+    done
+  fi
+
+  if (( USE_AUR )) && command -v yay >/dev/null 2>&1; then
+    echo "==> [AniOS] Đang kiểm tra gói AUR..."
+    yay -Sua
+    sudo rm -rf /var/cache/pacman/pkg/* /tmp/pacman-pkg-cache/* ~/.cache/yay/* 2>/dev/null || true
+  fi
+else
+  if (( USE_AUR )) && command -v yay >/dev/null 2>&1; then
+    yay -Syu
+  else
+    sudo pacman -Syu
+  fi
+fi
+
+echo "==> [AniOS] Cập nhật hoàn tất!"

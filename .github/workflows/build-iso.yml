@@ -82,7 +82,8 @@ jobs:
         run: |
           docker exec -i anios-iso-builder bash -e -o pipefail -s <<'ARCH'
           # lua: kiểm tra cú pháp + nạp thử cả hai chế độ Hyprland ngay trên CI.
-          packages=(archiso squashfs-tools dosfstools mtools libisoburn git lua)
+          # grub: cung cấp grub-mkstandalone cho bootmode uefi.grub (theme Evangelion Ayanami).
+          packages=(archiso grub squashfs-tools dosfstools mtools libisoburn git lua)
           pacman-key --init 2>/dev/null || true
           pacman-key --populate archlinux 2>/dev/null || true
           if ! pacman -Syu --noconfirm --needed "${packages[@]}"; then
@@ -195,6 +196,15 @@ jobs:
           # Boot record của ISO (El Torito cho BIOS và UEFI).
           xorriso -indev "$iso" -report_el_torito plain >out/iso-el-torito.txt
           cat out/iso-el-torito.txt
+
+          # Menu GRUB của ISO phải có theme Evangelion Ayanami và cấu hình nạp theme.
+          xorriso -indev "$iso" -osirrox on \
+            -extract /boot/grub/grub.cfg out/iso-grub.cfg \
+            -extract /boot/grub/themes/ayanami/theme.txt out/iso-ayanami-theme.txt
+          grep -qF '/themes/ayanami/theme.txt' out/iso-grub.cfg
+          grep -qF 'evangelion-index-01' out/iso-grub.cfg
+          grep -qF 'Evangelion ayanami-1080p-menu Regular 38' out/iso-ayanami-theme.txt
+          echo "ISO có menu GRUB Evangelion (Ayanami) hoàn chỉnh"
 
           # ISO phải boot linux-zen, không được còn entry trỏ tới kernel generic.
           xorriso -indev "$iso" -ls /arch/boot/x86_64 >out/iso-boot-dir.txt

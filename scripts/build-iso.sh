@@ -78,6 +78,10 @@ if [[ ! -d "$RELENG_DIR" ]] || ! command -v mkarchiso >/dev/null 2>&1; then
   echo "archiso is missing. On Arch Linux, install it with: pacman -S archiso" >&2
   exit 1
 fi
+if ! command -v grub-mkstandalone >/dev/null 2>&1; then
+  echo "grub is missing (required for the Evangelion Ayanami GRUB boot menu). On Arch Linux, install it with: pacman -S grub" >&2
+  exit 1
+fi
 
 for required in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/airootfs"; do
   [[ -e "$required" ]] || { echo "Missing AniOS profile component: $required" >&2; exit 1; }
@@ -201,11 +205,12 @@ for boot_dir in efiboot grub syslinux; do
 done
 
 # Mặc định Archiso chỉ cấp 256 MB RAM cho lớp ghi (cow) của hệ live, nên
-# `pacman -Syyu` hết chỗ giữa chừng. Tăng lên 4G (tmpfs chỉ dùng RAM khi cần).
+# `pacman -Syyu` hết chỗ giữa chừng. Tăng lên 10G (tmpfs chỉ dùng RAM khi cần
+# và đẩy được trang nguội sang zram).
 for boot_dir in efiboot grub syslinux; do
   [[ -d "$BUILD_PROFILE/$boot_dir" ]] || continue
   find "$BUILD_PROFILE/$boot_dir" -type f \( -name '*.conf' -o -name '*.cfg' \) -print0 |
-    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=4G/ }'
+    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=10G/ }'
 done
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
@@ -224,9 +229,82 @@ for asset in "$ROOT_DIR/profile/branding/wallpaper.png" \
 done
 install -D -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
   "$BUILD_PROFILE/airootfs/usr/share/anios/wallpaper.png"
+install -D -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
+  "$BUILD_PROFILE/airootfs/usr/share/anios/skel/.config/quickshell/imi/assets/images/default_wallpaper.png"
 if [[ -d "$BUILD_PROFILE/syslinux" ]]; then
   install -m 0644 -- "$ROOT_DIR/profile/branding/syslinux-splash.png" \
     "$BUILD_PROFILE/syslinux/splash.png"
+fi
+
+# --- Theme GRUB Evangelion (Ayanami) khi mở AniOS --------------------------
+# Nguồn: https://github.com/Aleph1-9012/Evangelion (themes/ayanami/1080p).
+# Chép theme vào $BUILD_PROFILE/grub/themes/ayanami (mkarchiso tự chép mọi mục
+# không phải *.cfg trong grub/ sang /boot/grub/ trên ISO) và cấu hình grub.cfg
+# cùng loopback.cfg nạp font PF2, bật gfxterm 1920x1080 và gắn icon đánh số
+# --class evangelion-index-01..99 cho từng mục menuentry.
+GRUB_THEME_SRC="$ROOT_DIR/profile/airootfs/usr/share/grub/themes/ayanami"
+[[ -s "$GRUB_THEME_SRC/theme.txt" ]] ||
+  { echo "Missing Evangelion Ayanami GRUB theme: $GRUB_THEME_SRC/theme.txt" >&2; exit 1; }
+if [[ -d "$BUILD_PROFILE/grub" ]]; then
+  install -d -m 0755 -- "$BUILD_PROFILE/grub/themes/ayanami"
+  cp -a -- "$GRUB_THEME_SRC/." "$BUILD_PROFILE/grub/themes/ayanami/"
+
+  for grub_cfg in "$BUILD_PROFILE/grub/grub.cfg" "$BUILD_PROFILE/grub/loopback.cfg"; do
+    [[ -f "$grub_cfg" ]] || continue
+    awk '
+      /^timeout_style=menu/ {
+        print
+        print ""
+        print "# Evangelion Ayanami GRUB theme"
+        print "insmod all_video"
+        print "insmod gfxterm"
+        print "insmod gfxmenu"
+        print "insmod png"
+        print "set gfxmode=\"1920x1080,1280x720,auto\""
+        print "set gfxpayload=keep"
+        print "loadfont \"${prefix}/fonts/unicode.pf2\""
+        print "if [ -f \"/boot/grub/themes/ayanami/theme.txt\" ]; then"
+        print "    loadfont \"/boot/grub/themes/ayanami/fonts/ayanami-1080p-menu.pf2\""
+        print "    loadfont \"/boot/grub/themes/ayanami/fonts/ayanami-1080p-timer.pf2\""
+        print "    loadfont \"/boot/grub/themes/ayanami/fonts/terminal.pf2\""
+        print "    if terminal_output gfxterm; then"
+        print "        set theme=\"/boot/grub/themes/ayanami/theme.txt\""
+        print "        export theme"
+        print "    fi"
+        print "elif [ -f \"${prefix}/themes/ayanami/theme.txt\" ]; then"
+        print "    loadfont \"${prefix}/themes/ayanami/fonts/ayanami-1080p-menu.pf2\""
+        print "    loadfont \"${prefix}/themes/ayanami/fonts/ayanami-1080p-timer.pf2\""
+        print "    loadfont \"${prefix}/themes/ayanami/fonts/terminal.pf2\""
+        print "    if terminal_output gfxterm; then"
+        print "        set theme=\"${prefix}/themes/ayanami/theme.txt\""
+        print "        export theme"
+        print "    fi"
+        print "fi"
+        next
+      }
+      /^[[:space:]]*menuentry[[:space:]]/ && !/--class evangelion-index-/ {
+        if ($0 ~ /Run Memtest86\+/) {
+          if (!memtest_idx) { idx++; memtest_idx = idx }
+          cur = memtest_idx
+        } else {
+          idx++
+          cur = idx
+        }
+        badge = sprintf("--class evangelion-index-%02d ", cur)
+        if ($0 ~ /--class /) {
+          sub(/--class /, badge "--class ")
+        } else {
+          sub(/\{[[:space:]]*$/, badge "{")
+        }
+      }
+      { print }
+    ' "$grub_cfg" > "${grub_cfg}.tmp"
+    mv -- "${grub_cfg}.tmp" "$grub_cfg"
+    grep -qF '/themes/ayanami/theme.txt' "$grub_cfg" ||
+      { echo "Failed to inject Evangelion Ayanami theme into $grub_cfg" >&2; exit 1; }
+    grep -qF 'evangelion-index-01' "$grub_cfg" ||
+      { echo "Failed to add Evangelion index badges into $grub_cfg" >&2; exit 1; }
+  done
 fi
 
 # Tài khoản live đã có sẵn cấu hình đọc được ngay trong ảnh nén: nếu
@@ -377,13 +455,20 @@ grep -q 'geo.mirror.pkgbuild.com' "$RUNTIME_PACMAN_CONF" ||
 
 # Preserve Archiso's current boot modes and other profile settings, changing
 # only the identity strings that are stable across releng profile revisions.
+# Chuyển UEFI bootmode từ systemd-boot sang uefi.grub để hiển thị menu GRUB
+# với theme Evangelion (Ayanami) khi mở AniOS.
 sed -i \
+  -e "s/'uefi\.systemd-boot'/'uefi.grub'/g" \
   -e 's/^iso_name=.*/iso_name="anios"/' \
   -e 's/^iso_label=.*/iso_label="ANIOS_$(date +%Y%m)"/' \
   -e 's|^iso_publisher=.*|iso_publisher="AniOS Project <https://github.com/yushichivnllc/AniOS>"|' \
   -e 's/^iso_application=.*/iso_application="AniOS Arch Linux Live Gaming Desktop"/' \
   -e 's/^iso_version=.*/iso_version="$(date +%Y.%m.%d)"/' \
   "$BUILD_PROFILE/profiledef.sh"
+if grep -q 'uefi\.systemd-boot' "$BUILD_PROFILE/profiledef.sh" || ! grep -q 'uefi\.grub' "$BUILD_PROFILE/profiledef.sh"; then
+  echo "Failed to configure uefi.grub bootmode in $BUILD_PROFILE/profiledef.sh" >&2
+  exit 1
+fi
 
 # mkarchiso chép airootfs bằng `cp --no-preserve=ownership,mode`, nên bit thực
 # thi của script và quyền 0440 của file sudoers bị mất trong chroot. Muốn giữ
@@ -394,23 +479,27 @@ insert_permission() {
   sed -i "/^file_permissions=(/a\\  [\"${path}\"]=\"${permissions}\"" "$BUILD_PROFILE/profiledef.sh"
 }
 insert_permission "/etc/sudoers.d/10-anios-live" "0:0:440"
+insert_permission "/etc/grub.d/99_anios_evangelion" "0:0:755"
 insert_permission "/usr/local/bin/anios-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-switch-desktop" "0:0:755"
 insert_permission "/usr/local/bin/anios-session" "0:0:755"
 insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-check" "0:0:755"
+insert_permission "/usr/local/bin/anios-update" "0:0:755"
 insert_permission "/usr/local/lib/anios/create-live-user" "0:0:755"
 insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
 
 for entry in \
   '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
+  '["/etc/grub.d/99_anios_evangelion"]="0:0:755"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-desktop"]="0:0:755"' \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
+  '["/usr/local/bin/anios-update"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||

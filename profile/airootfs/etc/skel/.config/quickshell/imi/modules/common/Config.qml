@@ -1122,7 +1122,7 @@ Singleton {
                     }
                 }
                 property list<string> screenList: [] 
-                property string wallpaperPath: ""
+                property string wallpaperPath: "/usr/share/anios/wallpaper.png"
                 property bool centeredWallpaper: false
                 property string centeredWallpaperShape: "Cookie7Sided"
                 property int centeredWallpaperSize: 400

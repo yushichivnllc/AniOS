@@ -69,8 +69,11 @@ Item {
     // https://www.nerdfonts.com/cheat-sheet
     property var macSymbolMap: ({
         "Ctrl": "󰘴",
+        "CTRL": "󰘴",
         "Alt": "󰘵",
+        "ALT": "󰘵",
         "Shift": "󰘶",
+        "SHIFT": "󰘶",
         "Space": "󱁐",
         "Tab": "↹",
         "Equal": "󰇼",
@@ -120,6 +123,8 @@ Item {
         MaterialShape.Shape.Ghostish
     ]
     property var sectionIcons: ({
+        "Shell": "dashboard",
+        "AniOS": "sports_esports",
         "Utilities": "handyman",
         "Session": "power_settings_new",
         "Apps": "apps",
@@ -129,9 +134,10 @@ Item {
         "Workspace": "workspaces"
     })
 
-    property var keyBlacklist: ["Super_L"]
+    property var keyBlacklist: ["Super_L", "SUPER_L", "Super_R", "SUPER_R"]
     property var keySubstitutions: Object.assign({
         "Super": "",
+        "SUPER": "",
         "mouse_up": "Scroll ↓",    // ikr, weird
         "mouse_down": "Scroll ↑",  // trust me bro
         "mouse:272": "LMB",
@@ -157,6 +163,7 @@ Item {
       },
       !!Config.options.cheatsheet.superKey ? {
           "Super": Config.options.cheatsheet.superKey,
+          "SUPER": Config.options.cheatsheet.superKey,
       }: {},
       Config.options.cheatsheet.useMacSymbol ? macSymbolMap : {},
       Config.options.cheatsheet.useFnSymbol ? functionSymbolMap : {},

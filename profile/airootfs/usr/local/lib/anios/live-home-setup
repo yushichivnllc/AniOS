@@ -42,3 +42,34 @@ printf '%s:%s\n' "$user" "$password" | chpasswd || {
 install -d -m 0755 -o "$user" -g "$group" \
   "$home/Desktop" "$home/Documents" "$home/Downloads" "$home/Pictures" "$home/Videos" "$home/Games"
 find "$home/Desktop" -maxdepth 1 -type f -name '*.desktop' -exec chmod +x {} +
+
+# --- Tối ưu dung lượng lớp ghi (cowspace) & pacman cho phiên Live ----------
+# Trong phiên live, `/` nằm trên overlayfs có lớp ghi là tmpfs `/run/archiso/cowspace`.
+# Nếu người dùng chạy `pacman -Syu` hoặc `yay -Syu`, pacman vừa tải hàng GB file
+# `.pkg.tar.zst` vào `/var/cache/pacman/pkg` (cũng nằm trên cowspace) vừa giải nén
+# đè lên `/usr`, rất dễ làm đầy cowspace hoặc cạn inode giữa chừng với lỗi:
+#   "error: could not extract /usr/share/locale/... (Write failed)"
+if [[ -d /run/archiso/cowspace ]] && grep -q ' /run/archiso/cowspace ' /proc/mounts 2>/dev/null; then
+  # Mở rộng cowspace tối thiểu 10G (hoặc 80% RAM nếu máy nhiều RAM) và bỏ giới hạn
+  # inode (nr_inodes=0); trang nguội sẽ được nén sang zram.
+  mem_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  cow_mib=$(( mem_kib * 80 / 100 / 1024 ))
+  if (( cow_mib < 10240 )); then
+    cow_mib=10240
+  fi
+  mount -o "remount,size=${cow_mib}M,nr_inodes=0" /run/archiso/cowspace 2>/dev/null || true
+  mount -o "remount,size=${cow_mib}M,nr_inodes=0" /tmp 2>/dev/null || true
+
+  # Đẩy thư mục cache tải gói của pacman sang /tmp (tmpfs riêng) để file .pkg.tar.zst
+  # không chiếm trực tiếp không gian giải nén của `/` (cowspace), đồng thời bỏ qua
+  # nâng cấp kernel/firmware (vô tác dụng trên USB live mà còn xoá mất module của
+  # kernel đang chạy) và không giải nén manpage/doc/locale ngoại ngữ không dùng.
+  install -d -m 0755 /tmp/pacman-pkg-cache
+  if [[ -f /etc/pacman.conf ]] && ! grep -qF '# anios-live-pacman-tuning' /etc/pacman.conf; then
+    sed -i '/^\[options\]/a \
+# anios-live-pacman-tuning\
+CacheDir = /tmp/pacman-pkg-cache/\
+IgnorePkg = linux-zen linux-zen-headers linux-firmware linux-firmware-whence\
+NoExtract = usr/share/doc/* usr/share/gtk-doc/* usr/share/help/* usr/share/info/* usr/share/man/* usr/share/locale/* !usr/share/locale/en* !usr/share/locale/vi* !usr/share/locale/locale.alias' /etc/pacman.conf || true
+  fi
+fi

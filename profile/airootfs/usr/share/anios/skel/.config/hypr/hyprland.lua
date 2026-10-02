@@ -228,45 +228,75 @@ else
     hl.layer_rule({ match = { namespace = "fuzzel" }, blur = true, ignore_alpha = 0.2 })
     hl.layer_rule({ match = { namespace = "mako" },   blur = true, ignore_alpha = 0.2 })
 
-    -- Ứng dụng.
-    hl.bind(mainMod .. " + D", hl.dsp.exec_cmd(menu))
-    hl.bind(mainMod .. " + Return", hl.dsp.exec_cmd(terminal))
-    hl.bind(mainMod .. " + E", hl.dsp.exec_cmd("thunar"))
+    -- Ứng dụng (hỗ trợ cả Super + D lẫn nhấn nhả phím Super độc lập để mở menu).
+    hl.bind(mainMod .. " + D",       hl.dsp.exec_cmd(menu))
+    hl.bind(mainMod .. " + SUPER_L", hl.dsp.exec_cmd("pkill fuzzel || " .. menu), { release = true, ignore_mods = true })
+    hl.bind(mainMod .. " + SUPER_R", hl.dsp.exec_cmd("pkill fuzzel || " .. menu), { release = true, ignore_mods = true })
+    hl.bind(mainMod .. " + Return",  hl.dsp.exec_cmd(terminal))
+    hl.bind(mainMod .. " + E",      hl.dsp.exec_cmd("thunar"))
+    hl.bind(mainMod .. " + W",      hl.dsp.exec_cmd([=[sh -c 'command -v firefox >/dev/null 2>&1 && exec firefox || exec coccoc-browser-stable']=]))
 
     -- Cửa sổ.
-    hl.bind(mainMod .. " + F", hl.dsp.window.fullscreen())
-    hl.bind(mainMod .. " + space", hl.dsp.window.float({ action = "toggle" }))
-    hl.bind(mainMod .. " + SHIFT + space", hl.dsp.window.pin())
-    hl.bind(mainMod .. " + Q", hl.dsp.window.close())
+    -- Lưu ý: hl.dsp.window.fullscreen trong Hyprland 0.56 bắt buộc nhận 1 bảng
+    -- tham số (table); gọi rỗng fullscreen() sẽ ném lỗi Lua và làm đứt toàn bộ
+    -- các phím tắt khai báo phía dưới.
+    hl.bind(mainMod .. " + F",             hl.dsp.window.fullscreen({ mode = "fullscreen", action = "toggle" }))
+    hl.bind(mainMod .. " + Space",         hl.dsp.window.float({ action = "toggle" }))
+    hl.bind(mainMod .. " + V",             hl.dsp.window.float({ action = "toggle" }))
+    hl.bind(mainMod .. " + SHIFT + Space", hl.dsp.window.pin())
+    hl.bind(mainMod .. " + P",             hl.dsp.window.pin())
+    hl.bind(mainMod .. " + Q",             hl.dsp.window.close())
 
     -- Phiên: khoá màn hình, thoát và nạp lại cấu hình.
     hl.bind(mainMod .. " + SHIFT + L", hl.dsp.exec_cmd("hyprlock"))
     hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exit())
+    hl.bind(mainMod .. " + M",         hl.dsp.exit())
     hl.bind(mainMod .. " + SHIFT + R", hl.dsp.exec_cmd("hyprctl reload"))
 
     -- Đổi giao diện tại chỗ: Minimal <-> Immaterial Impulse.
     hl.bind(mainMod .. " + ALT + M", hl.dsp.exec_cmd("/usr/local/bin/anios-switch-desktop toggle"))
 
-    -- Chuyển focus theo hướng.
-    hl.bind(mainMod .. " + H", hl.dsp.focus({ direction = "left" }))
-    hl.bind(mainMod .. " + L", hl.dsp.focus({ direction = "right" }))
-    hl.bind(mainMod .. " + K", hl.dsp.focus({ direction = "up" }))
-    hl.bind(mainMod .. " + J", hl.dsp.focus({ direction = "down" }))
+    -- Chuyển focus theo hướng (hỗ trợ cả cụm phím Vim H/J/K/L lẫn phím mũi tên).
+    hl.bind(mainMod .. " + H",     hl.dsp.focus({ direction = "l" }))
+    hl.bind(mainMod .. " + L",     hl.dsp.focus({ direction = "r" }))
+    hl.bind(mainMod .. " + K",     hl.dsp.focus({ direction = "u" }))
+    hl.bind(mainMod .. " + J",     hl.dsp.focus({ direction = "d" }))
+    hl.bind(mainMod .. " + Left",  hl.dsp.focus({ direction = "l" }))
+    hl.bind(mainMod .. " + Right", hl.dsp.focus({ direction = "r" }))
+    hl.bind(mainMod .. " + Up",    hl.dsp.focus({ direction = "u" }))
+    hl.bind(mainMod .. " + Down",  hl.dsp.focus({ direction = "d" }))
 
-    -- Workspace 1-3 và đưa cửa sổ đang chọn sang workspace đó.
-    for i = 1, 3 do
-        hl.bind(mainMod .. " + " .. i, hl.dsp.focus({ workspace = i }))
-        hl.bind(mainMod .. " + SHIFT + " .. i, hl.dsp.window.move({ workspace = i }))
+    -- Di chuyển cửa sổ theo hướng (Super + Shift + Left/Right/Up/Down).
+    hl.bind(mainMod .. " + SHIFT + Left",  hl.dsp.window.move({ direction = "l" }))
+    hl.bind(mainMod .. " + SHIFT + Right", hl.dsp.window.move({ direction = "r" }))
+    hl.bind(mainMod .. " + SHIFT + Up",    hl.dsp.window.move({ direction = "u" }))
+    hl.bind(mainMod .. " + SHIFT + Down",  hl.dsp.window.move({ direction = "d" }))
+
+    -- Workspace 1-10 (phím 1..9, 0) và đưa cửa sổ đang chọn sang workspace đó.
+    for i = 1, 10 do
+        local key = tostring(i % 10)
+        hl.bind(mainMod .. " + " .. key,         hl.dsp.focus({ workspace = i }))
+        hl.bind(mainMod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i, follow = true }))
+        hl.bind(mainMod .. " + ALT + " .. key,   hl.dsp.window.move({ workspace = i, follow = false }))
     end
 
-    -- Phím âm lượng: thêm locked để vẫn chỉnh được khi màn hình đang khoá.
-    hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true })
-    hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"), { locked = true })
-    hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"), { locked = true })
+    -- Cuộn chuột khi giữ Super để chuyển nhanh qua các workspace đang mở.
+    hl.bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }))
+    hl.bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }))
+
+    -- Kéo / đổi cỡ cửa sổ bằng chuột khi giữ Super (cờ mouse = true tương đương bindm).
+    hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
+    hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
+
+    -- Phím âm lượng: thêm locked + repeating để giữ phím tăng/giảm được cả khi khoá màn hình.
+    hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true, repeating = true })
+    hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"),        { locked = true, repeating = true })
+    hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),       { locked = true })
+    hl.bind("XF86AudioMicMute",     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),     { locked = true })
 
     -- Phím độ sáng màn hình (máy quán net hay laptop mang theo).
-    hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd("brightnessctl set 5%+"), { locked = true })
-    hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl set 5%-"), { locked = true })
+    hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd("brightnessctl set 5%+"), { locked = true, repeating = true })
+    hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl set 5%-"), { locked = true, repeating = true })
 
     -- Không có tiếng: mở công cụ kiểm tra âm thanh trong foot (giữ cửa sổ lại để
     -- đọc kết quả). Công cụ này chỉ đọc trạng thái và phát thử một tiếng bíp; muốn
@@ -274,7 +304,9 @@ else
     hl.bind(mainMod .. " + SHIFT + A",
         hl.dsp.exec_cmd([[foot sh -c "/usr/local/bin/anios-audio-check; printf '\nNhấn Enter để đóng cửa sổ... '; read -r _"]]))
 
-    -- Chụp màn hình: chọn vùng bằng slurp rồi đưa thẳng ảnh vào clipboard.
-    hl.bind("Print", hl.dsp.exec_cmd([[grim -g "$(slurp)" - | wl-copy]]))
+    -- Chụp màn hình: chọn vùng bằng slurp (Print hoặc Super+Shift+S) rồi đưa thẳng ảnh vào clipboard.
+    hl.bind("Print",                   hl.dsp.exec_cmd([[grim -g "$(slurp)" - | wl-copy]]))
+    hl.bind("SHIFT + Print",           hl.dsp.exec_cmd([=[sh -c 'mkdir -p "$HOME/Pictures" && grim "$HOME/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"']=]))
+    hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd([[grim -g "$(slurp)" - | wl-copy]]))
 
 end

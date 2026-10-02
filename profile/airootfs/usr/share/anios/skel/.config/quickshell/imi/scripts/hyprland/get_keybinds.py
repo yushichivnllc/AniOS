@@ -95,7 +95,7 @@ def read_content(path: str) -> str:
 
 def parse_key_string(key_str: str):
     """Parse 'SUPER + SHIFT + Q' into (['SUPER', 'SHIFT'], 'Q')"""
-    known_mods = {"SUPER", "SHIFT", "CTRL", "ALT", "META", "SUPER_L", "SUPER_R"}
+    known_mods = {"SUPER", "SHIFT", "CTRL", "ALT", "META"}
     parts = [p.strip() for p in key_str.split("+")]
     mods, key = [], ""
     for p in parts:

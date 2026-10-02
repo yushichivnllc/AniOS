@@ -1747,7 +1747,7 @@ And a final paragraph after the math, so the stream does not end on a block boun
                     .map(w => `${w.class}: ${String(w.title ?? "").slice(0, 60)}`).join("\n");
                 addFunctionOutputMessage(name, Translation.tr("No window matches. Open windows:\n%1").arg(open));
             } else {
-                Hyprland.dispatch(`focuswindow address:${wins[0].address}`);
+                Hyprland.dispatch(`hl.dsp.focus({ window = "address:${wins[0].address}" })`);
                 addFunctionOutputMessage(name, `Focused: ${wins[0].class} - ${wins[0].title}`);
             }
             root.pendingContinuation = true;
