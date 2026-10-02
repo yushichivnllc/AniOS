@@ -283,7 +283,7 @@ Item {
                                 }
                                 const percentageX = (window.x - xOffset) / root.workspaceImplicitWidth
                                 const percentageY = (window.y - yOffset) / root.workspaceImplicitHeight
-                                Hyprland.dispatch(`hl.dsp.window.move({ x = "${percentageX * root.screen.width}", y = "${percentageY * root.screen.height}", window = "address:${window.windowData?.address}" })`)
+                                Hyprland.dispatch(`hl.dsp.window.move({ x = ${Math.round(percentageX * root.screen.width)}, y = ${Math.round(percentageY * root.screen.height)}, exact = true, window = "address:${window.windowData?.address}" })`)
                             }
                         }
                         onClicked: (event) => {

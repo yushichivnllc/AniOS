@@ -1,0 +1,25 @@
+#!/bin/sh
+# 99_anios_evangelion — Kích hoạt theme GRUB Evangelion (Ayanami) cho AniOS.
+# Nguồn: https://github.com/Aleph1-9012/Evangelion (themes/ayanami/1080p)
+exec tail -n +5 "$0"
+
+# Evangelion Ayanami GRUB theme loader
+insmod all_video
+insmod gfxterm
+insmod gfxmenu
+insmod png
+set gfxmode="1920x1080,1280x720,auto"
+set gfxpayload=keep
+loadfont "${prefix}/fonts/unicode.pf2"
+for _eva_dir in "/boot/grub/themes/ayanami" "/usr/share/grub/themes/ayanami" "${prefix}/themes/ayanami"; do
+    if [ -f "${_eva_dir}/theme.txt" ]; then
+        loadfont "${_eva_dir}/fonts/ayanami-1080p-menu.pf2"
+        loadfont "${_eva_dir}/fonts/ayanami-1080p-timer.pf2"
+        loadfont "${_eva_dir}/fonts/terminal.pf2"
+        if terminal_output gfxterm; then
+            set theme="${_eva_dir}/theme.txt"
+            export theme
+        fi
+        break
+    fi
+done

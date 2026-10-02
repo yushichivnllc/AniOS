@@ -179,6 +179,21 @@ grep -qF 'onErrorOccurred: root.videoReady = false' "$WUWA_QML" ||
 grep -qF 'sddm.login(uname, passIn.text, root.sessionIndex)' "$WUWA_QML" ||
   fail "Wuthering Waves theme must submit credentials to SDDM"
 
+# Theme GRUB Evangelion (Ayanami) từ Aleph1-9012/Evangelion (1080p) dùng khi mở AniOS.
+GRUB_AYANAMI_DIR="$AIROOTFS/usr/share/grub/themes/ayanami"
+for file in theme.txt background.png UPSTREAM LICENSE NOTICE.md \
+  fonts/ayanami-1080p-menu.pf2 fonts/ayanami-1080p-timer.pf2 fonts/terminal.pf2 \
+  icons/evangelion-index-01.png icons/evangelion-index-02.png; do
+  [[ -s "$GRUB_AYANAMI_DIR/$file" ]] ||
+    fail "Evangelion Ayanami GRUB theme asset is missing: $file"
+done
+grep -qF 'Evangelion ayanami-1080p-menu Regular 38' "$GRUB_AYANAMI_DIR/theme.txt" ||
+  fail "Evangelion Ayanami GRUB theme.txt must configure the Ayanami menu font"
+[[ -x "$AIROOTFS/etc/grub.d/99_anios_evangelion" ]] ||
+  fail "etc/grub.d/99_anios_evangelion must be executable"
+[[ -x "$AIROOTFS/usr/local/bin/anios-update" ]] ||
+  fail "usr/local/bin/anios-update must be executable"
+
 grep -qxF 'Exec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-sessions/anios.desktop" ||
   fail "AniOS SDDM session must start anios-session"
 grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-sessions/anios.desktop" ||

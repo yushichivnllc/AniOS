@@ -56,9 +56,9 @@ if status is-interactive
     alias la="ls -A --color=auto"
     alias l="ls -CF --color=auto"
     alias fetch="fastfetch"
-    alias update="sudo pacman -Syu"
+    alias update="/usr/local/bin/anios-update"
     # yay (trợ lý AUR) đã cài sẵn trong ảnh
-    alias update-aur="yay -Syu"
+    alias update-aur="/usr/local/bin/anios-update --aur"
     alias aur-search="yay -Ss"
     alias cls="clear"
     alias clear="printf '[2J[3J[1;1H'"

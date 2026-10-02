@@ -9,14 +9,42 @@ local hyprScripts = "$HOME/.config/hypr/hyprland/scripts"
 local qsIpcCall = "qs -c $qsConfig ipc call"
 local qsIsAlive = qsIpcCall .. " TEST_ALIVE"
 
-hl.bind("SUPER + SUPER_L", hl.dsp.global("quickshell:searchToggleRelease"), { description = "Shell: Toggle search" })
+--#!
+--##! Shell
+--# Hyprland 0.56 Lua binds have handler == "__lua", so GlobalShortcut release
+--# events only fire when bound with release = true, while press events on
+--# Super_L/Super_R occur before XKB adds HL_MODIFIER_META to modmask (modmask == 0).
+--# Both press and release binds on Super_L/Super_R therefore need ignore_mods = true
+--# (so releaseInvited is armed on press when modmask == 0 and fired on release when
+--# modmask == SUPER), and press binds need non_consuming = true so arming does not
+--# suppress sibling releaseInvited binds on the same key press.
+hl.bind("SUPER_L", hl.dsp.global("quickshell:searchToggleRelease"),
+    { ignore_mods = true, transparent = true, non_consuming = true })
+hl.bind("SUPER_R", hl.dsp.global("quickshell:searchToggleRelease"),
+    { ignore_mods = true, transparent = true, non_consuming = true })
+hl.bind("SUPER + SUPER_L", hl.dsp.global("quickshell:searchToggleRelease"),
+    { release = true, ignore_mods = true, description = "Shell: Toggle search" })
+hl.bind("SUPER + SUPER_R", hl.dsp.global("quickshell:searchToggleRelease"),
+    { release = true, ignore_mods = true })
+hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"),
+    { release = true, ignore_mods = true })
+hl.bind("SUPER + SUPER_R", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"),
+    { release = true, ignore_mods = true })
 hl.bind("SUPER + Y", hl.dsp.global("quickshell:modesToggle"), { description = "Shell: Modes & Routines" })
-hl.bind("SUPER + SUPER_R", hl.dsp.global("quickshell:searchToggleRelease"))
-hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"))
-hl.bind("SUPER + SUPER_R", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"))
 
-hl.bind("SUPER_L", hl.dsp.global("quickshell:workspaceNumber"), { ignore_mods = true, transparent = true })
-hl.bind("SUPER_R", hl.dsp.global("quickshell:workspaceNumber"), { ignore_mods = true, transparent = true })
+--# Interrupt search-on-release when Super is combined with Ctrl or mouse actions.
+hl.bind("CTRL + SUPER_L", hl.dsp.global("quickshell:searchToggleReleaseInterrupt"), { non_consuming = true })
+hl.bind("CTRL + SUPER_R", hl.dsp.global("quickshell:searchToggleReleaseInterrupt"), { non_consuming = true })
+for i = 1, 8 do
+    local keycombos = { ":272", ":273", ":274", ":275", ":276", ":277", "_up", "_down" }
+    hl.bind("SUPER + mouse" .. keycombos[i], hl.dsp.global("quickshell:searchToggleReleaseInterrupt"),
+        { non_consuming = true })
+end
+
+hl.bind("SUPER_L", hl.dsp.global("quickshell:workspaceNumber"),
+    { ignore_mods = true, transparent = true, non_consuming = true })
+hl.bind("SUPER_R", hl.dsp.global("quickshell:workspaceNumber"),
+    { ignore_mods = true, transparent = true, non_consuming = true })
 hl.bind("SUPER_L", hl.dsp.global("quickshell:workspaceNumber"),
     { ignore_mods = true, transparent = true, release = true })
 hl.bind("SUPER_R", hl.dsp.global("quickshell:workspaceNumber"),
@@ -82,7 +110,7 @@ hl.bind("SUPER + Period", hl.dsp.exec_cmd(
     { description = "Utilities: Emoji >> clipboard" })
 hl.bind("SUPER + SHIFT + S", hl.dsp.global("quickshell:regionScreenshot"), { description = "Utilities: Screen snip" })
 hl.bind("SUPER + SHIFT + S",
-    hl.dsp.exec_cmd(qsIsAlive .. " || pidof slurp || hyprshot --freeze --clipboard-only --mode region --silent"))
+    hl.dsp.exec_cmd(qsIsAlive .. " || pidof slurp || (grim -g \"$(slurp)\" - | wl-copy)"))
 hl.bind("SUPER + SHIFT + A", hl.dsp.global("quickshell:regionSearch"), { description = "Utilities: Google Lens" })
 hl.bind("SUPER + SHIFT + A", hl.dsp.exec_cmd(qsIsAlive .. " || pidof slurp || " .. hyprScripts .. "/snip_to_search.sh"))
 --# OCR
@@ -161,12 +189,12 @@ hl.bind("SUPER + SHIFT + P", hl.dsp.exec_cmd("playerctl play-pause"),
     { locked = true, description = "Media: Play/pause media" })
 hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
 hl.bind("XF86AudioPause", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
-hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SINK@ toggle"), { locked = true })
-hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SINK@ toggle"),
+hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"), { locked = true })
+hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),
     { locked = true, description = "Media: Toggle mute" })
-hl.bind("ALT + XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true })
-hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true })
-hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"),
+hl.bind("ALT + XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"), { locked = true })
+hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"), { locked = true })
+hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),
     { locked = true, description = "Media: Toggle mic" })
 
 --#!
@@ -256,7 +284,7 @@ for i = 1, 2 do
 end
 for i = 1, 4 do
     local key = { "SUPER + ALT + Page_", "CTRL + SUPER + SHIFT + " }
-    local keycombos = { key[1] .. "down", key[1] .. "up", key[2] .. "Right", key[2] .. "Left" }
+    local keycombos = { key[1] .. "Down", key[1] .. "Up", key[2] .. "Right", key[2] .. "Left" }
     local prefix = { "r+", "r-", "r+", "r-" }
     hl.bind(keycombos[i], hl.dsp.window.move({ workspace = prefix[i] .. "1" })) -- # [hidden]
 end
@@ -274,12 +302,12 @@ for i = 1, 10 do
     end, { description = "Workspace: Focus " .. i })
 end
 --# We also use raw keycodes because some keyboard layouts register number keys as different chars. The codes can be verified with `wev`
-for i = 1, 10 do
-    local numberkey = { 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }
-    hl.bind("SUPER + code:" .. numberkey[i], function()
-        hl.dispatch(hl.dsp.focus({ workspace = workspace_in_group(i) }))
-    end)
-end
+-- for i = 1, 10 do
+--     local numberkey = { 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }
+--     hl.bind("SUPER + code:" .. numberkey[i], function()
+--         hl.dispatch(hl.dsp.focus({ workspace = workspace_in_group(i) }))
+--     end)
+-- end
 --# keypad numbers
 for i = 1, 10 do
     local numpadkey = { 87, 88, 89, 83, 84, 85, 79, 80, 81, 90 }
@@ -355,7 +383,9 @@ hl.bind("SUPER + ALT + Equal",
     hl.dsp.exec_cmd("notify-send 'Urgent notification' 'Ah hell no' -u critical -a 'Hyprland keybind'")) -- # [hidden]
 
 --##! Session
-hl.bind("SUPER + L", hl.dsp.exec_cmd("loginctl lock-session"), { description = "Session: Lock" })
+hl.bind("SUPER + L",
+    hl.dsp.exec_cmd("pidof hypridle >/dev/null && loginctl lock-session || " .. qsIpcCall .. " lock activate || pidof hyprlock || hyprlock"),
+    { description = "Session: Lock" })
 hl.bind("CTRL + SUPER + L", hl.dsp.global("quickshell:screensaverToggleMonitor"),
     { description = "Session: Blank the focused monitor (OLED screensaver)" })
 hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("systemctl suspend || loginctl suspend"),
@@ -382,4 +412,4 @@ hl.bind("CTRL + SHIFT + Escape", hl.dsp.exec_cmd(taskManager), { description = "
 
 --# Cursed stuff
 --## Make window not amogus large
-hl.bind("CTRL + SUPER + Backslash", hl.dsp.window.resize({ x = 640, y = 480, "exact" }))
+hl.bind("CTRL + SUPER + Backslash", hl.dsp.window.resize({ x = 640, y = 480, exact = true }))

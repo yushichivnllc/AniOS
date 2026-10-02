@@ -1,5 +1,7 @@
 # Kernel và định danh bản dựng của AniOS (đặt tên AniOS nằm trong airootfs)
 linux-zen
+# GRUB 2 dùng kèm theme Evangelion (Ayanami) khi khởi động
+grub
 # chpasswd đặt mật khẩu live lúc khởi động
 shadow
 linux-zen-headers

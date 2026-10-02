@@ -53,13 +53,7 @@ NestableObject {
     function applyMonitor(m) {
         if (!m.name) return
 
-        const base = `${m.name},${m.currentMode},${m.x}x${m.y},${m.scale}`
-        applyProc.command = ["hyprctl", "keyword", "monitor",
-            m.disabled
-                ? `${m.name},disable`
-                : (m.transform && m.transform !== 0)
-                    ? `${base},transform,${m.transform}`
-                    : base]
+        applyProc.command = ["hyprctl", "eval", root._buildLuaLine(m)]
         applyProc.running = true
     }
 

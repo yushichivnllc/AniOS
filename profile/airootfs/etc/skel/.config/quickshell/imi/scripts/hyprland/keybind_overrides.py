@@ -31,7 +31,7 @@ HEADER_LINE = "-- Managed by Immaterial Impulse (Settings > Hyprland > Keybinds)
 WARNING_LINE = "-- Do not edit: hand edits are detected and stop the shell writing here."
 HASH_PREFIX = "-- imi-keybinds-sha256: "
 
-KNOWN_MODS = {"SUPER", "SHIFT", "CTRL", "ALT", "META", "SUPER_L", "SUPER_R"}
+KNOWN_MODS = {"SUPER", "SHIFT", "CTRL", "ALT", "META"}
 
 KNOWN_FLAGS = {
     "locked", "repeating", "mouse", "release", "non_consuming",
@@ -228,7 +228,12 @@ def render_body(sidecar):
 
     lines = [
         "local function unbind_chord(chord)",
-        "    hl.bind(chord, function() end):unbind()",
+        "    if hl.unbind then",
+        "        hl.unbind(chord)",
+        "    else",
+        "        local kb = hl.bind(chord, function() end)",
+        "        if kb and kb.unbind then kb:unbind() elseif kb and kb.disable then kb:disable() end",
+        "    end",
         "end",
     ]
     lines += [f'unbind_chord({lua_quote(chord)})' for chord in dict.fromkeys(unbinds)]
