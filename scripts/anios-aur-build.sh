@@ -356,10 +356,10 @@ build_one() {
     (cd "$SRC_DIR/src/$pkg" && run_makepkg -f --noconfirm --nocheck $MAKEPKG_EXTRA_OPTS) ||
       build_status=$?
     if (( build_status == 0 )); then
-      pkgfile="$(find "$SRC_DIR/src/$pkg" -maxdepth 1 -name "$pkg-*.pkg.tar*" | sort | head -n1)"
+      pkgfile="$(find "$SRC_DIR/src/$pkg" -maxdepth 1 -name "$pkg-*.pkg.tar*" | sort | sed -n '1p')"
       if [[ -z "$pkgfile" ]]; then
         # Gói split: lấy file .pkg.tar đầu tiên có trong thư mục.
-        pkgfile="$(find "$SRC_DIR/src/$pkg" -maxdepth 1 -name '*.pkg.tar*' | sort | head -n1)"
+        pkgfile="$(find "$SRC_DIR/src/$pkg" -maxdepth 1 -name '*.pkg.tar*' | sort | sed -n '1p')"
       fi
       if [[ -z "$pkgfile" ]]; then
         log "makepkg xong nhưng không tìm thấy file .pkg.tar của $pkg"
@@ -392,7 +392,7 @@ remove_orphan_build_deps() {
   # côi của pacman: nhờ vậy không bao giờ gỡ nhầm gói mà ảnh live cần nhưng tình
   # cờ cũng ở trạng thái mồ côi.
   for dep in ${INSTALLED_AS_DEPS[@]+"${INSTALLED_AS_DEPS[@]}"}; do
-    if pacman -Qdtq 2>/dev/null | grep -qxF "$dep"; then
+    if pacman -Qdtq 2>/dev/null | grep -xF "$dep" >/dev/null; then
       orphans+=("$dep")
     fi
   done

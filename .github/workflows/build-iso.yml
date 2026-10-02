@@ -223,9 +223,9 @@ jobs:
           grep -q '^sddm ' out/anios-pkglist.txt
           grep -q '^ibus ' out/anios-pkglist.txt
           grep -q '^ibus-unikey ' out/anios-pkglist.txt
-          # Gói cài sẵn theo yêu cầu: python, nodejs, wine và bộ công cụ để yay
-          # dựng được gói AUR ngay trong phiên live.
-          for pkg in python python-pip nodejs npm wine winetricks base-devel git \
+          # Gói cài sẵn theo yêu cầu: python, nodejs, wine, flatpak và bộ công cụ
+          # để yay dựng được gói AUR ngay trong phiên live.
+          for pkg in python python-pip nodejs npm wine winetricks flatpak base-devel git \
                      jre-openjdk qt5-base ttf-liberation; do
             grep -q "^$pkg " out/anios-pkglist.txt || {
               echo "::error::Ảnh live thiếu gói $pkg"
@@ -293,10 +293,10 @@ jobs:
           done
           echo "Ảnh live có wallpaper, logo, giao diện SDDM AniOS và cấu hình desktop"
 
-          unsquashfs -cat "$squashfs" usr/share/sddm/themes/anios/theme.conf |
-            grep -qxF 'background=/usr/share/anios/wallpaper.png'
-          unsquashfs -cat "$squashfs" usr/share/anios/skel/.config/hypr/hyprland.lua |
-            grep -qF 'swaybg -i /usr/share/anios/wallpaper.png'
+          anios_theme_conf="$(unsquashfs -cat "$squashfs" usr/share/sddm/themes/anios/theme.conf)"
+          grep -qxF 'background=/usr/share/anios/wallpaper.png' <<<"$anios_theme_conf"
+          hypr_lua_conf="$(unsquashfs -cat "$squashfs" usr/share/anios/skel/.config/hypr/hyprland.lua)"
+          grep -qF 'swaybg -i /usr/share/anios/wallpaper.png' <<<"$hypr_lua_conf"
 
           # mkarchiso chép airootfs bằng cp --no-preserve=mode, nên nếu quên
           # khai báo trong file_permissions thì script mất bit thực thi và
@@ -334,10 +334,9 @@ jobs:
           sddm_conf="$(unsquashfs -cat "$squashfs" etc/sddm.conf.d/10-anios-autologin.conf)"
           grep -qxF 'Current=wuwa' <<<"$sddm_conf"
           grep -qxF 'User=anios' <<<"$sddm_conf"
-          unsquashfs -cat "$squashfs" usr/share/sddm/themes/wuwa/Main.qml |
-            grep -qF 'interval: 1200'
-          unsquashfs -cat "$squashfs" usr/share/sddm/themes/wuwa/Main.qml |
-            grep -qF 'onErrorOccurred: root.videoReady = false'
+          wuwa_qml="$(unsquashfs -cat "$squashfs" usr/share/sddm/themes/wuwa/Main.qml)"
+          grep -qF 'interval: 1200' <<<"$wuwa_qml"
+          grep -qF 'onErrorOccurred: root.videoReady = false' <<<"$wuwa_qml"
           echo "SDDM dùng theme Wuthering Waves, có fallback video và tự đăng nhập tài khoản live"
 
           # Mật khẩu 1111 phải được nướng vào /etc/shadow từ lúc build (pacman
@@ -401,7 +400,10 @@ jobs:
 
           # Hook build phải đã bị hook dọn dẹp zzzz99 của releng xoá khỏi ảnh,
           # nếu không nó sẽ chạy lại ở mọi thao tác pacman trong phiên live.
-          if unsquashfs -ll "$squashfs" | grep -q 'anios-live-user.hook'; then
+          # Hỏi thẳng etc/pacman.d/hooks và không dùng `| grep -q` trên toàn ảnh:
+          # `grep -q` đóng ống sớm sẽ làm `unsquashfs -ll` nhận SIGPIPE (141)
+          # dưới `set -o pipefail`.
+          if unsquashfs -ll "$squashfs" etc/pacman.d/hooks 2>/dev/null | grep -F 'anios-live-user.hook' >/dev/null; then
             echo "::error::anios-live-user.hook còn nằm trong ảnh live"
             exit 1
           fi

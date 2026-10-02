@@ -28,11 +28,11 @@
     "bluetooth": "kcmshell6 kcm_bluetooth",
     "changePassword": "kitty -1 --hold=yes fish -i -c 'passwd'",
     "manageUser": "kcmshell6 kcm_users",
-    "network": "kcmshell6 kcm_networkmanagement",
-    "networkEthernet": "kcmshell6 kcm_networkmanagement",
-    "taskManager": "plasma-systemmonitor --page-name Processes",
+    "network": "nm-connection-editor",
+    "networkEthernet": "nm-connection-editor",
+    "taskManager": "kitty -1 top",
     "terminal": "kitty -1",
-    "update": "kitty -1 --hold=yes fish -i -c 'pkexec pacman -Syu'",
+    "update": "kitty -1 --hold=yes bash -lc '/usr/local/bin/anios-update'",
     "volumeMixer": "~/.config/hypr/hyprland/scripts/launch_first_available.sh \"pavucontrol-qt\" \"pavucontrol\""
   },
   "audio": {
@@ -286,10 +286,11 @@
     "ignoredAppRegexes": [],
     "monochromeIcons": true,
     "pinnedApps": [
-      "org.kde.dolphin",
+      "thunar",
       "kitty",
-      "vesktop",
-      "zen"
+      "firefox",
+      "coccoc-browser-stable",
+      "steam"
     ],
     "pinnedOnStartup": true,
     "showAppsButton": true,
@@ -386,9 +387,11 @@
   },
   "launcher": {
     "pinnedApps": [
-      "org.kde.dolphin",
+      "thunar",
       "kitty",
-      "cmake-gui"
+      "firefox",
+      "coccoc-browser-stable",
+      "steam"
     ]
   },
   "light": {

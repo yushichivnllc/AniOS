@@ -68,10 +68,10 @@ ERRORS=0
 # Gói AUR: dựng lúc build bởi scripts/anios-aur-build.sh, liệt kê trong
 # profile/packages.aur.x86_64.
 AUR_PACKAGES=(yay coccoc-browser-stable legacy-launcher)
-# Gói kho chính thức cài sẵn theo yêu cầu (python, nodejs, wine) và những thứ bắt
-# buộc phải có để `yay -S <gói>` chạy được ngay trong phiên live.
+# Gói kho chính thức cài sẵn theo yêu cầu (python, nodejs, wine, flatpak) và những
+# thứ bắt buộc phải có để `yay -S <gói>` chạy được ngay trong phiên live.
 REPO_PACKAGES=(
-  python python-pip nodejs npm wine winetricks
+  python python-pip nodejs npm wine winetricks flatpak
   base-devel git jre-openjdk qt5-base ttf-liberation
 )
 # Binary phải tồn tại để người dùng thật sự chạy được các gói trên.
@@ -85,6 +85,7 @@ REQUIRED_FILES=(
   usr/bin/npm
   usr/bin/wine
   usr/bin/winetricks
+  usr/bin/flatpak
   usr/bin/java
 )
 # Rác của bước dựng gói AUR: không thứ nào được nằm trong ảnh cuối.
@@ -180,7 +181,7 @@ db_has_package() {
 
 db_entry_of() {
   local pkg="$1"
-  grep -E "^${pkg//./\\.}-[^-]+-[^-]+$" <<<"$LOCAL_DB_CHILDREN" | head -n1
+  grep -E "^${pkg//./\\.}-[^-]+-[^-]+$" <<<"$LOCAL_DB_CHILDREN" | sed -n '1p'
 }
 
 echo "  Gói AUR (dựng lúc build, không có trong kho chính thức):"
@@ -241,7 +242,7 @@ if sfs_exists usr/share/anios/aur-packages.txt; then
     printf '%s\n' "$report_body" | grep -vE '^[[:space:]]*#' | grep -v '^[[:space:]]*$' |
       sed 's/^/    /' || true
     for pkg in "${AUR_PACKAGES[@]}"; do
-      printf '%s\n' "$report_body" | grep -qE "^${pkg//./\\.}=" ||
+      grep -qE "^${pkg//./\\.}=" <<<"$report_body" ||
         missing "báo cáo gói AUR không ghi lại $pkg"
     done
   else
@@ -285,7 +286,7 @@ while IFS= read -r entry; do
   if sfs_is_symlink "$path"; then
     continue # -cat không đọc được symlink tuyệt đối; bỏ qua có chủ đích
   fi
-  if sfs_is_regular_file "$path" && sfs_cat_regular "$path" | grep -q 'NOPASSWD'; then
+  if sfs_is_regular_file "$path" && sfs_cat_regular "$path" | grep 'NOPASSWD' >/dev/null; then
     echo "    NOPASSWD trong $path"
     nopasswd_found=1
   fi

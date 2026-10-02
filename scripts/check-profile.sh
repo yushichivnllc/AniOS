@@ -18,9 +18,11 @@ for package in \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
-  pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils rtkit \
-  quickshell matugen \
-  python python-pip nodejs npm wine winetricks \
+  pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
+  quickshell matugen kirigami syntax-highlighting qt6-positioning qt6-virtualkeyboard \
+  qt6-imageformats qt6-avif-image-plugin qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
+  kdialog ttf-jetbrains-mono-nerd adw-gtk-theme upower libqalculate hyprpicker hyprsunset cava wtype ripgrep eza gnome-keyring \
+  python python-pip nodejs npm wine winetricks flatpak \
   base-devel jre-openjdk qt5-base ttf-liberation; do
   grep -qxF "$package" "$ROOT_DIR/profile/packages.x86_64" || fail "required package missing: $package"
 done
@@ -280,13 +282,21 @@ for dotfile in \
   .config/fastfetch/config.jsonc .config/MangoHud/MangoHud.conf \
   .config/gamemode.ini \
   .config/quickshell/imi/shell.qml \
+  .config/quickshell/imi/assets/images/default_wallpaper.png \
   .config/matugen/config.toml \
   .config/immaterial-impulse/config.json \
+  .config/immaterial-impulse/plugin-state.json \
+  .config/anios/desktop-mode \
+  .local/state/quickshell/user/generated/colors.json \
+  .local/state/quickshell/user/generated/color.txt \
+  .local/state/quickshell/user/generated/wallpaper/path.txt \
   .config/starship.toml \
   .config/Kvantum/kvantum.kvconfig \
   .local/share/icons/immaterial-impulse.png; do
   [[ -s "$SKEL/$dotfile" ]] || fail "cài sẵn dotfile bị thiếu: $dotfile"
 done
+grep -qxF 'imi' "$SKEL/.config/anios/desktop-mode" ||
+  fail "Immaterial Impulse (imi) must be the default desktop mode in .config/anios/desktop-mode"
 
 # --- Cấu hình desktop -----------------------------------------------------
 # Hyprland 0.55 trở lên đọc cấu hình Lua (hyprland.lua); định dạng hyprlang
@@ -414,6 +424,7 @@ done
 
 [[ -s "$AIROOTFS/usr/share/applications/anios-setup.desktop" ]] || fail "the Immaterial Impulse shortcut is missing"
 [[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-imi.desktop" ]] || fail "the Immaterial Impulse Wayland session is missing"
+[[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-minimal.desktop" ]] || fail "the Minimal Wayland session is missing"
 [[ -s "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
 
 # --- Overlay không được đè lên file do gói pacman sở hữu ------------------
@@ -472,6 +483,13 @@ grep -qF 'check-live-audio.sh' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
   fail "the ISO build workflow must verify the live audio stack with scripts/check-live-audio.sh"
 grep -qF 'sfs_resolve' "$LIVE_AUDIO_CHECK" ||
   fail "scripts/check-live-audio.sh must follow symlinks itself; unsquashfs -cat cannot read the absolute symlinks pipewire-alsa installs"
+grep -qF 'libpulse' "$LIVE_AUDIO_CHECK" ||
+  fail "scripts/check-live-audio.sh must verify the libpulse package (provides pactl)"
+grep -qF 'usr/share/alsa/alsa.conf.d/99-pipewire-default.conf' "$LIVE_AUDIO_CHECK" ||
+  fail "scripts/check-live-audio.sh must verify usr/share/alsa/alsa.conf.d/99-pipewire-default.conf"
+if grep -nE '\|[[:space:]]*head([[:space:]]|$)' "$LIVE_AUDIO_CHECK" | grep -vE ':[[:space:]]*#'; then
+  fail "scripts/check-live-audio.sh must not pipe into head under set -o pipefail (causes SIGPIPE / exit code 141)"
+fi
 grep -qF 'selftest-check-live-audio.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
   fail "the profile workflow must run scripts/selftest-check-live-audio.sh"
 

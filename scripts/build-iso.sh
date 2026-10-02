@@ -231,9 +231,35 @@ install -D -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
   "$BUILD_PROFILE/airootfs/usr/share/anios/wallpaper.png"
 install -D -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
   "$BUILD_PROFILE/airootfs/usr/share/anios/skel/.config/quickshell/imi/assets/images/default_wallpaper.png"
+install -D -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
+  "$BUILD_PROFILE/airootfs/usr/share/anios/skel/Pictures/Wallpapers/gawr-gura.png"
 if [[ -d "$BUILD_PROFILE/syslinux" ]]; then
   install -m 0644 -- "$ROOT_DIR/profile/branding/syslinux-splash.png" \
     "$BUILD_PROFILE/syslinux/splash.png"
+fi
+
+# --- Font biểu tượng & giao diện cho Immaterial Impulse (Quickshell) -------
+# XephyLon/immaterial-impulse dùng font biến thiên "Material Symbols Rounded"
+# cho toàn bộ icon trên thanh bar, sidebar, dock, cài đặt và khoá màn hình,
+# cùng "Google Sans Flex", "Rubik", "Readex Pro" và "Space Grotesk". Tải sẵn
+# vào /usr/share/fonts/anios-imi/ (thư mục riêng không gói pacman nào sở hữu)
+# để không làm phình repo git và không xung đột khi pacstrap.
+IMI_FONT_DIR="$BUILD_PROFILE/airootfs/usr/share/fonts/anios-imi"
+install -d -m 0755 -- "$IMI_FONT_DIR"
+if command -v curl >/dev/null 2>&1; then
+  while IFS='|' read -r font_file font_url; do
+    [[ -n "$font_file" && -n "$font_url" ]] || continue
+    if [[ ! -s "$IMI_FONT_DIR/$font_file" ]]; then
+      curl -fsSL --retry 3 --max-time 60 -o "$IMI_FONT_DIR/$font_file" "$font_url" ||
+        echo "WARN: could not download optional Immaterial Impulse font $font_file" >&2
+    fi
+  done <<'EOF'
+MaterialSymbolsRounded[FILL,GRAD,opsz,wght].ttf|https://raw.githubusercontent.com/google/material-design-icons/master/variablefont/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf
+GoogleSansFlex[GRAD,ROND,opsz,slnt,wdth,wght].ttf|https://raw.githubusercontent.com/google/fonts/main/ofl/googlesansflex/GoogleSansFlex%5BGRAD%2CROND%2Copsz%2Cslnt%2Cwdth%2Cwght%5D.ttf
+Rubik[wght].ttf|https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik%5Bwght%5D.ttf
+ReadexPro[HEXP,wght].ttf|https://raw.githubusercontent.com/google/fonts/main/ofl/readexpro/ReadexPro%5BHEXP%2Cwght%5D.ttf
+SpaceGrotesk[wght].ttf|https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf
+EOF
 fi
 
 # --- Theme GRUB Evangelion (Ayanami) khi mở AniOS --------------------------

@@ -90,9 +90,9 @@ Các symlink do `systemctl enable` tạo ra (`etc/systemd/user/*.wants/...` -> `
 FATAL ERROR: dir_scan: failed to make directory <đường dẫn>, because File exists
 ```
 
-(unsquashfs.c, `dir_scan()`: từng thư mục được tạo bằng `mkdir(2)` và `EEXIST` bị coi là lỗi, chỉ `depth == 1` mới được bỏ qua — trừ khi chạy `-force`.) Vì bản cũ trích **mọi thứ vào chung một** `$EXTRACT_DIR`, từ lần trích thứ hai trở đi unsquashfs hỏng và script báo `THIẾU` cho mọi đường dẫn còn lại — kể cả file có thật. Bản cũ còn tự chặn mọi thư mục quá 500 entry (để khỏi phải trích thư mục cha mà nhìn symlink), nên `usr/bin` — nơi có hàng nghìn binary trong ảnh live — bị bỏ qua và mọi binary trong đó cũng bị báo thiếu.
+(unsquashfs.c, `dir_scan()`: từng thư mục được tạo bằng `mkdir(2)` và `EEXIST` bị coi là lỗi, chỉ `depth == 1` mới được bỏ qua — trừ khi chạy `-force`.) Vì bản cũ trích **mọi thứ vào chung một** `$EXTRACT_DIR` (hoặc trích `usr/share/alsa` tạo sẵn `$dump/usr` rồi lại gọi `unsquashfs -d "$dump" ... "usr/bin/$tool"`), từ lần trích thứ hai trở đi unsquashfs hỏng và script báo `THIẾU usr/bin/pipewire`, `THIẾU usr/bin/wpctl`, `THIẾU usr/bin/pactl`, `THIẾU usr/bin/aplay`... — kể cả khi mọi binary đó đều có thật. Bản cũ còn tự chặn mọi thư mục quá 500 entry (để khỏi phải trích thư mục cha mà nhìn symlink), hoặc dùng `find ... | sort | head -60` dưới `set -e -o pipefail`: khi `head -60` đóng ống sau 60 dòng (ngay tại `usr/share/alsa/cards/CMI8738-MC8.conf`), lệnh đứng trước nhận `SIGPIPE` (tín hiệu 13) và làm cả bước CI chết với `Error: Process completed with exit code 141` (`128 + 13`) trước khi kịp in `::error::`.
 
-Cách sửa: đọc ảnh live bằng `scripts/check-live-audio.sh`. Script lấy loại entry và đích symlink từ `unsquashfs -ll` (chỉ đọc metadata, **không trích gì** và không đi theo symlink, nên thư mục cha to cỡ nào cũng không ảnh hưởng), rồi trích **đúng entry** cần đọc vào một thư mục đích **mới toanh** cho mỗi lần trích — nhờ vậy không bao giờ gặp lại lỗi `File exists`. Bài tự kiểm tra `scripts/selftest-check-live-audio.sh` dựng một ảnh live giả có đúng bố cục symlink đó, một `usr/bin` khổng lồ và lỗi `File exists` của `unsquashfs`, rồi chạy trong workflow `AniOS profile checks` — nên lỗi kiểu này bị bắt trong vài giây thay vì sau một lượt dựng ISO hàng chục phút.
+Cách sửa: đọc ảnh live bằng `scripts/check-live-audio.sh`. Script lấy loại entry và đích symlink từ `unsquashfs -ll` (chỉ đọc metadata, **không trích gì** và không đi theo symlink, nên thư mục cha to cỡ nào cũng không ảnh hưởng), trích **đúng entry** cần đọc vào một thư mục đích **mới toanh** cho mỗi lần trích (không bao giờ gặp lại lỗi `File exists`), và giới hạn số dòng chẩn đoán bằng `awk 'NR <= 60'` (đọc hết luồng tới EOF thay vì đóng ống sớm như `head`, nên không bao giờ chết với exit code 141). Bài tự kiểm tra `scripts/selftest-check-live-audio.sh` dựng một ảnh live giả có đúng bố cục symlink đó, một `usr/bin` khổng lồ, hàng trăm file `usr/share/alsa/cards/*.conf` và lỗi `File exists` của `unsquashfs`, rồi chạy trong workflow `AniOS profile checks` — nên lỗi kiểu này bị bắt trong vài giây thay vì sau một lượt dựng ISO hàng chục phút.
 
 ### Lỗi `A NOPASSWD sudo rule leaked into the image`
 
@@ -124,8 +124,8 @@ database pacman của ảnh lẫn trong danh sách gói trên ISO.
 | `legacy-launcher` | launcher Minecraft bản classic (llaun.ch); chạy bằng Java, cần `jre-openjdk` |
 
 Cùng đợt này, `packages.x86_64` có thêm `python`, `python-pip`, `nodejs`, `npm`, `wine`, `winetricks`,
-`base-devel`, `git`, `jre-openjdk`, `qt5-base` và `ttf-liberation` — nhóm gói từ kho chính thức mà người
-dùng phòng net hay phải tự cài.
+`flatpak`, `base-devel`, `git`, `jre-openjdk`, `qt5-base` và `ttf-liberation` — nhóm gói từ kho chính thức
+mà người dùng phòng net hay phải tự cài.
 
 Cách bước dựng AUR hoạt động:
 

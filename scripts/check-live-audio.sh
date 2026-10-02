@@ -64,6 +64,14 @@
 #      aplay...). Cách đúng: hỏi thẳng metadata bằng `unsquashfs -ll`, nó in ra
 #      loại entry và đích symlink mà KHÔNG trích gì, cũng không đi theo symlink,
 #      nên thư mục cha to cỡ nào cũng không ảnh hưởng.
+#
+#   4. Với `set -Eeuo pipefail`, KHÔNG BAO GIỜ nối ống danh sách dài vào `head`
+#      (ví dụ `find ... | sort | head -60`): khi `head` đọc đủ 60 dòng và đóng
+#      ống (đúng lúc đang in tới `usr/share/alsa/cards/CMI8738-MC8.conf`), lệnh
+#      đứng trước nhận tín hiệu SIGPIPE (13) và thoát với mã 128 + 13 = 141.
+#      `pipefail` + `-e` làm cả bước CI chết ngay với "Process completed with
+#      exit code 141" trước khi kịp in `::error::`. Mọi bước giới hạn số dòng ở
+#      đây đều đọc hết luồng đầu vào tới EOF bằng `awk` rồi mới ngưng in.
 set -Eeuo pipefail
 
 usage() {
@@ -163,8 +171,10 @@ sfs_image_entry() {
     return 0
   fi
   # `|| true`: giữ `set -e` khỏi thoát khi unsquashfs trả lỗi (đường dẫn lạ).
+  # Không dùng `exit` giữa chừng trong awk: nếu $rel là thư mục lớn, đóng ống
+  # sớm sẽ làm unsquashfs nhận SIGPIPE (141) dưới `set -o pipefail`.
   info="$(unsquashfs -ll "$SQUASHFS" "$rel" 2>/dev/null | awk -v want="$SFS_LIST_PREFIX/$rel" '
-    {
+    !found {
       path = $0
       target = ""
       pos = index(path, " -> ")
@@ -176,7 +186,7 @@ sfs_image_entry() {
         if (substr(path, RLENGTH + 1) == want) {
           split(substr(path, 1, RLENGTH), field, /[[:space:]]+/)
           printf "%s\t%s\n", substr(field[1], 1, 1), target
-          exit
+          found = 1
         }
       }
     }')" || true
@@ -345,6 +355,85 @@ sfs_read() {
   cat -- "$CACHE_DIR/$rel"
 }
 
+# Khi thiếu thành phần âm thanh, liệt kê những entry âm thanh thật sự có trong
+# ảnh để đọc ngay trong log CI.
+#
+# Lưu ý quan trọng:
+#   * Chỉ hỏi các thư mục cấu hình/unit/plugin âm thanh cụ thể và các binary âm
+#     thanh trong usr/bin, KHÔNG quét cả usr/share/alsa (nơi có hàng trăm file
+#     usr/share/alsa/cards/*.conf làm ngập danh sách).
+#   * Giới hạn 60 dòng bằng `awk 'NR <= 60'` (đọc hết luồng tới EOF rồi mới
+#     dừng in), TUYỆT ĐỐI KHÔNG dùng `| head -60`: dưới `set -Eeuo pipefail`,
+#     `head` đóng ống sớm sẽ làm lệnh đứng trước nhận SIGPIPE và chết với
+#     exit code 141 trước khi kịp in `::error::`.
+sfs_dump_audio_entries() {
+  local -a query_paths=(
+    etc/systemd/user
+    etc/alsa
+    usr/share/alsa/alsa.conf
+    usr/share/alsa/alsa.conf.d
+    usr/lib/alsa-lib
+    usr/lib/spa-0.2/alsa
+    usr/lib/systemd/user
+    usr/local/bin
+    usr/bin/pipewire
+    usr/bin/pipewire-pulse
+    usr/bin/wireplumber
+    usr/bin/wpctl
+    usr/bin/pactl
+    usr/bin/aplay
+    usr/bin/speaker-test
+    usr/bin/alsamixer
+  )
+  local dump="" p
+  dump="$(
+    for p in "${query_paths[@]}"; do
+      unsquashfs -ll "$SQUASHFS" "$p" 2>/dev/null || true
+    done | awk -v prefix="$SFS_LIST_PREFIX/" '
+      {
+        path = $0
+        target = ""
+        pos = index(path, " -> ")
+        if (pos > 0) {
+          target = substr(path, pos + 4)
+          path = substr(path, 1, pos - 1)
+        }
+        if (match(path, /^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[0-9][^[:space:]]*[[:space:]]+[0-9-]+[[:space:]]+[0-9:]+[[:space:]]+/)) {
+          rel = substr(path, RLENGTH + 1)
+          if (index(rel, prefix) == 1) {
+            rel = substr(rel, length(prefix) + 1)
+          }
+          split(substr(path, 1, RLENGTH), field, /[[:space:]]+/)
+          kind = substr(field[1], 1, 1)
+          if ((kind == "-" || kind == "l") &&
+              rel ~ /(alsa|pipewire|wireplumber|wpctl|pactl|aplay|speaker-test|alsamixer|anios-audio)/ &&
+              rel !~ /^usr\/share\/alsa\/(cards|ucm|ucm2|topology|init)\//) {
+            tag = (kind == "l") ? "l" : "f"
+            line = "  " tag " " rel " -> " target
+            if (!seen[line]++) {
+              print line
+            }
+          }
+        }
+      }' | sort | awk 'NR <= 60 { print }'
+  )" || true
+
+  if [[ -z "$dump" ]]; then
+    for p in etc/systemd/user etc/alsa usr/share/alsa/alsa.conf.d \
+      usr/lib/alsa-lib usr/lib/spa-0.2/alsa usr/lib/systemd/user usr/local/bin; do
+      sfs_extract_dir "$p" >/dev/null 2>&1 || true
+    done
+    dump="$(
+      find "$CACHE_DIR" \( -type f -o -type l \) -printf '  %y %P -> %l\n' 2>/dev/null |
+        grep -E 'alsa|pipewire|wireplumber|wpctl|pactl|aplay|speaker-test|alsamixer|anios-audio' |
+        grep -vE 'usr/share/alsa/(cards|ucm|ucm2|topology|init)/' |
+        sort -u | awk 'NR <= 60 { print }'
+    )" || true
+  fi
+
+  [[ -z "$dump" ]] || printf '%s\n' "$dump"
+}
+
 # 1) Toàn bộ trạng thái unit người dùng trong ảnh: vừa là bằng chứng cho bước
 #    kiểm tra, vừa giúp đọc log khi có sự cố âm thanh. Trích cả thư mục nên
 #    symlink do systemd enable tạo ra vẫn hiện đúng bản chất của nó.
@@ -370,6 +459,7 @@ for path in \
   usr/lib/spa-0.2/alsa/libspa-alsa.so \
   usr/lib/alsa-lib/libasound_module_pcm_pipewire.so \
   usr/share/alsa/alsa.conf.d/50-pipewire.conf \
+  usr/share/alsa/alsa.conf.d/99-pipewire-default.conf \
   etc/alsa/conf.d/50-pipewire.conf \
   etc/alsa/conf.d/99-pipewire-default.conf; do
   if sfs_has_file "$path"; then
@@ -384,8 +474,11 @@ for path in \
     missing_paths+=("$path")
   fi
 done
-((${#missing_paths[@]} == 0)) ||
+if ((${#missing_paths[@]} > 0)); then
+  echo "--- những gì thật sự có trong ảnh ở các thư mục âm thanh ---"
+  sfs_dump_audio_entries
   fail "Ảnh live thiếu thành phần âm thanh: ${missing_paths[*]}"
+fi
 
 # 2b) Hai file ALSA vừa kiểm tra do gói pipewire-alsa và pipewire-audio cài
 #     dưới dạng SYMLINK TUYỆT ĐỐI trỏ về /usr/share/alsa/alsa.conf.d/. Overlay
@@ -412,12 +505,15 @@ done
 ok "thiết bị ALSA pcm/ctl pipewire (gói pipewire-audio cài sẵn)"
 
 # 3) Gói âm thanh phải có mặt trong danh sách gói của ảnh live.
+#    libpulse mang pactl/paplay và libpulse.so cho app nói chuyện với
+#    pipewire-pulse; anios-audio-setup và anios-audio-check gọi pactl trực tiếp
+#    nên gói này phải có mặt tường minh trong ảnh.
 if [[ -n "$PKGLIST" ]]; then
   echo "--- gói âm thanh trong ảnh live ---"
   [[ -s "$PKGLIST" ]] || fail "không đọc được danh sách gói: $PKGLIST"
   for package in \
     pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber \
-    alsa-card-profiles alsa-utils rtkit; do
+    alsa-card-profiles alsa-utils rtkit libpulse; do
     line="$(grep "^${package} " "$PKGLIST" || true)"
     [[ -n "$line" ]] || fail "Ảnh live thiếu gói ${package}"
     ok "$line"

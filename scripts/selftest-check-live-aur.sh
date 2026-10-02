@@ -172,6 +172,7 @@ make_fake_image() {
     npm-11.0.0-1
     wine-10.0-1
     winetricks-20240105-1
+    flatpak-1.16.0-1
     base-devel-1-2
     git-2.47.1-1
     jre-openjdk-21.0.2.u13-1
@@ -189,7 +190,7 @@ make_fake_image() {
 
   # Binary của các gói trên.
   local bin
-  for bin in yay makepkg git python3 pip node npm wine winetricks java pacman \
+  for bin in yay makepkg git python3 pip node npm wine winetricks flatpak java pacman \
     hyprland steam; do
     printf '#!/bin/sh\necho %s\n' "$bin" >"$img/usr/bin/$bin"
     chmod 0755 -- "$img/usr/bin/$bin"
@@ -236,6 +237,7 @@ nodejs 23.6.0-1
 npm 11.0.0-1
 wine 10.0-1
 winetricks 20240105-1
+flatpak 1.16.0-1
 base-devel 1-2
 git 2.47.1-1
 jre-openjdk 21.0.2.u13-1
@@ -260,7 +262,7 @@ status=0
 run_checker "$IMG" "$out" || status=$?
 (( status == 0 )) || { cat "$out" >&2; fail "ảnh tốt mà script trả exit $status"; }
 grep -qF 'THIẾU' "$out" && { cat "$out" >&2; fail "ảnh tốt mà vẫn báo THIẾU"; }
-for pkg in yay coccoc-browser-stable legacy-launcher python nodejs wine; do
+for pkg in yay coccoc-browser-stable legacy-launcher python nodejs wine flatpak; do
   grep -qE "OK    $pkg\b" "$out" || { cat "$out" >&2; fail "ảnh tốt mà không xác nhận gói $pkg"; }
 done
 grep -qF 'OK    usr/bin/yay' "$out" || fail "không xác nhận binary usr/bin/yay"
