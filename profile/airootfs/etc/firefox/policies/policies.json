@@ -1,0 +1,12 @@
+{
+  "policies": {
+    "Homepage": {
+      "URL": "http://127.0.0.1:43211/",
+      "Locked": false,
+      "StartPage": "homepage"
+    },
+    "OverrideFirstRunPage": "http://127.0.0.1:43211/",
+    "OverridePostUpdatePage": "",
+    "DontCheckDefaultBrowser": true
+  }
+}

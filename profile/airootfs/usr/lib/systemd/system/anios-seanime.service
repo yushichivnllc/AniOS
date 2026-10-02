@@ -1,0 +1,21 @@
+[Unit]
+Description=Seanime server (anime web UI at http://127.0.0.1:43211)
+Documentation=https://seanime.app/docs
+# Thư mục home của tài khoản live phải sẵn sàng (và đã chuyển quyền) trước khi
+# Seanime ghi cấu hình vào ~/.config/Seanime.
+After=anios-live-home.service NetworkManager.service
+ConditionPathExists=/opt/seanime/seanime
+
+[Service]
+Type=simple
+User=anios
+Environment=HOME=/home/anios
+WorkingDirectory=/home/anios
+# Binary nằm ở /opt/seanime, tách khỏi thư mục dữ liệu: Seanime từ chối chạy file
+# thực thi nằm trong thư mục nó có quyền ghi.
+ExecStart=/opt/seanime/seanime --datadir /home/anios/.config/Seanime
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

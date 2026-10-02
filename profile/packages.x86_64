@@ -162,6 +162,11 @@ playerctl
 
 # Trình duyệt web
 firefox
+
+# Seanime (server nướng sẵn ở /opt/seanime, xem scripts/build-iso.sh): ffmpeg để
+# chuyển mã/trích xuất phụ đề, mpv làm trình phát ngoài.
+ffmpeg
+mpv
 # Cốc Cốc (gói AUR coccoc-browser-stable) cần hai thư viện này lúc chạy; cài sẵn
 # ở đây để trình duyệt mở được ngay trong phiên live mà không phải tải thêm.
 qt5-base

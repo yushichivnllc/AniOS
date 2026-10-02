@@ -17,7 +17,7 @@ for package in \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
-  xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
+  xorg-xwayland ttf-nerd-fonts-symbols firefox ffmpeg mpv curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
   quickshell matugen kirigami syntax-highlighting qt6-positioning qt6-virtualkeyboard \
   qt6-imageformats kimageformats libavif qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
@@ -207,6 +207,22 @@ grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-se
 # Ổ lưu dữ liệu trên USB: nhãn phải khớp giữa công cụ tạo phân vùng và menu khởi động.
 grep -qF 'LABEL=ANIOS_PERSIST' "$AIROOTFS/usr/local/bin/anios-persist" ||
   fail "anios-persist must label the storage partition ANIOS_PERSIST"
+# Seanime: server nướng sẵn ở /opt/seanime, chạy bằng service, và Firefox luôn mở
+# giao diện web của nó (trang chủ + trang khởi động).
+SEANIME_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-seanime.service"
+[[ -s "$SEANIME_UNIT" ]] || fail "anios-seanime.service is missing"
+grep -qxF 'ExecStart=/opt/seanime/seanime --datadir /home/anios/.config/Seanime' "$SEANIME_UNIT" ||
+  fail "anios-seanime.service must run /opt/seanime/seanime"
+[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-seanime.service" ]] ||
+  fail "anios-seanime.service is not enabled"
+FIREFOX_POLICY="$AIROOTFS/etc/firefox/policies/policies.json"
+[[ -s "$FIREFOX_POLICY" ]] || fail "Firefox policies.json is missing"
+grep -qF '"URL": "http://127.0.0.1:43211/"' "$FIREFOX_POLICY" ||
+  fail "Firefox homepage must be the Seanime web UI (http://127.0.0.1:43211/)"
+grep -qF '"StartPage": "homepage"' "$FIREFOX_POLICY" ||
+  fail "Firefox must open the homepage on every start"
+grep -qF 'seanime-${SEANIME_VERSION}_Linux_x86_64.tar.gz' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must download the Seanime server"
 PERSIST_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-persist.service"
 [[ -s "$PERSIST_UNIT" ]] || fail "anios-persist.service is missing"
 grep -qxF 'ExecStart=/usr/local/bin/anios-persist auto' "$PERSIST_UNIT" ||
