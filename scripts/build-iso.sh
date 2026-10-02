@@ -213,6 +213,78 @@ for boot_dir in efiboot grub syslinux; do
     xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=10G/ }'
 done
 
+# --- Lưu trữ bền vững trên phần trống của USB ------------------------------
+# Ghi ISO ra USB chỉ dùng phần đầu đĩa (chỉ đọc); mặc định lớp ghi của hệ live nằm
+# trong RAM nên USB 64 GB vẫn chỉ "trống" vài GB. `anios-persist setup` tạo phân
+# vùng ext4 nhãn ANIOS_PERSIST trên phần đĩa còn lại; menu khởi động dùng nó làm
+# lớp ghi (cow_label) để có đủ chỗ và giữ lại dữ liệu giữa các lần boot.
+#
+# GRUB (UEFI) tự dò nhãn nên mục chính luôn boot được, có hay không có phân vùng.
+# Syslinux (BIOS) không có điều kiện nên thêm một mục riêng. Nếu cow_label trỏ tới
+# phân vùng không tồn tại thì initramfs rơi vào shell, vì vậy KHÔNG đặt nó vào mục
+# mặc định của Syslinux.
+if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
+  awk '
+    /^default=/ && !injected {
+      print "# Ổ lưu dữ liệu: nếu USB có phân vùng ANIOS_PERSIST (tạo bằng `anios-persist setup`)"
+      print "# thì dùng nó làm lớp ghi của hệ live thay cho RAM."
+      print "insmod ext2"
+      print "set anios_cow=\"\""
+      print "search --no-floppy --label ANIOS_PERSIST --set=anios_persist_dev"
+      print "if [ -n \"${anios_persist_dev}\" ]; then"
+      print "    set anios_cow=\"cow_label=ANIOS_PERSIST\""
+      print "fi"
+      print ""
+      injected = 1
+    }
+    # Mục boot chính (và mục accessibility): thêm tham số lưu trữ vào cuối dòng linux.
+    /^[[:space:]]*linux[[:space:]].*archisobasedir=/ { sub(/[[:space:]]*$/, " ${anios_cow}") }
+    { print }
+  ' "$BUILD_PROFILE/grub/grub.cfg" > "$BUILD_PROFILE/grub/grub.cfg.tmp"
+  mv -- "$BUILD_PROFILE/grub/grub.cfg.tmp" "$BUILD_PROFILE/grub/grub.cfg"
+
+  # Mục dự phòng: bỏ qua ổ lưu dữ liệu (ví dụ phân vùng bị lỗi) và chạy thuần RAM.
+  awk '
+    /^menuentry .*--id .archlinux-accessibility./ && !done {
+      print "menuentry \"AniOS Live, chỉ dùng RAM, bỏ qua ổ lưu dữ liệu (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-ram'"'"' {"
+      print "    set gfxpayload=keep"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G %KERNEL_PARAMS%"
+      print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
+      print "}"
+      print ""
+      # Mục ép dùng ổ lưu dữ liệu, phòng khi GRUB không tự dò được nhãn (thiếu module).
+      print "menuentry \"AniOS Live, ép dùng ổ lưu dữ liệu ANIOS_PERSIST (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-persist'"'"' {"
+      print "    set gfxpayload=keep"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST %KERNEL_PARAMS%"
+      print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
+      print "}"
+      print ""
+      done = 1
+    }
+    { print }
+  ' "$BUILD_PROFILE/grub/grub.cfg" > "$BUILD_PROFILE/grub/grub.cfg.tmp"
+  mv -- "$BUILD_PROFILE/grub/grub.cfg.tmp" "$BUILD_PROFILE/grub/grub.cfg"
+  grep -qF 'cow_label=ANIOS_PERSIST' "$BUILD_PROFILE/grub/grub.cfg" &&
+    grep -qF '${anios_cow}' "$BUILD_PROFILE/grub/grub.cfg" &&
+    grep -qF "anios-ram" "$BUILD_PROFILE/grub/grub.cfg" ||
+    { echo "Failed to add persistent-storage support to grub/grub.cfg" >&2; exit 1; }
+fi
+if [[ -f "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" ]]; then
+  cat >> "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" <<'SYSLINUX_PERSIST'
+
+# Chỉ chọn mục này sau khi đã chạy `anios-persist setup` (cần phân vùng ANIOS_PERSIST).
+LABEL anios_persist
+TEXT HELP
+Boot AniOS on BIOS and keep data on the ANIOS_PERSIST partition of the USB drive.
+Create it first with: anios-persist setup
+ENDTEXT
+MENU LABEL AniOS Live (%ARCH%, BIOS) with ^persistent storage
+LINUX /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen
+INITRD /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img
+APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST %KERNEL_PARAMS%
+SYSLINUX_PERSIST
+fi
+
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
 # Releng có cấu hình autologin root trên tty1 (getty@tty1.service.d/autologin.conf).
@@ -513,6 +585,7 @@ insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-check" "0:0:755"
 insert_permission "/usr/local/bin/anios-update" "0:0:755"
+insert_permission "/usr/local/bin/anios-persist" "0:0:755"
 insert_permission "/usr/local/lib/anios/create-live-user" "0:0:755"
 insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
 
@@ -526,6 +599,7 @@ for entry in \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
   '["/usr/local/bin/anios-update"]="0:0:755"' \
+  '["/usr/local/bin/anios-persist"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||

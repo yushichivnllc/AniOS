@@ -203,6 +203,8 @@ jobs:
             -extract /boot/grub/themes/ayanami/theme.txt out/iso-ayanami-theme.txt
           grep -qF '/themes/ayanami/theme.txt' out/iso-grub.cfg
           grep -qF 'evangelion-index-01' out/iso-grub.cfg
+          grep -qF 'cow_label=ANIOS_PERSIST' out/iso-grub.cfg
+          grep -qF '${anios_cow}' out/iso-grub.cfg
           grep -qF 'Evangelion ayanami-1080p-menu Regular 38' out/iso-ayanami-theme.txt
           echo "ISO có menu GRUB Evangelion (Ayanami) hoàn chỉnh"
 
@@ -309,6 +311,7 @@ jobs:
           unsquashfs -q -no-progress -d "$perm_dump" "$squashfs" \
             usr/local/bin/anios-session \
             usr/local/bin/anios-setup \
+            usr/local/bin/anios-persist \
             usr/local/bin/anios-switch-desktop \
             usr/local/bin/anios-switch-im \
             usr/local/lib/anios/live-home-setup \
@@ -326,6 +329,7 @@ jobs:
           }
           check_mode usr/local/bin/anios-session 755
           check_mode usr/local/bin/anios-setup 755
+          check_mode usr/local/bin/anios-persist 755
           check_mode usr/local/bin/anios-switch-desktop 755
           check_mode usr/local/bin/anios-switch-im 755
           check_mode usr/local/lib/anios/live-home-setup 755

@@ -221,12 +221,31 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
 - **Phần mềm Windows**: `wine` + `winetricks` cài sẵn (kho `multilib` được bật từ lúc dựng nên phần 32-bit đầy đủ). Chạy `wine <file.exe>`; lần đầu Wine có thể đề nghị tải thêm Gecko/Mono. Game Windows nên ưu tiên qua Steam/Proton.
 - **Lập trình**: `python` + `pip`, `nodejs` + `npm` và Java (`jre-openjdk`) có sẵn; `base-devel` + `git` cũng nằm trong ảnh để `yay` tự dựng được gói AUR ngay trong phiên.
 - **Minecraft**: `legacy-launcher` (bản classic của llaun.ch) cài sẵn, mở từ launcher; cần Java (đã có) và tài khoản Minecraft hợp lệ.
-- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải trong phiên chỉ nằm trong RAM/overlay tạm: hãy copy file cần giữ ra ổ ngoài trước khi tắt máy, hoặc cài hệ thống vào ổ đĩa nếu sử dụng thường xuyên.
+- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải trong phiên chỉ nằm trong RAM/overlay tạm nếu chưa tạo ổ lưu dữ liệu bằng `anios-persist setup` (xem [bên dưới](#usb-64-gb-mà-chỉ-thấy-trống-khoảng-7-gb)): hãy copy file cần giữ ra ổ ngoài trước khi tắt máy, hoặc cài hệ thống vào ổ đĩa nếu sử dụng thường xuyên.
 - Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+A` mở công cụ kiểm tra âm thanh; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
 - **Màn hình khoá dùng mật khẩu**, không phải cơ chế bảo mật mạnh: nhập `1111` để mở khoá. Tài khoản live và `sudo` dùng cùng mật khẩu; mật khẩu này được tạo sẵn trong ảnh từ lúc build (pacman hook `anios-live-user.hook` viết hash vào `/etc/shadow`) và được `anios-live-home.service` đặt lại ở mỗi lần khởi động như dự phòng. Vì vậy đừng để dữ liệu quan trọng trong phiên live.
 - Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện theme **Wuthering Waves** của Qylock; chọn phiên **AniOS (Hyprland)** rồi nhập `1111` để vào lại. Theme hiện khung nền tĩnh ngay, rồi mới khởi tạo video sau 1,2 giây; nếu thiếu codec video thì khung tĩnh vẫn giữ cho màn hình đăng nhập dùng được. Các lỗi không vào được SDDM đã được xử lý triệt để: tắt tiến trình agetty autologin tty1 của releng để tránh tranh chấp VT, chuẩn hoá UID 1000 và nhóm quyền phần cứng (wheel, video, audio, input, seat) cho tài khoản `anios`, sửa liên kết dịch vụ chuẩn bị thư mục người dùng (`anios-live-home.service`), cấu hình `MinimumUid=500` cho SDDM, bổ sung fallback tài khoản tự động trong theme, và "nướng" mật khẩu `1111` vào `/etc/shadow` từ lúc build bằng pacman hook để đăng nhập thủ công SDDM (stack PAM `sddm` → `pam_unix`) không phụ thuộc vào việc service lúc khởi động có chạy thành công hay không — autologin thì luôn qua được vì dùng stack `sddm-autologin` (kết thúc bằng `pam_permit`).
 - Desktop mặc định giữ hiệu ứng ở mức "rẻ" cho iGPU đời cũ: cửa sổ thường **không** blur, animation chỉ là fade/popin ngắn, blur dành riêng cho các lớp phủ bán trong suốt (Waybar, Fuzzel, Mako) qua `layerrule`, còn màn hình khoá hyprlock tự blur nền một lần lúc khoá. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 - **Cấu hình Hyprland** nằm ở `~/.config/hypr/hyprland.lua` (bản sao gốc trong ảnh: `/usr/share/anios/skel/.config/hypr/hyprland.lua`): từ Hyprland 0.55 cấu hình viết bằng Lua thay cho `hyprland.conf` cũ, nên sau khi sửa chỉ cần `Super+Shift+R` để nạp lại. Màn hình khoá dùng định dạng riêng của hyprlock (`~/.config/hypr/hyprlock.conf`).
+
+### USB 64 GB mà chỉ thấy trống khoảng 7 GB
+
+Đây không phải lỗi USB mà do cách Live USB hoạt động. Ghi ISO ra USB (Rufus chế độ DD, `dd`, balenaEtcher) chỉ dùng phần đầu đĩa, chỉ đọc; phần còn lại của USB để trống chưa phân vùng. Mặc định lớp ghi của hệ live nằm trong **RAM**, nên dung lượng trống của `/` phụ thuộc RAM chứ không phải dung lượng USB, và mọi thứ cài thêm mất khi tắt máy.
+
+Muốn dùng phần còn lại của USB, trong phiên live chạy (mật khẩu `sudo` là `1111`):
+
+```bash
+anios-persist          # xem trạng thái và dung lượng chưa dùng của USB
+anios-persist setup    # tạo phân vùng ext4 nhãn ANIOS_PERSIST trên toàn bộ phần trống
+```
+
+Lệnh chỉ thêm một phân vùng vào chỗ trống sau ảnh ISO, không đụng tới các phân vùng đang có. Khởi động lại rồi vào menu:
+
+- **UEFI (GRUB)**: mục AniOS Live mặc định tự dò nhãn `ANIOS_PERSIST` và dùng nó làm lớp ghi. Nếu GRUB không dò được, chọn mục "ép dùng ổ lưu dữ liệu ANIOS_PERSIST".
+- **BIOS (Syslinux)**: chọn mục "AniOS Live (BIOS) with persistent storage".
+- Mục "chỉ dùng RAM, bỏ qua ổ lưu dữ liệu" boot như cũ nếu phân vùng gặp sự cố.
+
+Sau đó `df -h /` hiển thị dung lượng cả phần còn lại của USB; gói cài thêm (`yay -S ...`), game Steam và file trong home được giữ giữa các lần boot. Dữ liệu lưu theo từng bản ISO (thư mục `persistent_<nhãn ISO>` trên phân vùng), nên ghi bản ISO mới sẽ bắt đầu lại từ trạng thái sạch; dữ liệu cũ vẫn nằm trên phân vùng. Đừng chọn mục có `cow_label` khi chưa chạy `anios-persist setup`: initramfs sẽ không tìm thấy phân vùng và rơi vào shell.
 
 ### Khi Hyprland báo lỗi cấu hình Lua
 

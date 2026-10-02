@@ -20,7 +20,7 @@ for package in \
   xorg-xwayland ttf-nerd-fonts-symbols firefox curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
   quickshell matugen kirigami syntax-highlighting qt6-positioning qt6-virtualkeyboard \
-  qt6-imageformats qt6-avif-image-plugin qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
+  qt6-imageformats kimageformats libavif qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
   kdialog ttf-jetbrains-mono-nerd adw-gtk-theme upower libqalculate hyprpicker hyprsunset cava wtype ripgrep eza gnome-keyring \
   python python-pip nodejs npm wine winetricks flatpak \
   base-devel jre-openjdk qt5-base ttf-liberation; do
@@ -81,6 +81,7 @@ for declaration in \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
+  '["/usr/local/bin/anios-persist"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
@@ -202,6 +203,12 @@ grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-se
   fail "AniOS SDDM session must advertise anios-session as TryExec"
 [[ -x "$AIROOTFS/usr/local/bin/anios-session" ]] || fail "anios-session must be executable"
 [[ -x "$AIROOTFS/usr/local/bin/anios-setup" ]] || fail "anios-setup must be executable"
+[[ -x "$AIROOTFS/usr/local/bin/anios-persist" ]] || fail "anios-persist must be executable"
+# Ổ lưu dữ liệu trên USB: nhãn phải khớp giữa công cụ tạo phân vùng và menu khởi động.
+grep -qF 'LABEL=ANIOS_PERSIST' "$AIROOTFS/usr/local/bin/anios-persist" ||
+  fail "anios-persist must label the storage partition ANIOS_PERSIST"
+grep -qF 'cow_label=ANIOS_PERSIST' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must add cow_label=ANIOS_PERSIST boot entries"
 [[ -x "$AIROOTFS/usr/local/bin/anios-switch-desktop" ]] || fail "anios-switch-desktop must be executable"
 [[ -x "$AIROOTFS/usr/local/bin/anios-switch-im" ]] || fail "anios-switch-im must be executable"
 [[ -x "$AIROOTFS/usr/local/lib/anios/live-home-setup" ]] || fail "live-home-setup must be executable"
