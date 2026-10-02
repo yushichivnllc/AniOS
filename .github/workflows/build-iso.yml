@@ -205,6 +205,7 @@ jobs:
           grep -qF 'evangelion-index-01' out/iso-grub.cfg
           grep -qF 'cow_label=ANIOS_PERSIST' out/iso-grub.cfg
           grep -qF '${anios_cow}' out/iso-grub.cfg
+          grep -qF 'copytoram=n' out/iso-grub.cfg
           grep -qF 'Evangelion ayanami-1080p-menu Regular 38' out/iso-ayanami-theme.txt
           echo "ISO có menu GRUB Evangelion (Ayanami) hoàn chỉnh"
 

@@ -204,20 +204,25 @@ for boot_dir in efiboot grub syslinux; do
   fi
 done
 
-# Mặc định Archiso chỉ cấp 256 MB RAM cho lớp ghi (cow) của hệ live, nên
-# `pacman -Syyu` hết chỗ giữa chừng. Tăng lên 10G (tmpfs chỉ dùng RAM khi cần
-# và đẩy được trang nguội sang zram).
+# AniOS KHÔNG chạy kiểu Tails ("live trong RAM, tắt máy là mất hết"):
+#   * copytoram=n: không chép ảnh hệ thống vào RAM mà đọc thẳng từ USB (mặc định
+#     Archiso tự bật copytoram khi ảnh < 4 GiB và còn RAM, ngốn vài GB RAM);
+#   * lớp ghi nằm trên phân vùng ANIOS_PERSIST của USB (xem khối bên dưới), nên
+#     dung lượng trống bằng phần còn lại của USB chứ không phụ thuộc RAM.
+# cow_spacesize=10G chỉ còn là dung lượng tmpfs của chế độ dự phòng, dùng ở lần
+# boot đầu tiên (trước khi anios-persist.service tạo phân vùng) hoặc khi USB
+# không còn chỗ trống để tạo phân vùng.
 for boot_dir in efiboot grub syslinux; do
   [[ -d "$BUILD_PROFILE/$boot_dir" ]] || continue
   find "$BUILD_PROFILE/$boot_dir" -type f \( -name '*.conf' -o -name '*.cfg' \) -print0 |
-    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=10G/ }'
+    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=10G copytoram=n/ }'
 done
 
 # --- Lưu trữ bền vững trên phần trống của USB ------------------------------
-# Ghi ISO ra USB chỉ dùng phần đầu đĩa (chỉ đọc); mặc định lớp ghi của hệ live nằm
-# trong RAM nên USB 64 GB vẫn chỉ "trống" vài GB. `anios-persist setup` tạo phân
-# vùng ext4 nhãn ANIOS_PERSIST trên phần đĩa còn lại; menu khởi động dùng nó làm
-# lớp ghi (cow_label) để có đủ chỗ và giữ lại dữ liệu giữa các lần boot.
+# Ghi ISO ra USB chỉ dùng phần đầu đĩa (chỉ đọc). Lần boot đầu tiên,
+# anios-persist.service (`anios-persist auto`) tạo phân vùng ext4 nhãn
+# ANIOS_PERSIST trên phần đĩa còn lại rồi khởi động lại; từ đó menu khởi động dùng
+# nó làm lớp ghi (cow_label) thay cho RAM.
 #
 # GRUB (UEFI) tự dò nhãn nên mục chính luôn boot được, có hay không có phân vùng.
 # Syslinux (BIOS) không có điều kiện nên thêm một mục riêng. Nếu cow_label trỏ tới
@@ -246,16 +251,16 @@ if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
   # Mục dự phòng: bỏ qua ổ lưu dữ liệu (ví dụ phân vùng bị lỗi) và chạy thuần RAM.
   awk '
     /^menuentry .*--id .archlinux-accessibility./ && !done {
-      print "menuentry \"AniOS Live, chỉ dùng RAM, bỏ qua ổ lưu dữ liệu (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-ram'"'"' {"
+      print "menuentry \"AniOS Live, chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-ram'"'"' {"
       print "    set gfxpayload=keep"
-      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G %KERNEL_PARAMS%"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=n anios_persist=off %KERNEL_PARAMS%"
       print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
       print "}"
       print ""
       # Mục ép dùng ổ lưu dữ liệu, phòng khi GRUB không tự dò được nhãn (thiếu module).
       print "menuentry \"AniOS Live, ép dùng ổ lưu dữ liệu ANIOS_PERSIST (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-persist'"'"' {"
       print "    set gfxpayload=keep"
-      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST %KERNEL_PARAMS%"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST copytoram=n %KERNEL_PARAMS%"
       print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
       print "}"
       print ""
@@ -272,16 +277,16 @@ fi
 if [[ -f "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" ]]; then
   cat >> "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" <<'SYSLINUX_PERSIST'
 
-# Chỉ chọn mục này sau khi đã chạy `anios-persist setup` (cần phân vùng ANIOS_PERSIST).
+# Chọn mục này sau lần boot đầu tiên, khi phân vùng ANIOS_PERSIST đã được tạo.
 LABEL anios_persist
 TEXT HELP
 Boot AniOS on BIOS and keep data on the ANIOS_PERSIST partition of the USB drive.
-Create it first with: anios-persist setup
+The partition is created automatically on the first boot (or with: anios-persist setup).
 ENDTEXT
 MENU LABEL AniOS Live (%ARCH%, BIOS) with ^persistent storage
 LINUX /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen
 INITRD /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img
-APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST %KERNEL_PARAMS%
+APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST copytoram=n %KERNEL_PARAMS%
 SYSLINUX_PERSIST
 fi
 

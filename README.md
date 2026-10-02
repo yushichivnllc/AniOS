@@ -216,36 +216,30 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
   - `anios-audio-setup` chạy khi vào phiên (cả từ unit người dùng lẫn từ `hyprland.lua`): bật các unit, chạy thẳng `pipewire`/`wireplumber`/`pipewire-pulse` nếu phiên không có `systemd --user`, khởi động lại dàn âm thanh khi có card mà không có thiết bị xuất nào, và ở **lần vào desktop đầu tiên sau khi khởi động** tự bỏ trạng thái tắt tiếng/âm lượng 0% do BIOS để lại trên thiết bị xuất mặc định (đặt 50%). Các phiên sau tôn trọng lựa chọn của người dùng vì thư mục home của tài khoản live được làm mới ở mỗi lần boot. Cảnh báo hiện trên desktop bằng `hyprctl notify`.
   - `anios-audio-check` (phím tắt `Super+Shift+A`, hoặc gõ lệnh trong Foot) in ra card ALSA, trạng thái từng unit, máy chủ pulse, danh sách thiết bị xuất và mức âm lượng, phát thử một tiếng bíp, rồi gợi ý cách sửa. Khi thiết bị xuất mặc định là HDMI/DisplayPort mà máy vẫn còn cổng analog, cảnh báo kèm đúng lệnh `wpctl set-default …` để chuyển về loa/jack 3.5mm — kiểu "không có tiếng" phổ biến nhất ở máy phòng net. Nhật ký: `$XDG_RUNTIME_DIR/anios-audio-setup.log`.
   - Muốn dựng lại dàn âm thanh bằng tay: `anios-audio-setup --force`; chọn thiết bị xuất bằng `pavucontrol`; kiểm tra kênh phần cứng đang `[off]` bằng `alsamixer`.
-- **Cài thêm phần mềm ngay trong phiên live**: `yay` đã có sẵn trong ảnh nên dùng được cả kho chính thức lẫn AUR — `yay -S <tên gói>` để cài (tự hỏi mật khẩu `sudo`), `yay -Syu` (hoặc alias `update-aur`) để cập nhật toàn bộ, `yay -Ss <từ khoá>` (alias `aur-search`) để tìm. Vì đây là phiên live nên mọi gói cài thêm chỉ tồn tại tới khi tắt máy, và gói phải biên dịch sẽ ngốn RAM/đĩa tạm của phiên — máy ít RAM nên ưu tiên gói `-bin`.
+- **Cài thêm phần mềm ngay trong phiên live**: `yay` đã có sẵn trong ảnh nên dùng được cả kho chính thức lẫn AUR — `yay -S <tên gói>` để cài (tự hỏi mật khẩu `sudo`), `yay -Syu` (hoặc alias `update-aur`) để cập nhật toàn bộ, `yay -Ss <từ khoá>` (alias `aur-search`) để tìm. Gói cài thêm được ghi vào ổ lưu trữ trên USB (xem [mục bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)) nên còn nguyên sau khi tắt máy; nếu USB không còn chỗ để tạo ổ lưu trữ và phiên rơi về chế độ RAM dự phòng thì gói chỉ tồn tại tới khi tắt máy. Gói phải biên dịch tốn thời gian và CPU — máy yếu nên ưu tiên gói `-bin`.
 - **Cốc Cốc Browser** (`coccoc-browser-stable`) cài sẵn cho ai cần trình duyệt tiếng Việt, tải media từ trang nội địa tốt; chạy qua XWayland trong phiên Hyprland, thêm `--ozone-platform-hint=auto` nếu muốn thử Wayland native.
 - **Phần mềm Windows**: `wine` + `winetricks` cài sẵn (kho `multilib` được bật từ lúc dựng nên phần 32-bit đầy đủ). Chạy `wine <file.exe>`; lần đầu Wine có thể đề nghị tải thêm Gecko/Mono. Game Windows nên ưu tiên qua Steam/Proton.
 - **Lập trình**: `python` + `pip`, `nodejs` + `npm` và Java (`jre-openjdk`) có sẵn; `base-devel` + `git` cũng nằm trong ảnh để `yay` tự dựng được gói AUR ngay trong phiên.
 - **Minecraft**: `legacy-launcher` (bản classic của llaun.ch) cài sẵn, mở từ launcher; cần Java (đã có) và tài khoản Minecraft hợp lệ.
-- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải trong phiên chỉ nằm trong RAM/overlay tạm nếu chưa tạo ổ lưu dữ liệu bằng `anios-persist setup` (xem [bên dưới](#usb-64-gb-mà-chỉ-thấy-trống-khoảng-7-gb)): hãy copy file cần giữ ra ổ ngoài trước khi tắt máy, hoặc cài hệ thống vào ổ đĩa nếu sử dụng thường xuyên.
+- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải được ghi vào ổ lưu trữ trên USB nên dung lượng trống bằng phần còn lại của USB (xem [bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)). Nếu phiên đang ở chế độ RAM dự phòng thì hãy copy file cần giữ ra ổ ngoài trước khi tắt máy.
 - Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+A` mở công cụ kiểm tra âm thanh; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
 - **Màn hình khoá dùng mật khẩu**, không phải cơ chế bảo mật mạnh: nhập `1111` để mở khoá. Tài khoản live và `sudo` dùng cùng mật khẩu; mật khẩu này được tạo sẵn trong ảnh từ lúc build (pacman hook `anios-live-user.hook` viết hash vào `/etc/shadow`) và được `anios-live-home.service` đặt lại ở mỗi lần khởi động như dự phòng. Vì vậy đừng để dữ liệu quan trọng trong phiên live.
 - Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện theme **Wuthering Waves** của Qylock; chọn phiên **AniOS (Hyprland)** rồi nhập `1111` để vào lại. Theme hiện khung nền tĩnh ngay, rồi mới khởi tạo video sau 1,2 giây; nếu thiếu codec video thì khung tĩnh vẫn giữ cho màn hình đăng nhập dùng được. Các lỗi không vào được SDDM đã được xử lý triệt để: tắt tiến trình agetty autologin tty1 của releng để tránh tranh chấp VT, chuẩn hoá UID 1000 và nhóm quyền phần cứng (wheel, video, audio, input, seat) cho tài khoản `anios`, sửa liên kết dịch vụ chuẩn bị thư mục người dùng (`anios-live-home.service`), cấu hình `MinimumUid=500` cho SDDM, bổ sung fallback tài khoản tự động trong theme, và "nướng" mật khẩu `1111` vào `/etc/shadow` từ lúc build bằng pacman hook để đăng nhập thủ công SDDM (stack PAM `sddm` → `pam_unix`) không phụ thuộc vào việc service lúc khởi động có chạy thành công hay không — autologin thì luôn qua được vì dùng stack `sddm-autologin` (kết thúc bằng `pam_permit`).
 - Desktop mặc định giữ hiệu ứng ở mức "rẻ" cho iGPU đời cũ: cửa sổ thường **không** blur, animation chỉ là fade/popin ngắn, blur dành riêng cho các lớp phủ bán trong suốt (Waybar, Fuzzel, Mako) qua `layerrule`, còn màn hình khoá hyprlock tự blur nền một lần lúc khoá. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 - **Cấu hình Hyprland** nằm ở `~/.config/hypr/hyprland.lua` (bản sao gốc trong ảnh: `/usr/share/anios/skel/.config/hypr/hyprland.lua`): từ Hyprland 0.55 cấu hình viết bằng Lua thay cho `hyprland.conf` cũ, nên sau khi sửa chỉ cần `Super+Shift+R` để nạp lại. Màn hình khoá dùng định dạng riêng của hyprlock (`~/.config/hypr/hyprlock.conf`).
 
-### USB 64 GB mà chỉ thấy trống khoảng 7 GB
+### Lưu trữ trên USB (không chạy trong RAM kiểu Tails)
 
-Đây không phải lỗi USB mà do cách Live USB hoạt động. Ghi ISO ra USB (Rufus chế độ DD, `dd`, balenaEtcher) chỉ dùng phần đầu đĩa, chỉ đọc; phần còn lại của USB để trống chưa phân vùng. Mặc định lớp ghi của hệ live nằm trong **RAM**, nên dung lượng trống của `/` phụ thuộc RAM chứ không phải dung lượng USB, và mọi thứ cài thêm mất khi tắt máy.
+AniOS **không** chạy theo kiểu "live trong RAM, tắt máy là mất hết" như Tails. Ghi ISO ra USB (Rufus chế độ DD, `dd`, balenaEtcher) chỉ dùng phần đầu đĩa, chỉ đọc; phần còn lại của USB để trống. AniOS dùng chính phần đó làm lớp ghi của hệ thống, nên USB 64 GB cho gần 64 GB chỗ trống chứ không phải vài GB phụ thuộc RAM:
 
-Muốn dùng phần còn lại của USB, trong phiên live chạy (mật khẩu `sudo` là `1111`):
+- Ảnh hệ thống được đọc thẳng từ USB (`copytoram=n`), không chép vào RAM.
+- **Lần boot đầu tiên** `anios-persist.service` (chạy trước SDDM) tạo phân vùng ext4 nhãn `ANIOS_PERSIST` trên toàn bộ phần trống của USB, chỉ thêm phân vùng mới và không đụng tới phân vùng sẵn có, rồi **tự khởi động lại một lần** (UEFI). Cần ít nhất 2 GiB trống; không đủ chỗ thì phiên chạy ở chế độ RAM dự phòng.
+- Từ lần boot sau, mục AniOS Live trong GRUB tự dò nhãn `ANIOS_PERSIST` và dùng nó làm lớp ghi. `df -h /` hiện dung lượng cả phần còn lại của USB; gói cài thêm (`yay -S ...`), game Steam, model AI và file trong home được giữ giữa các lần boot.
+- **BIOS (Syslinux)** không tự dò được phân vùng: lần đầu phân vùng được tạo nhưng máy không tự khởi động lại; hãy khởi động lại và chọn mục "AniOS Live (BIOS) with persistent storage". Nếu GRUB (UEFI) không dò được nhãn, chọn mục "ép dùng ổ lưu dữ liệu ANIOS_PERSIST".
+- Mục "chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu" (`anios_persist=off`) boot không dùng phân vùng, dùng khi phân vùng gặp sự cố; mục này cũng không tạo phân vùng mới.
+- `anios-persist` xem trạng thái; `anios-persist setup` tạo phân vùng thủ công (cũng có shortcut trên desktop).
 
-```bash
-anios-persist          # xem trạng thái và dung lượng chưa dùng của USB
-anios-persist setup    # tạo phân vùng ext4 nhãn ANIOS_PERSIST trên toàn bộ phần trống
-```
-
-Lệnh chỉ thêm một phân vùng vào chỗ trống sau ảnh ISO, không đụng tới các phân vùng đang có. Khởi động lại rồi vào menu:
-
-- **UEFI (GRUB)**: mục AniOS Live mặc định tự dò nhãn `ANIOS_PERSIST` và dùng nó làm lớp ghi. Nếu GRUB không dò được, chọn mục "ép dùng ổ lưu dữ liệu ANIOS_PERSIST".
-- **BIOS (Syslinux)**: chọn mục "AniOS Live (BIOS) with persistent storage".
-- Mục "chỉ dùng RAM, bỏ qua ổ lưu dữ liệu" boot như cũ nếu phân vùng gặp sự cố.
-
-Sau đó `df -h /` hiển thị dung lượng cả phần còn lại của USB; gói cài thêm (`yay -S ...`), game Steam và file trong home được giữ giữa các lần boot. Dữ liệu lưu theo từng bản ISO (thư mục `persistent_<nhãn ISO>` trên phân vùng), nên ghi bản ISO mới sẽ bắt đầu lại từ trạng thái sạch; dữ liệu cũ vẫn nằm trên phân vùng. Đừng chọn mục có `cow_label` khi chưa chạy `anios-persist setup`: initramfs sẽ không tìm thấy phân vùng và rơi vào shell.
+Lưu ý: USB phải luôn cắm khi dùng. Dữ liệu lưu theo từng bản ISO (thư mục `persistent_<nhãn ISO>` trên phân vùng), nên ghi ISO mới sẽ bắt đầu lại từ trạng thái sạch; dữ liệu cũ vẫn nằm trên phân vùng. Chọn thủ công mục có `cow_label` khi chưa có phân vùng sẽ khiến initramfs rơi vào shell.
 
 ### Khi Hyprland báo lỗi cấu hình Lua
 
@@ -299,7 +293,7 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 - ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Driver NVIDIA proprietary không được cài sẵn; các card NVIDIA đời cũ có thể cần driver và cấu hình kernel riêng. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
 - Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
-- Hệ thống Live chạy từ ảnh nén trong RAM (zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
+- Hệ thống Live đọc ảnh nén trực tiếp từ USB (`copytoram=n`, không chép vào RAM; zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
 
 ## Chạy AI cục bộ
 
@@ -317,7 +311,7 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 - **onnxruntime-cpu** — chạy model định dạng ONNX.
 - **Jan AI** (`jan-bin`) và **LM Studio** (`lmstudio-bin`) — hai ứng dụng GUI nướng sẵn từ AUR lúc dựng ISO, mở từ launcher (`Super+D`): Jan là bản thay thế ChatGPT chạy 100% offline kèm engine llama.cpp, LM Studio dò và chạy model GGUF với giao diện dễ dùng.
 
-Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh phình thêm hàng chục GB). Model tải trong phiên được ghi vào home nằm trong RAM, nên muốn giữ lại giữa các lần boot hãy trỏ `OLLAMA_MODELS` (hoặc thư mục model của Jan/LM Studio) sang ổ USB/ổ cứng gắn ngoài. Ảnh không kèm CUDA/ROCm: máy có GPU rời NVIDIA/AMD mạnh có thể tự cài thêm `ollama-cuda`/`ollama-rocm` bằng `yay`.
+Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh phình thêm hàng chục GB). Model tải trong phiên được ghi vào ổ lưu trữ trên USB nên được giữ giữa các lần boot; model lớn nên trỏ `OLLAMA_MODELS` (hoặc thư mục model của Jan/LM Studio) sang ổ cứng gắn ngoài để không chiếm hết chỗ trên USB. Ảnh không kèm CUDA/ROCm: máy có GPU rời NVIDIA/AMD mạnh có thể tự cài thêm `ollama-cuda`/`ollama-rocm` bằng `yay`.
 
 ## Cấu trúc repository
 

@@ -207,6 +207,14 @@ grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-se
 # Ổ lưu dữ liệu trên USB: nhãn phải khớp giữa công cụ tạo phân vùng và menu khởi động.
 grep -qF 'LABEL=ANIOS_PERSIST' "$AIROOTFS/usr/local/bin/anios-persist" ||
   fail "anios-persist must label the storage partition ANIOS_PERSIST"
+PERSIST_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-persist.service"
+[[ -s "$PERSIST_UNIT" ]] || fail "anios-persist.service is missing"
+grep -qxF 'ExecStart=/usr/local/bin/anios-persist auto' "$PERSIST_UNIT" ||
+  fail "anios-persist.service must run 'anios-persist auto'"
+[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-persist.service" ]] ||
+  fail "anios-persist.service is not enabled"
+grep -qF 'copytoram=n' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must disable copytoram so the system is not loaded into RAM"
 grep -qF 'cow_label=ANIOS_PERSIST' "$ROOT_DIR/scripts/build-iso.sh" ||
   fail "build-iso.sh must add cow_label=ANIOS_PERSIST boot entries"
 [[ -x "$AIROOTFS/usr/local/bin/anios-switch-desktop" ]] || fail "anios-switch-desktop must be executable"

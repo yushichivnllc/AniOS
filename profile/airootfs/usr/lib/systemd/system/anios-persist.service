@@ -1,0 +1,15 @@
+[Unit]
+Description=Use the free space of the AniOS USB drive as persistent storage
+Documentation=file:///usr/local/bin/anios-persist
+After=local-fs.target systemd-udevd.service systemd-udev-trigger.service
+Before=anios-live-home.service sddm.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/anios-persist auto
+# Lỗi ở đây không được chặn phiên live: nếu không tạo được ổ lưu trữ thì chạy trong RAM.
+SuccessExitStatus=0 1
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

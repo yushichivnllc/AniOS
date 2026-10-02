@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# anios-persist — dùng phần dung lượng CÒN LẠI của USB làm ổ lưu dữ liệu cho AniOS Live.
+# anios-persist — dùng phần dung lượng CÒN LẠI của USB làm ổ lưu trữ chính cho AniOS Live.
 #
-# Vì sao cần: ISO ghi ra USB chỉ chiếm phần đầu đĩa (vài GB, chỉ đọc). Mặc định cả hệ
-# thống live chạy trên lớp ghi nằm trong RAM (tmpfs), nên USB 64 GB vẫn chỉ cho bạn
-# khoảng 7–10 GB "trống" (tuỳ RAM) và mọi thứ cài thêm mất sạch khi tắt máy.
+# AniOS KHÔNG chạy kiểu "live trong RAM rồi quên hết" như Tails: ISO ghi ra USB chỉ chiếm
+# phần đầu đĩa (chỉ đọc), phần còn lại của USB được dùng làm lớp ghi của hệ thống. Nhờ
+# vậy USB 64 GB cho gần 64 GB chỗ trống thay vì vài GB tuỳ RAM, và gói đã cài, game,
+# dữ liệu trong home được giữ lại giữa các lần boot.
 #
-# Script này tạo một phân vùng ext4 nhãn ANIOS_PERSIST trên toàn bộ phần đĩa chưa dùng.
-# Lần boot sau, menu khởi động tự dùng phân vùng đó làm lớp ghi (cow_label=ANIOS_PERSIST):
-# dung lượng trống của `/` bằng dung lượng phân vùng, còn gói đã cài và dữ liệu được giữ lại.
+# Lần boot đầu tiên (USB chưa có ổ lưu trữ), anios-persist.service gọi `anios-persist auto`:
+# tạo phân vùng ext4 nhãn ANIOS_PERSIST trên toàn bộ phần đĩa chưa dùng rồi khởi động lại
+# (UEFI). Từ lần boot sau menu GRUB tự dùng phân vùng đó (cow_label=ANIOS_PERSIST).
 #
 # Cách dùng:
 #   anios-persist            xem trạng thái (mặc định)
 #   anios-persist setup      tạo phân vùng lưu trữ trên phần trống của USB (hỏi xác nhận)
 #   anios-persist setup -y   như trên, không hỏi
+#   anios-persist auto       dành cho anios-persist.service: tự tạo khi cần rồi khởi động lại
 set -Eeuo pipefail
 
 LABEL=ANIOS_PERSIST
 MIN_FREE_MIB=2048
+AUTO=0
 
 die() { echo "Lỗi: $*" >&2; exit 1; }
 
@@ -76,9 +79,9 @@ show_status() {
   if findmnt -rn /run/archiso/cowspace >/dev/null 2>&1; then
     printf '   Kiểu lưu trữ : %s\n' "$(findmnt -rno FSTYPE /run/archiso/cowspace)"
     if [[ "$(findmnt -rno FSTYPE /run/archiso/cowspace)" == tmpfs ]]; then
-      echo "   Đang chạy hoàn toàn trong RAM: dung lượng bị giới hạn và mất khi tắt máy."
+      echo "   Đang chạy trong RAM (chế độ dự phòng): dung lượng bị giới hạn và mất khi tắt máy."
     else
-      echo "   Đang dùng ổ lưu trữ trên USB: dữ liệu được giữ lại giữa các lần boot."
+      echo "   Đang dùng ổ lưu trữ trên USB: dung lượng bằng phân vùng, dữ liệu được giữ lại."
     fi
   else
     echo "   (không phải phiên live của Archiso)"
@@ -155,18 +158,56 @@ do_setup() {
   mkfs.ext4 -F -q -L "$LABEL" -m 0 -E lazy_itable_init=1,lazy_journal_init=1 "$newpart"
   udevadm settle 2>/dev/null || true
 
+  if (( AUTO )); then
+    echo "AniOS: đã tạo ổ lưu trữ $newpart (nhãn $LABEL)."
+    return 0
+  fi
   cat <<EOF
 
 Xong: $newpart (nhãn $LABEL) đã sẵn sàng.
 Khởi động lại máy. Ở menu GRUB (UEFI) AniOS tự phát hiện phân vùng này và bật lưu trữ;
-ở chế độ BIOS hãy chọn mục "AniOS Live (BIOS, có ổ lưu dữ liệu)".
+ở chế độ BIOS hãy chọn mục "AniOS Live (BIOS) with persistent storage".
 Sau đó chạy 'df -h /' để thấy dung lượng trống đã bằng cả phần còn lại của USB.
 EOF
+}
+
+# Chạy lúc boot bởi anios-persist.service (root). Chỉ tạo ổ lưu trữ khi đang chạy trong RAM,
+# chưa có phân vùng ANIOS_PERSIST và USB còn đủ chỗ trống; mọi trường hợp khác thoát êm để
+# phiên live vẫn khởi động bình thường (và không bao giờ tạo vòng lặp khởi động lại).
+do_auto() {
+  local part disk free_mib
+  grep -qw 'anios_persist=off' /proc/cmdline && { echo "AniOS: anios_persist=off, bỏ qua ổ lưu trữ."; return 0; }
+  [[ "$(findmnt -rno FSTYPE /run/archiso/cowspace 2>/dev/null)" == tmpfs ]] || return 0
+  if blkid -L "$LABEL" >/dev/null 2>&1; then
+    echo "AniOS: có phân vùng $LABEL nhưng phiên này đang chạy trong RAM."
+    echo "       Hãy chọn mục AniOS Live trong menu khởi động (BIOS: mục persistent storage)."
+    return 0
+  fi
+  part="$(find_boot_partition)" || return 0
+  [[ "$part" != /dev/sr* ]] || return 0
+  disk="$(parent_disk "$part")" || return 0
+  free_mib="$(free_mib_after_partitions "$disk")"
+  if (( free_mib < MIN_FREE_MIB )); then
+    echo "AniOS: $disk không còn đủ chỗ trống để làm ổ lưu trữ, giữ chế độ RAM."
+    return 0
+  fi
+
+  AUTO=1
+  echo "AniOS: lần khởi động đầu tiên, đang dùng $(( free_mib / 1024 )) GiB còn trống của $disk làm ổ lưu trữ..."
+  do_setup -y
+  if [[ -d /sys/firmware/efi ]]; then
+    echo "AniOS: khởi động lại sau 5 giây để dùng ổ lưu trữ mới..."
+    sleep 5
+    systemctl --no-block reboot
+  else
+    echo "AniOS: BIOS không tự dò được ổ lưu trữ; hãy khởi động lại và chọn mục persistent storage."
+  fi
 }
 
 case "${1:-status}" in
   status|-s|--status) show_status ;;
   setup|create)       shift; do_setup "$@" ;;
-  -h|--help|help)     sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  auto)               do_auto ;;
+  -h|--help|help)     sed -n '2,/^set -E/{/^set -E/!p}' "$0" | sed 's/^# \{0,1\}//' ;;
   *)                  die "lệnh không hợp lệ: $1 (dùng: status | setup [-y])" ;;
 esac
