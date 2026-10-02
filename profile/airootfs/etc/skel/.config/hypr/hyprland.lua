@@ -51,6 +51,9 @@ else
     -- trên màn hình phòng net; giữ đồng nhất giữa các app GTK/Qt.
     hl.env("XCURSOR_THEME", "Adwaita")
     hl.env("XCURSOR_SIZE", "24")
+    -- Hyprland không có cursor:name/cursor:size; đặt theme qua môi trường.
+    hl.env("HYPRCURSOR_THEME", "Adwaita")
+    hl.env("HYPRCURSOR_SIZE", "24")
 
     -- Tự chạy khi vào phiên (thay cho exec-once của định dạng cũ).
     -- Dàn âm thanh chạy trước tiên: bật PipeWire + pipewire-pulse + WirePlumber,
@@ -92,7 +95,7 @@ else
 
             col = {
                 -- Viền cửa sổ đang chọn: gradient Gura Blue xanh -> cyan nghiêng 45 độ.
-                active_border   = "rgba(2f6be8ff) rgba(4ea6eaff) 45deg",
+                active_border   = { colors = { "rgba(2f6be8ff)", "rgba(4ea6eaff)" }, angle = 45 },
                 inactive_border = "rgba(1e4266ff)",
             },
         },
@@ -146,11 +149,6 @@ else
             mouse_move_enables_dpms  = true,
             key_press_enables_dpms   = true,
             focus_on_activate        = true,
-        },
-
-        cursor = {
-            name = "Adwaita",
-            size = 24,
         },
 
         -- VFR giúp giảm công việc render khi không có gì thay đổi; từ bản 0.56 khoá

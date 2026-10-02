@@ -228,6 +228,22 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
 - Desktop mặc định giữ hiệu ứng ở mức "rẻ" cho iGPU đời cũ: cửa sổ thường **không** blur, animation chỉ là fade/popin ngắn, blur dành riêng cho các lớp phủ bán trong suốt (Waybar, Fuzzel, Mako) qua `layerrule`, còn màn hình khoá hyprlock tự blur nền một lần lúc khoá. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 - **Cấu hình Hyprland** nằm ở `~/.config/hypr/hyprland.lua` (bản sao gốc trong ảnh: `/usr/share/anios/skel/.config/hypr/hyprland.lua`): từ Hyprland 0.55 cấu hình viết bằng Lua thay cho `hyprland.conf` cũ, nên sau khi sửa chỉ cần `Super+Shift+R` để nạp lại. Màn hình khoá dùng định dạng riêng của hyprlock (`~/.config/hypr/hyprlock.conf`).
 
+### Khi Hyprland báo lỗi cấu hình Lua
+
+Chạy `hyprctl configerrors` để xem lỗi và `hyprctl version` để kiểm tra phiên bản.
+Với API Lua của Hyprland 0.56, gradient phải là bảng
+`{ colors = { "rgba(2f6be8ff)", "rgba(4ea6eaff)" }, angle = 45 }`, không phải
+chuỗi hyprlang `"rgba(...) rgba(...) 45deg"`. Theme/cỡ con trỏ đặt bằng
+`hl.env("XCURSOR_THEME", "Adwaita")`, `XCURSOR_SIZE` và các biến `HYPRCURSOR_*`,
+không dùng option `cursor.name`/`cursor.size`. `decoration.shadow.render_power`
+chỉ nhận số nguyên từ 1 đến 4. Sau khi sửa, chạy `hyprctl reload` rồi kiểm tra lại
+`hyprctl configerrors` (áp dụng cả Minimal và Immaterial Impulse).
+
+Trong repo, `scripts/check-hyprland.sh` kiểm tra cú pháp mọi module Lua, nạp thử
+cả hai giao diện với API giả lập tối thiểu và kiểm tra mẫu màu Matugen; hai bản
+skel phải đồng bộ. Bài kiểm tra này bắt các lỗi trên nhưng **không thay thế**
+việc thử trên Hyprland thật/GPU thật.
+
 ## Diện mạo AniOS Minimal
 
 Bản Minimal giữ triết lý "nhẹ nhưng chỉn chu": cùng một ngôn ngữ thiết kế xuyên suốt mọi thành phần người dùng nhìn thấy.
@@ -295,6 +311,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, sao chép dotfile cho tài khoản live), chuẩn bị bước dựng gói AUR (`root/.anios-aur` + hook `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR, dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, ghi `/usr/share/anios/aur-packages.txt`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
+- `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; cần Lua 5.4 trở lên, không cần GPU.
 - `scripts/check-live-aur.sh` — kiểm tra gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
@@ -307,14 +324,16 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ## Kiểm tra nhanh
 
 ```bash
-./scripts/check-profile.sh                # cấu trúc profile, danh sách gói, manifest AUR, ràng buộc CI
+./scripts/check-profile.sh               # cấu trúc profile, danh sách gói, manifest AUR, ràng buộc CI
+./scripts/check-hyprland.sh              # kiểm tra Lua bắt buộc (Arch: lua; Ubuntu: lua5.4)
 ./scripts/selftest-check-live-audio.sh    # logic đọc ảnh live (cần bash, không cần Arch)
 ./scripts/selftest-anios-aur-build.sh     # bước dựng gói AUR trong chroot giả
 ./scripts/selftest-check-live-aur.sh      # bước kiểm tra gói AUR/python/nodejs/wine trong ảnh giả
 ./scripts/selftest-build-iso-sudoers.sh   # bước kiểm tra NOPASSWD ở cuối build-iso.sh trên airootfs giả
 ```
 
-Chạy cả năm mất khoảng 10 giây. Khi dựng ISO xong, kiểm tra thêm ngay trên ảnh thật:
+Các bài kiểm tra chạy nhanh, không cần dựng ISO. Có thể đặt `LUA=lua5.4` nếu
+trình thông dịch không có tên `lua`. Khi dựng ISO xong, kiểm tra thêm ngay trên ảnh thật:
 
 ```bash
 ./scripts/check-live-audio.sh work/x86_64/airootfs.sfs

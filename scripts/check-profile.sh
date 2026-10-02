@@ -284,20 +284,20 @@ grep -qF 'hl.dsp.exec_cmd("hyprlock")' "$HYPR_CONF" || fail "Hyprland must offer
 grep -qF 'hl.exec_cmd("waybar")' "$HYPR_CONF" || fail "Hyprland must start the status bar"
 grep -qF 'hl.dsp.exec_cmd(menu)' "$HYPR_CONF" || fail "Hyprland launcher keybind is missing"
 
-# Cú pháp Lua sai sẽ đẩy Hyprland vào màn hình khẩn cấp, nên kiểm tra ngay
-# khi máy dựng có sẵn trình thông dịch Lua (gói lua của Arch).
+# Chặn cấu hình cũ, rồi kiểm tra toàn bộ module và nạp thử cả hai desktop.
+# luac -p riêng file chính không bắt được lỗi kiểu dữ liệu/tên option của hl.
 for hypr_lua in \
   "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" \
   "$AIROOTFS/etc/skel/.config/hypr/hyprland.lua"; do
   [[ -s "$hypr_lua" ]] || fail "missing Hyprland config: $hypr_lua"
   [[ ! -e "${hypr_lua%.lua}.conf" ]] ||
     fail "obsolete Hyprland config ${hypr_lua%.lua}.conf: Hyprland now reads hyprland.lua"
-  if command -v luac >/dev/null 2>&1; then
-    luac -p "$hypr_lua" || fail "Lua syntax error in $hypr_lua"
-  elif command -v lua >/dev/null 2>&1; then
-    lua -e "assert(loadfile('$hypr_lua'))" || fail "Lua syntax error in $hypr_lua"
-  fi
 done
+if command -v "${LUA:-lua}" >/dev/null 2>&1; then
+  "$ROOT_DIR/scripts/check-hyprland.sh" || fail "Hyprland Lua validation failed"
+else
+  echo "WARN: skipping Hyprland Lua checks; install Lua or set LUA=/path/to/lua" >&2
+fi
 
 # --- Âm thanh của phiên live ---------------------------------------------
 # Ảnh live không tự có dàn âm thanh chạy sẵn: unit người dùng của PipeWire chỉ
