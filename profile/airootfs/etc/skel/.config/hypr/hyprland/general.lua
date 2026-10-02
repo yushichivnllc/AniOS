@@ -76,16 +76,16 @@ hl.config({
 
         blur = {
             enabled = true,
-            xray = false,
+            xray = true, -- bỏ qua cửa sổ phía sau khi blur: rẻ hơn nhiều, nhìn gần như không đổi
             special = false,
             new_optimizations = true,
-            size = 10,
-            passes = 3,
+            size = 6,
+            passes = 2,
             brightness = 1,
-            noise = 0.05,
+            noise = 0.02,
             contrast = 0.89,
-            vibrancy = 0.5,
-            vibrancy_darkness = 0.5,
+            vibrancy = 0.2,
+            vibrancy_darkness = 0,
             popups = false,
             popups_ignorealpha = 0.6,
             input_methods = true,
@@ -93,14 +93,15 @@ hl.config({
         },
         shadow = {
             enabled = true,
-            range = 20,
+            range = 10,
             offset = {0, 2},
-            render_power = 4, -- Hyprland accepts integers from 1 to 4
+            render_power = 3, -- Hyprland accepts integers from 1 to 4
             color = "rgba(00000020)"
 
         },
         -- Dim
-        dim_inactive = true,
+        -- Tắt dim cửa sổ không focus: mỗi cửa sổ mờ đi là thêm một lượt vẽ, gây giật khi nhiều cửa sổ.
+        dim_inactive = false,
         dim_strength = 0.05,
         dim_special = 0.2
     },

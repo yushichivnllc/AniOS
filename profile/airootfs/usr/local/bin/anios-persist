@@ -42,6 +42,31 @@ find_boot_partition() {
   printf '%s\n' "$part"
 }
 
+# GRUB (UEFI) quyết định có dùng ổ lưu trữ hay không bằng cách tìm file
+# EFI/BOOT/anios-persist trên phân vùng ESP của USB (FAT, ghi được). Dùng file đánh dấu
+# thay vì `search --label` vì lệnh search báo "error: no such device ... Press any key"
+# ngay ở lần boot đầu tiên (khi chưa có phân vùng), còn `[ -f ... ]` thì im lặng.
+# Trả về 0: vừa ghi dấu; 2: đã có sẵn; 1: không ghi được.
+MARKER_PATH=EFI/BOOT/anios-persist
+mark_persistent_boot() {
+  local disk="$1" esp mnt rc=1
+  esp="$(lsblk -rnpo NAME,FSTYPE,LABEL "$disk" | awk '$2=="vfat" && $3=="ARCHISO_EFI" {print $1; exit}')"
+  [[ -n "$esp" ]] || esp="$(lsblk -rnpo NAME,FSTYPE "$disk" | awk '$2=="vfat" {print $1; exit}')"
+  [[ -b "$esp" ]] || return 1
+  mnt="$(mktemp -d /run/anios-esp.XXXXXX)"
+  if mount -t vfat -o rw,noatime,flush "$esp" "$mnt" 2>/dev/null; then
+    if [[ -e "$mnt/$MARKER_PATH" ]]; then
+      rc=2
+    elif mkdir -p -- "$mnt/EFI/BOOT" && : >"$mnt/$MARKER_PATH"; then
+      rc=0
+    fi
+    sync
+    umount "$mnt" 2>/dev/null || umount -l "$mnt" 2>/dev/null || true
+  fi
+  rmdir "$mnt" 2>/dev/null || true
+  return "$rc"
+}
+
 # In ra đường dẫn đĩa cha của một phân vùng.
 parent_disk() {
   local pk
@@ -138,7 +163,7 @@ do_setup() {
 
   before_list="$(lsblk -rnpo NAME "$disk")"
   # --append: chỉ thêm phân vùng mới vào chỗ trống đầu tiên, giữ nguyên phần còn lại.
-  echo ',,L' | sfdisk --append --quiet --no-reread "$disk" || die "sfdisk không thêm được phân vùng."
+  echo ',,L' | sfdisk --append --quiet --no-reread --wipe never --wipe-partitions never "$disk" || die "sfdisk không thêm được phân vùng."
   udevadm settle 2>/dev/null || true
   partx -a "$disk" 2>/dev/null || partx -u "$disk" 2>/dev/null || partprobe "$disk" 2>/dev/null || true
 
@@ -155,8 +180,14 @@ do_setup() {
 
   wipefs -a "$newpart" >/dev/null 2>&1 || true
   # -m 0: không để dành 5% cho root vì đây là ổ dữ liệu của phiên live.
-  mkfs.ext4 -F -q -L "$LABEL" -m 0 -E lazy_itable_init=1,lazy_journal_init=1 "$newpart"
+  if ! mkfs.ext4 -F -q -L "$LABEL" -m 0 -E lazy_itable_init=1,lazy_journal_init=1 "$newpart"; then
+    # Không để lại phân vùng trống: lần sau anios-persist vẫn thấy chỗ trống và thử lại.
+    partx -d --nr "${newpart##*[!0-9]}" "$disk" 2>/dev/null || true
+    sfdisk --delete --no-reread "$disk" "${newpart##*[!0-9]}" >/dev/null 2>&1 || true
+    die "mkfs.ext4 thất bại trên $newpart; đã xoá phân vùng vừa tạo."
+  fi
   udevadm settle 2>/dev/null || true
+  mark_persistent_boot "$disk" || echo "Cảnh báo: không ghi được file đánh dấu trên ESP; menu GRUB sẽ không tự dùng ổ lưu trữ, hãy chọn mục \"ép dùng ổ lưu dữ liệu\"." >&2
 
   if (( AUTO )); then
     echo "AniOS: đã tạo ổ lưu trữ $newpart (nhãn $LABEL)."
@@ -178,14 +209,23 @@ do_auto() {
   local part disk free_mib
   grep -qw 'anios_persist=off' /proc/cmdline && { echo "AniOS: anios_persist=off, bỏ qua ổ lưu trữ."; return 0; }
   [[ "$(findmnt -rno FSTYPE /run/archiso/cowspace 2>/dev/null)" == tmpfs ]] || return 0
-  if blkid -L "$LABEL" >/dev/null 2>&1; then
-    echo "AniOS: có phân vùng $LABEL nhưng phiên này đang chạy trong RAM."
-    echo "       Hãy chọn mục AniOS Live trong menu khởi động (BIOS: mục persistent storage)."
-    return 0
-  fi
   part="$(find_boot_partition)" || return 0
   [[ "$part" != /dev/sr* ]] || return 0
   disk="$(parent_disk "$part")" || return 0
+  if blkid -L "$LABEL" >/dev/null 2>&1; then
+    # Phân vùng đã có nhưng phiên vẫn chạy trong RAM. Nếu thiếu file đánh dấu cho GRUB
+    # (ví dụ phân vùng tạo bằng bản cũ) thì ghi bổ sung rồi khởi động lại đúng một lần.
+    if mark_persistent_boot "$disk" && [[ -d /sys/firmware/efi ]]; then
+      echo "AniOS: đã ghi dấu ổ lưu trữ cho GRUB, khởi động lại sau 5 giây..."
+      sleep 5
+      systemctl --no-block reboot
+      return 0
+    fi
+    echo "AniOS: có phân vùng $LABEL nhưng phiên này đang chạy trong RAM."
+    echo "       Hãy chọn mục AniOS Live trong menu khởi động (BIOS: mục persistent storage;"
+    echo "       UEFI nếu vẫn vào RAM: mục \"ép dùng ổ lưu dữ liệu\")."
+    return 0
+  fi
   free_mib="$(free_mib_after_partitions "$disk")"
   if (( free_mib < MIN_FREE_MIB )); then
     echo "AniOS: $disk không còn đủ chỗ trống để làm ổ lưu trữ, giữ chế độ RAM."

@@ -235,12 +235,12 @@ AniOS **không** chạy theo kiểu "live trong RAM, tắt máy là mất hết"
 
 - Ảnh hệ thống được đọc thẳng từ USB (`copytoram=n`), không chép vào RAM.
 - **Lần boot đầu tiên** `anios-persist.service` (chạy trước SDDM) tạo phân vùng ext4 nhãn `ANIOS_PERSIST` trên toàn bộ phần trống của USB, chỉ thêm phân vùng mới và không đụng tới phân vùng sẵn có, rồi **tự khởi động lại một lần** (UEFI). Cần ít nhất 2 GiB trống; không đủ chỗ thì phiên chạy ở chế độ RAM dự phòng.
-- Từ lần boot sau, mục AniOS Live trong GRUB tự dò nhãn `ANIOS_PERSIST` và dùng nó làm lớp ghi. `df -h /` hiện dung lượng cả phần còn lại của USB; gói cài thêm (`yay -S ...`), game Steam, model AI và file trong home được giữ giữa các lần boot.
-- **BIOS (Syslinux)** không tự dò được phân vùng: lần đầu phân vùng được tạo nhưng máy không tự khởi động lại; hãy khởi động lại và chọn mục "AniOS Live (BIOS) with persistent storage". Nếu GRUB (UEFI) không dò được nhãn, chọn mục "ép dùng ổ lưu dữ liệu ANIOS_PERSIST".
+- Sau khi tạo phân vùng, `anios-persist` ghi thêm file đánh dấu `EFI/BOOT/anios-persist` lên phân vùng ESP của USB; từ lần boot sau mục AniOS Live trong GRUB thấy file này thì dùng `ANIOS_PERSIST` làm lớp ghi (kiểm tra file nên im lặng, không còn dòng `error: no such device` ở lần boot đầu như khi dùng `search --label`). Nếu phân vùng đã có mà thiếu file đánh dấu, lần boot kế tiếp sẽ tự bổ sung rồi khởi động lại một lần. `df -h /` hiện dung lượng cả phần còn lại của USB; gói cài thêm (`yay -S ...`), game Steam, model AI và file trong home được giữ giữa các lần boot.
+- **BIOS (Syslinux)** không tự dò được phân vùng: lần đầu phân vùng được tạo nhưng máy không tự khởi động lại; hãy khởi động lại và chọn mục "AniOS Live (BIOS) with persistent storage". Nếu GRUB (UEFI) không nhận ra file đánh dấu, chọn mục "ép dùng ổ lưu dữ liệu ANIOS_PERSIST".
 - Mục "chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu" (`anios_persist=off`) boot không dùng phân vùng, dùng khi phân vùng gặp sự cố; mục này cũng không tạo phân vùng mới.
 - `anios-persist` xem trạng thái; `anios-persist setup` tạo phân vùng thủ công (cũng có shortcut trên desktop).
 
-Lưu ý: USB phải luôn cắm khi dùng. Dữ liệu lưu theo từng bản ISO (thư mục `persistent_<nhãn ISO>` trên phân vùng), nên ghi ISO mới sẽ bắt đầu lại từ trạng thái sạch; dữ liệu cũ vẫn nằm trên phân vùng. Chọn thủ công mục có `cow_label` khi chưa có phân vùng sẽ khiến initramfs rơi vào shell.
+Lưu ý: USB phải luôn cắm khi dùng. Dữ liệu lưu theo từng bản ISO (thư mục `persistent_<UUID ISO>` trên phân vùng), nên ghi ISO mới sẽ bắt đầu lại từ trạng thái sạch; dữ liệu cũ vẫn nằm trên phân vùng. Chọn thủ công mục có `cow_label` khi chưa có phân vùng sẽ khiến initramfs rơi vào shell.
 
 ### Khi Hyprland báo lỗi cấu hình Lua
 
@@ -295,6 +295,17 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 - Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
 - Hệ thống Live đọc ảnh nén trực tiếp từ USB (`copytoram=n`, không chép vào RAM; zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
+
+### Sober (Roblox) và GNOME Disks
+
+- **Sober** (`org.vinegarhq.Sober`, chỉ phát hành dạng Flatpak trên Flathub) được cài sẵn vào ảnh lúc dựng bằng hook chroot (`flatpak install --system`). Mở bằng icon **Sober** trên Desktop/menu hoặc `anios-sober`. Nếu bước cài lúc dựng thất bại (hook chỉ cảnh báo, không làm hỏng bản dựng), `anios-sober` tự cài cho người dùng ở lần mở đầu tiên (cần Internet). Bỏ qua bước này khi dựng: `ANIOS_SKIP_FLATPAK=1 sudo ./scripts/build-iso.sh`. Runtime Flatpak làm ISO nặng thêm khoảng 1 GB trở lên. Sober cần Vulkan và đã cài trình điều khiển Mesa cho Intel/AMD.
+- **GNOME Disks** (`gnome-disk-utility`, lệnh `gnome-disks`): phân vùng, định dạng, SMART, đo tốc độ ổ. Cẩn thận: đừng thao tác lên chính USB đang chạy hệ live.
+
+### Tối ưu độ mượt giao diện
+
+- Hyprland (cả Immaterial Impulse lẫn Minimal): giảm blur (2 lượt, size 6; Minimal 1 lượt), bật `xray`, bóng đổ nhẹ hơn, tắt dim cửa sổ không focus. Immaterial Impulse tắt widget visualizer trên hình nền. Chỉ đổi giá trị của các khoá đã có, không thêm khoá mới vì Hyprland 0.56 từ chối khoá lạ.
+- Hệ thống: `vm.dirty_background_bytes`/`vm.dirty_bytes` nhỏ để ghi USB đều thay vì đứng hình khi xả cache, `vm.vfs_cache_pressure=50`, udev tăng `read_ahead_kb` lên 4096 cho USB rời, systemd chờ tối đa 10 giây khi tắt dịch vụ, Firefox tắt telemetry và bật giải mã video VA-API.
+- Giá trị dựa trên kinh nghiệm chung, chưa đo FPS/độ trễ trên máy thật; nếu muốn đẹp hơn, chỉnh `blur`/`shadow` trong `~/.config/hypr/hyprland/general.lua`.
 
 ## Chạy AI cục bộ
 

@@ -88,7 +88,7 @@ hl.config({
         blur = {
             enabled           = true,
             size              = 6,
-            passes            = 2,
+            passes            = 1,
             new_optimizations = true,
             noise             = 0.02,
             contrast          = 0.9,
@@ -100,14 +100,14 @@ hl.config({
         -- Shadow mềm chỉ dành cho cửa sổ nổi (xem window_rule bên dưới).
         shadow = {
             enabled      = true,
-            range        = 16,
+            range        = 10,
             render_power = 3,
             offset       = { 0, 4 },
             color        = "rgba(00000040)",
         },
 
         -- Cửa sổ mất focus hơi tối đi một chút cho dễ nhận biết focus.
-        dim_inactive = true,
+        dim_inactive = false, -- mỗi cửa sổ mờ đi là thêm một lượt vẽ; tắt cho mượt
         dim_strength = 0.06,
     },
 

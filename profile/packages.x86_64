@@ -29,6 +29,9 @@ file-roller
 xdg-user-dirs
 xdg-utils
 polkit-gnome
+# Quản lý ổ đĩa/USB bằng giao diện (GNOME Disks: phân vùng, định dạng, SMART, benchmark);
+# cần udisks2 + polkit-gnome (đã có) để mount/format với quyền sudo.
+gnome-disk-utility
 noto-fonts
 noto-fonts-emoji
 ttf-dejavu

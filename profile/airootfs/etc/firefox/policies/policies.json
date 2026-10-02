@@ -7,6 +7,18 @@
     },
     "OverrideFirstRunPage": "http://127.0.0.1:43211/",
     "OverridePostUpdatePage": "",
-    "DontCheckDefaultBrowser": true
+    "DontCheckDefaultBrowser": true,
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "Preferences": {
+      "media.ffmpeg.vaapi.enabled": {
+        "Value": true,
+        "Status": "default"
+      },
+      "browser.sessionstore.interval": {
+        "Value": 60000,
+        "Status": "default"
+      }
+    }
   }
 }

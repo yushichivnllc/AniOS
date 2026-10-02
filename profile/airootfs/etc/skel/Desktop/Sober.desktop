@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Sober
+Comment=Roblox on Linux (Flatpak, org.vinegarhq.Sober)
+Exec=anios-sober
+Icon=org.vinegarhq.Sober
+Terminal=false
+Categories=Game;

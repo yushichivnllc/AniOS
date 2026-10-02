@@ -224,20 +224,21 @@ done
 # ANIOS_PERSIST trên phần đĩa còn lại rồi khởi động lại; từ đó menu khởi động dùng
 # nó làm lớp ghi (cow_label) thay cho RAM.
 #
-# GRUB (UEFI) tự dò nhãn nên mục chính luôn boot được, có hay không có phân vùng.
+# GRUB (UEFI) chỉ bật cow_label khi thấy file đánh dấu trên ESP nên mục chính luôn boot
+# được, có hay không có phân vùng. cow_directory gắn với UUID của ISO để bản ISO mới không
+# dùng lại lớp ghi của bản cũ (overlayfs không chịu lớp dưới đã đổi).
 # Syslinux (BIOS) không có điều kiện nên thêm một mục riêng. Nếu cow_label trỏ tới
 # phân vùng không tồn tại thì initramfs rơi vào shell, vì vậy KHÔNG đặt nó vào mục
 # mặc định của Syslinux.
 if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
   awk '
     /^default=/ && !injected {
-      print "# Ổ lưu dữ liệu: nếu USB có phân vùng ANIOS_PERSIST (tạo bằng `anios-persist setup`)"
-      print "# thì dùng nó làm lớp ghi của hệ live thay cho RAM."
-      print "insmod ext2"
+      print "# Ổ lưu dữ liệu: anios-persist ghi file EFI/BOOT/anios-persist lên ESP của USB sau khi"
+      print "# tạo phân vùng ANIOS_PERSIST. Chỉ kiểm tra file (im lặng) chứ không dùng `search --label`,"
+      print "# vì search in \"error: no such device\" và chờ bấm phím khi chưa có phân vùng."
       print "set anios_cow=\"\""
-      print "search --no-floppy --label ANIOS_PERSIST --set=anios_persist_dev"
-      print "if [ -n \"${anios_persist_dev}\" ]; then"
-      print "    set anios_cow=\"cow_label=ANIOS_PERSIST\""
+      print "if [ -f \"${cmdpath}/anios-persist\" ]; then"
+      print "    set anios_cow=\"cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID%\""
       print "fi"
       print ""
       injected = 1
@@ -260,7 +261,7 @@ if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
       # Mục ép dùng ổ lưu dữ liệu, phòng khi GRUB không tự dò được nhãn (thiếu module).
       print "menuentry \"AniOS Live, ép dùng ổ lưu dữ liệu ANIOS_PERSIST (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-persist'"'"' {"
       print "    set gfxpayload=keep"
-      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST copytoram=n %KERNEL_PARAMS%"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=n %KERNEL_PARAMS%"
       print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
       print "}"
       print ""
@@ -286,7 +287,7 @@ ENDTEXT
 MENU LABEL AniOS Live (%ARCH%, BIOS) with ^persistent storage
 LINUX /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen
 INITRD /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img
-APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST copytoram=n %KERNEL_PARAMS%
+APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=n %KERNEL_PARAMS%
 SYSLINUX_PERSIST
 fi
 
@@ -541,6 +542,43 @@ else
   printf 'Skipping the AUR packages (--no-aur): the ISO will have no yay/Coc Coc/Legacy Launcher\n'
 fi
 
+# --- Sober (Roblox) từ Flathub, cài sẵn vào ảnh ---------------------------
+# Sober chỉ phát hành dạng Flatpak (org.vinegarhq.Sober), nên cài trong chroot airootfs
+# bằng hook customize_airootfs.sh (cùng cơ chế với gói AUR ở trên) vào /var/lib/flatpak.
+# Cài lỗi KHÔNG làm hỏng bản dựng (Flathub hoặc flatpak-trong-chroot có thể trục trặc,
+# và một lượt dựng mất hàng giờ): hook chỉ cảnh báo, còn /usr/local/bin/anios-sober sẽ
+# tự cài cho người dùng ở lần mở đầu tiên. Bỏ qua bước này: ANIOS_SKIP_FLATPAK=1.
+if [[ "${ANIOS_SKIP_FLATPAK:-0}" != 1 ]]; then
+  FLATPAK_HOOK="$BUILD_PROFILE/airootfs/root/customize_airootfs.sh"
+  if [[ -e "$FLATPAK_HOOK" ]]; then
+    printf '\n' >>"$FLATPAK_HOOK"
+  else
+    cat >"$FLATPAK_HOOK" <<'HOOK_HEAD'
+#!/usr/bin/env bash
+# Hook do scripts/build-iso.sh sinh ra lúc dựng ISO; mkarchiso chạy nó trong
+# chroot airootfs rồi tự xoá đi, nên nó không bao giờ nằm trong ảnh live.
+set -Eeuo pipefail
+
+HOOK_HEAD
+  fi
+  cat >>"$FLATPAK_HOOK" <<'HOOK_FLATPAK'
+# --- AniOS: cài sẵn Sober (Flatpak) -----------------------------------------
+if command -v flatpak >/dev/null 2>&1; then
+  if flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo &&
+     flatpak install --system --noninteractive -y flathub org.vinegarhq.Sober; then
+    echo "AniOS: Sober (org.vinegarhq.Sober) đã được cài sẵn vào ảnh"
+  else
+    echo "AniOS WARNING: không cài sẵn được Sober; anios-sober sẽ tự cài ở lần mở đầu tiên" >&2
+  fi
+  # Dọn bộ đệm tải để ảnh không phình thêm.
+  rm -rf -- /var/tmp/flatpak-cache-* /var/lib/flatpak/repo/tmp/* 2>/dev/null || true
+else
+  echo "AniOS WARNING: không có flatpak trong chroot, bỏ qua Sober" >&2
+fi
+HOOK_FLATPAK
+  chmod 0755 -- "$FLATPAK_HOOK"
+fi
+
 # Gói AUR (wine, Cốc Cốc, nodejs, base-devel...) làm airootfs phình thêm vài GB.
 # Báo sớm khi đĩa còn ít chỗ để người dựng biết vì sao bản dựng chết giữa chừng.
 free_kib="$(df -Pk -- "$(dirname -- "$WORK_DIR")" | awk 'NR==2 {print $4}')"
@@ -615,6 +653,7 @@ insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-check" "0:0:755"
 insert_permission "/usr/local/bin/anios-update" "0:0:755"
 insert_permission "/usr/local/bin/anios-persist" "0:0:755"
+insert_permission "/usr/local/bin/anios-sober" "0:0:755"
 insert_permission "/opt/seanime/seanime" "0:0:755"
 insert_permission "/usr/local/lib/anios/create-live-user" "0:0:755"
 insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
@@ -630,6 +669,7 @@ for entry in \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
   '["/usr/local/bin/anios-update"]="0:0:755"' \
   '["/usr/local/bin/anios-persist"]="0:0:755"' \
+  '["/usr/local/bin/anios-sober"]="0:0:755"' \
   '["/opt/seanime/seanime"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do

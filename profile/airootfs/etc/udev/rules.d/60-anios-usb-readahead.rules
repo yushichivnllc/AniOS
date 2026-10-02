@@ -1,0 +1,3 @@
+# USB/thẻ nhớ rời (ổ chứa chính hệ live): tăng read-ahead lên 4 MiB (mặc định 128 KiB)
+# để đọc tuần tự squashfs, game, model nhanh và đều hơn.
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]|sd[a-z][a-z]", ATTR{removable}=="1", ATTR{queue/read_ahead_kb}="4096"

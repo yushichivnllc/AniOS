@@ -17,7 +17,7 @@ for package in \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
   udisks2 thunar-volman gvfs rsync fastfetch \
-  xorg-xwayland ttf-nerd-fonts-symbols firefox ffmpeg mpv curl wget unzip \
+  xorg-xwayland ttf-nerd-fonts-symbols firefox ffmpeg mpv gnome-disk-utility flatpak curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
   quickshell matugen kirigami syntax-highlighting qt6-positioning qt6-virtualkeyboard \
   qt6-imageformats kimageformats libavif qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
@@ -143,6 +143,8 @@ for file in \
   "$AIROOTFS/etc/tmpfiles.d/anios.conf" \
   "$AIROOTFS/etc/systemd/zram-generator.conf" \
   "$AIROOTFS/etc/sysctl.d/90-anios-live.conf" \
+  "$AIROOTFS/etc/udev/rules.d/60-anios-usb-readahead.rules" \
+  "$AIROOTFS/etc/systemd/system.conf.d/90-anios.conf" \
   "$AIROOTFS/usr/share/wayland-sessions/anios.desktop"; do
   [[ -s "$file" ]] || fail "expected configuration missing: ${file#"$ROOT_DIR/"}"
 done
@@ -207,6 +209,12 @@ grep -qxF 'TryExec=/usr/local/bin/anios-session' "$AIROOTFS/usr/share/wayland-se
 # Ổ lưu dữ liệu trên USB: nhãn phải khớp giữa công cụ tạo phân vùng và menu khởi động.
 grep -qF 'LABEL=ANIOS_PERSIST' "$AIROOTFS/usr/local/bin/anios-persist" ||
   fail "anios-persist must label the storage partition ANIOS_PERSIST"
+# Sober (Flatpak org.vinegarhq.Sober): cài sẵn bằng hook lúc dựng, có launcher tự cài dự phòng.
+[[ -x "$AIROOTFS/usr/local/bin/anios-sober" ]] || fail "anios-sober must be executable"
+grep -qF 'org.vinegarhq.Sober' "$AIROOTFS/usr/local/bin/anios-sober" || fail "anios-sober must launch org.vinegarhq.Sober"
+grep -qF 'flatpak install --system --noninteractive -y flathub org.vinegarhq.Sober' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must bake Sober into the image"
+[[ -s "$AIROOTFS/etc/skel/Desktop/Sober.desktop" ]] || fail "the Sober desktop shortcut is missing"
 # Seanime: server nướng sẵn ở /opt/seanime, chạy bằng service, và Firefox luôn mở
 # giao diện web của nó (trang chủ + trang khởi động).
 SEANIME_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-seanime.service"

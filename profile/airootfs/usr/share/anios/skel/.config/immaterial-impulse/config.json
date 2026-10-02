@@ -109,7 +109,7 @@
         "y": 372
       },
       "visualizer": {
-        "enable": true
+        "enable": false
       }
     },
     "widgetsLocked": false
@@ -329,14 +329,14 @@
         "inputMethodsIgnorealpha": 0.8,
         "newOptimizations": true,
         "noise": 0.01,
-        "passes": 3,
+        "passes": 2,
         "popups": false,
         "popupsIgnorealpha": 0.6,
-        "size": 10,
+        "size": 6,
         "special": true,
         "vibrancy": 0,
         "vibrancyDarkness": 0,
-        "xray": false
+        "xray": true
       },
       "inactiveOpacity": 1,
       "rounding": 22,

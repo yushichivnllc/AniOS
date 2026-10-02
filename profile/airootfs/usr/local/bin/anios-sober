@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# anios-sober — mở Sober (Roblox trên Linux, https://flathub.org/apps/org.vinegarhq.Sober).
+#
+# Sober được cài sẵn vào ảnh từ Flathub lúc dựng ISO (scripts/build-iso.sh). Nếu bản dựng
+# không cài được (không ra được Flathub...) thì lần mở đầu tiên script này tự cài cho
+# người dùng hiện tại rồi mới chạy; các lần sau mở thẳng.
+set -Eeuo pipefail
+
+APP=org.vinegarhq.Sober
+REMOTE_URL=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+if ! flatpak info "$APP" >/dev/null 2>&1; then
+  # Cần terminal để thấy tiến trình tải khi mở từ launcher/shortcut.
+  if [[ ! -t 1 ]] && command -v foot >/dev/null 2>&1 && [[ -z "${ANIOS_SOBER_IN_TERMINAL:-}" ]]; then
+    ANIOS_SOBER_IN_TERMINAL=1 exec foot -e "$0" "$@"
+  fi
+  echo "Sober chưa được cài, đang tải từ Flathub (cần Internet, vài trăm MB)..."
+  flatpak remote-add --user --if-not-exists flathub "$REMOTE_URL"
+  flatpak install --user --noninteractive -y flathub "$APP"
+fi
+
+exec flatpak run "$APP" "$@"
