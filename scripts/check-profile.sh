@@ -360,6 +360,13 @@ for hypr_lua in \
   [[ ! -e "${hypr_lua%.lua}.conf" ]] ||
     fail "obsolete Hyprland config ${hypr_lua%.lua}.conf: Hyprland now reads hyprland.lua"
 done
+# Keep both skeleton trees byte-for-byte aligned even on hosts without Lua.
+for config_dir in hypr matugen/templates/hyprland quickshell; do
+  if ! diff -qr "$AIROOTFS/etc/skel/.config/$config_dir" \
+    "$AIROOTFS/usr/share/anios/skel/.config/$config_dir"; then
+    fail "the Live and installed-user skeleton copies differ: $config_dir"
+  fi
+done
 if command -v "${LUA:-lua}" >/dev/null 2>&1; then
   "$ROOT_DIR/scripts/check-hyprland.sh" || fail "Hyprland Lua validation failed"
 else

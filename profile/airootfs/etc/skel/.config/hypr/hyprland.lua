@@ -17,6 +17,21 @@ if f then
     end
 end
 
+-- The Live ISO asks once per graphical boot whether to continue Live or install.
+-- An installed user's end-4 choice is offered only at first login, never as root.
+if os.getenv("ANIOS_LIVE") == "1" then
+    hl.on("hyprland.start", function()
+        hl.exec_cmd("/usr/local/bin/anios-boot-choice")
+    end)
+end
+local end4_pending = io.open(home .. "/.config/anios/end4-setup-pending", "r")
+if end4_pending then
+    end4_pending:close()
+    hl.on("hyprland.start", function()
+        hl.exec_cmd("/usr/local/bin/anios-end4-first-login")
+    end)
+end
+
 if session_mode == "imi" or session_mode == "immaterial-impulse" or session_mode == "quickshell" then
     -- Nạp cấu hình Immaterial Impulse (Quickshell)
     dofile(home .. "/.config/hypr/hyprland-imi.lua")
