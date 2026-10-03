@@ -6,8 +6,8 @@ OUT_DIR="$ROOT_DIR/out"
 WORK_DIR="$ROOT_DIR/work"
 CLEAN_WORK=0
 SKIP_CHECKS=0
-# Gói AUR (Calamares, yay, coccoc-browser-stable, legacy-launcher) được dựng
-# ngay trong chroot lúc build. Tắt bằng --no-aur khi máy dựng không ra được AUR.
+# Các gói trong profile/packages.aur.x86_64 được dựng ngay trong chroot lúc build.
+# Tắt --no-aur nếu cả AUR, mirror GitHub và snapshot đều không truy cập được.
 WITH_AUR=1
 # Giữ nguyên tham số gốc để khi tự gọi lại bằng sudo không mất tuỳ chọn nào.
 ORIG_ARGS=("$@")
@@ -23,10 +23,9 @@ Arch Linux x86_64 host, archiso, network access, and root privileges.
                  scratch instead of reusing a previous airootfs
   --skip-checks  do not run scripts/check-profile.sh before building
   --no-aur       do not bake in the AUR packages listed in
-                 profile/packages.aur.x86_64 (Calamares, yay,
-                 coccoc-browser-stable, legacy-launcher). Use this when the
-                 build machine cannot reach aur.archlinux.org; the resulting
-                 ISO has no graphical installer or AUR helper.
+                 profile/packages.aur.x86_64. Use this when the build machine
+                 cannot reach aur.archlinux.org, GitHub's AUR mirror or cgit;
+                 the resulting ISO has no graphical installer or AUR helper.
 EOF
 }
 

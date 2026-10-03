@@ -145,6 +145,10 @@ Cách bước dựng AUR hoạt động:
 - `build-iso.sh` chép manifest và script dựng vào `airootfs/root/.anios-aur/`, sinh
   `airootfs/root/customize_airootfs.sh` (hook mà `mkarchiso` chạy bằng `env -u TMPDIR arch-chroot` rồi tự
   xoá), và chạy hook đó qua `bash` vì overlay chép vào airootfs làm mất bit thực thi.
+- PKGBUILD được lấy trực tiếp từ AUR; nếu Git/TLS tới `aur.archlinux.org` lỗi, script thử mirror GitHub
+  chỉ-đọc chính thức `archlinux/aur` (mỗi gói là một branch), rồi mới thử snapshot cgit. Với Calamares,
+  hook bỏ riêng `packagechooser` khỏi danh sách `SKIP_MODULES` trong PKGBUILD vì cấu hình AniOS dùng module
+  này; `packagechooserq` vẫn tắt. Hook kiểm tra plugin sau khi cài để tránh phát hành installer thiếu module.
 - Trong chroot, tài khoản tạm `aniosbuild` (UID 1412) dựng gói bằng `makepkg` với quyền đã hạ bằng
   `runuser`/`setpriv`; thư mục dựng nằm ở `/var/tmp/anios-aur-build`. Root chỉ cài phụ thuộc
   (`pacman -S --asdeps`), cài gói hoàn chỉnh (`pacman -U --asexplicit` để không bị dọn như mồ côi), rồi

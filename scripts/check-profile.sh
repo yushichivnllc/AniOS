@@ -613,7 +613,7 @@ grep -qF 'AUR_FAILED' "$AUR_BUILDER" ||
 # đánh dấu deprecated, nếu nó biến mất thì mkarchiso vẫn báo thành công và cho ra
 # một ISO thiếu gói AUR.
 grep -qF -- '--no-aur' "$BUILD_ISO" ||
-  fail "build-iso.sh must offer --no-aur for machines that cannot reach the AUR"
+  fail "build-iso.sh must offer --no-aur for machines that cannot reach any AUR source"
 grep -qF 'customize_airootfs.sh' "$BUILD_ISO" ||
   fail "build-iso.sh must generate the airootfs/root/customize_airootfs.sh hook that builds the AUR packages"
 grep -qF 'packages.aur.x86_64' "$BUILD_ISO" ||
