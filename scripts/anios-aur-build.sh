@@ -38,6 +38,8 @@
 #   ANIOS_AUR_SRC_DIR      thư mục làm việc       (mặc định /var/tmp/anios-aur-build)
 #   ANIOS_AUR_REPORT       báo cáo ghi vào ảnh    (mặc định /usr/share/anios/aur-packages.txt)
 #   ANIOS_AUR_ROOT         gốc AUR                (mặc định https://aur.archlinux.org)
+#   ANIOS_AUR_GITHUB_MIRROR mirror AUR chỉ-đọc    (mặc định archlinux/aur trên GitHub)
+#   ANIOS_AUR_CALAMARES_STAGED_DIR cấu hình Calamares đã stage (mặc định /usr/share/anios/installer/calamares)
 #   ANIOS_AUR_PKG_CACHE    cache gói pacman       (mặc định /var/cache/pacman/pkg)
 #   ANIOS_AUR_MAKEPKG_OPTS cờ bổ sung cho makepkg (mặc định rỗng)
 #   ANIOS_AUR_KEEP_TMP=1   giữ lại thư mục dựng để tự chạy makepkg khi lỗi
@@ -46,6 +48,8 @@
 set -Eeuo pipefail
 
 AUR_ROOT="${ANIOS_AUR_ROOT:-https://aur.archlinux.org}"
+AUR_GITHUB_MIRROR="${ANIOS_AUR_GITHUB_MIRROR:-https://github.com/archlinux/aur.git}"
+CALAMARES_STAGED_DIR="${ANIOS_AUR_CALAMARES_STAGED_DIR:-/usr/share/anios/installer/calamares}"
 BUILD_USER="${ANIOS_AUR_BUILD_USER:-aniosbuild}"
 BUILD_UID="${ANIOS_AUR_BUILD_UID:-1412}"
 SRC_DIR="${ANIOS_AUR_SRC_DIR:-/var/tmp/anios-aur-build}"
@@ -106,7 +110,7 @@ die() {
     fi
     echo
     echo ' Nguyên nhân thường gặp:'
-    echo '   * Máy dựng không ra được aur.archlinux.org (tường lửa, DNS, proxy).'
+    echo '   * Máy dựng không ra được aur.archlinux.org, GitHub mirror hoặc nguồn upstream (tường lửa, DNS, proxy).'
     echo '   * PKGBUILD trên AUR đã đổi, hoặc nguồn upstream (.deb, .jar, git) bị gỡ.'
     echo '   * Hết dung lượng đĩa khi makepkg tải và giải nén nguồn.'
     echo
@@ -304,10 +308,30 @@ run_makepkg() {
     makepkg "$@"
 }
 
+# Bật module packagechooser mà AniOS dùng trong giao diện cài đặt. PKGBUILD
+# calamares trên AUR hiện bỏ module này khỏi build, dù cấu hình của AniOS gọi nó.
+# Chỉ gỡ đúng dòng trong danh sách skip; packagechooserq vẫn được tắt vì AniOS
+# dùng module Widgets cổ điển `packagechooser`, không dùng biến thể Qt Quick.
+enable_calamares_packagechooser() {
+  local pkgbuild="$1"
+  [[ -s "$pkgbuild" ]] || {
+    log "Calamares không có PKGBUILD để bật packagechooser: $pkgbuild"
+    return 1
+  }
+  if grep -Eq '^[[:space:]]*packagechooser[[:space:]]*(#.*)?$' "$pkgbuild"; then
+    sed -i -E '/^[[:space:]]*packagechooser[[:space:]]*(#.*)?$/d' "$pkgbuild" || return 1
+    log "Calamares: đã bật packagechooser bằng cách bỏ module khỏi danh sách skip của PKGBUILD AUR"
+  fi
+  if grep -Eq '^[[:space:]]*packagechooser[[:space:]]*(#.*)?$' "$pkgbuild"; then
+    log "Calamares: PKGBUILD vẫn bỏ qua module packagechooser sau khi chuẩn bị"
+    return 1
+  fi
+  return 0
+}
+
 # --- Tải PKGBUILD từ AUR --------------------------------------------------
-# Thử git clone trước (cách AUR khuyến nghị, cũng là cách yay làm): AUR dựng
-# tường chống bot Anubis trước giao diện web/cgit nên đường snapshot .tar.gz dễ bị
-# chặn hơn git smart HTTP. Snapshot vẫn là phương án dự phòng khi git bị chặn.
+# Ưu tiên git AUR; nếu host AUR lỗi TLS/Anubis thì thử mirror GitHub chính thức,
+# mỗi package nằm trên một branch riêng. Snapshot cgit là phương án cuối cùng.
 fetch_aur() {
   local pkg="$1" dest="$SRC_DIR/src/$pkg" tmp_tar="$SRC_DIR/$pkg.tar.gz"
   rm -rf -- "$dest" "$tmp_tar"
@@ -317,8 +341,23 @@ fetch_aur() {
     fi
     log "Clone $pkg không chứa PKGBUILD"
   else
-    log "git clone $AUR_ROOT/$pkg.git thất bại — thử tải snapshot .tar.gz"
+    log "git clone $AUR_ROOT/$pkg.git thất bại — thử mirror GitHub của AUR"
   fi
+
+  rm -rf -- "$dest"
+  if [[ -n "$AUR_GITHUB_MIRROR" ]]; then
+    if run_logged git clone --quiet --depth 1 --single-branch --branch "$pkg" -- \
+      "$AUR_GITHUB_MIRROR" "$dest"; then
+      if [[ -s "$dest/PKGBUILD" ]]; then
+        log "$pkg: tải PKGBUILD từ mirror GitHub chính thức của AUR"
+        return 0
+      fi
+      log "Mirror GitHub clone $pkg không chứa PKGBUILD"
+    else
+      log "Mirror GitHub không tải được $pkg — thử snapshot cgit AUR"
+    fi
+  fi
+
   rm -rf -- "$dest"
   run_logged curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 \
     -o "$tmp_tar" "$AUR_ROOT/cgit/aur.git/snapshot/$pkg.tar.gz" || return 1
@@ -337,6 +376,11 @@ build_one() {
     if ! fetch_aur "$pkg"; then
       log "Không lấy được PKGBUILD của $pkg từ AUR"
       continue
+    fi
+    if [[ "$pkg" == calamares ]] &&
+      ! enable_calamares_packagechooser "$SRC_DIR/src/$pkg/PKGBUILD"; then
+      log "Không thể bật module packagechooser bắt buộc trong PKGBUILD calamares"
+      return 1
     fi
     # Chuyển quyền trước khi đọc phụ thuộc: nhánh dự phòng của srcinfo_deps chạy
     # `makepkg --printsrcinfo` dưới tài khoản dựng gói, cần thư mục ghi được.
@@ -403,6 +447,43 @@ remove_orphan_build_deps() {
   log "Gỡ ${#orphans[@]} gói chỉ cần lúc dựng: ${orphans[*]}"
   run_logged pacman -Rns --noconfirm -- "${orphans[@]}" ||
     log "Cảnh báo: không gỡ được makedepend mồ côi (ảnh sẽ nặng hơn một chút)"
+}
+
+# Copy the AniOS Calamares configuration only after the stable package has been
+# installed. Keeping it staged under /usr/share/anios avoids pacman file clashes.
+install_calamares_configuration() {
+  local staged="$CALAMARES_STAGED_DIR" module_file failure
+  [[ -d "$staged" ]] || return 0 # `--no-aur` deliberately omits the installer.
+  if ! pacman -Q calamares >/dev/null 2>&1; then
+    # The package loop already records the primary AUR download/build error. Do
+    # not replace it with a secondary "Calamares is not installed" diagnostic.
+    for failure in ${AUR_FAILED[@]+"${AUR_FAILED[@]}"}; do
+      if [[ "${failure%% *}" == calamares ]]; then
+        log "Bỏ qua kiểm tra packagechooser: gói calamares đã thất bại trước đó; sẽ báo lỗi AUR gốc ở phần tổng kết."
+        return 0
+      fi
+    done
+    die "Calamares configuration was staged but the stable calamares package is not installed." \
+      "Keep calamares in profile/packages.aur.x86_64 or build with --no-aur to omit the installer."
+  fi
+  module_file="$(find /usr/lib/calamares/modules -type f -iname '*packagechooser*' -print -quit 2>/dev/null || true)"
+  [[ -n "$module_file" ]] ||
+    die "The stable Calamares package does not provide its packagechooser module." \
+      "AniOS needs packagechooser to save the GRUB, SDDM and dotfiles choices."
+  for config in \
+    settings.conf \
+    modules/packagechooser-grub.conf \
+    modules/packagechooser-sddm.conf \
+    modules/packagechooser-dotfiles.conf \
+    modules/shellprocess-anios-pacstrap.conf \
+    modules/shellprocess-anios-skel.conf \
+    modules/shellprocess-anios-finalize.conf \
+    branding/anios/branding.desc; do
+    [[ -s "$staged/$config" ]] || die "Missing AniOS Calamares configuration: $staged/$config"
+  done
+  install -d -m 0755 -- /etc/calamares
+  cp -a -- "$staged/." /etc/calamares/
+  log "Installed AniOS Calamares config; packagechooser plugin: $module_file"
 }
 
 # --- Chuẩn bị -------------------------------------------------------------
@@ -495,6 +576,7 @@ for index in "${!AUR_PKGBASES[@]}"; do
 done
 
 remove_orphan_build_deps
+install_calamares_configuration
 
 # --- Báo cáo gói AUR có trong ảnh (để đối chiếu về sau) -------------------
 if [[ -n "$REPORT" ]]; then

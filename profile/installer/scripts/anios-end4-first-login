@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# One-time user-space offer to run the selected end-4 dotfiles setup.
+set -Eeuo pipefail
+
+pending="$HOME/.config/anios/end4-setup-pending"
+state_dir="$HOME/.local/state/anios"
+
+[[ -f "$pending" ]] || exit 0
+command -v kdialog >/dev/null 2>&1 || exit 0
+
+install -d -m 0700 -- "$state_dir"
+rm -f -- "$pending"
+
+if ! kdialog --title "AniOS · end-4 dotfiles" \
+  --yes-label "Install end-4" \
+  --no-label "Keep AniOS defaults" \
+  --yesno "You selected end-4 / dots-hyprland in the installer. This will download the pinned upstream revision, back up conflicting dotfiles, and install additional packages (including AUR packages). It needs Internet access and may ask for your sudo password. Continue?"; then
+  : >"$state_dir/end4-setup-skipped"
+  exit 0
+fi
+
+: >"$state_dir/end4-setup-started"
+if ! command -v foot >/dev/null 2>&1; then
+  kdialog --title "AniOS · end-4 dotfiles" \
+    --error "Foot is not available, so the end-4 setup could not be opened. Run anios-end4-setup from a terminal later."
+  exit 1
+fi
+
+foot -T "AniOS · end-4 setup" sh -lc '
+  set +e
+  /usr/local/bin/anios-end4-setup
+  status=$?
+  printf "\nSetup exit code: %s\n" "$status"
+  printf "Press Enter to close this window... "
+  read -r _
+  exit "$status"
+' || true

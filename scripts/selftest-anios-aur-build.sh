@@ -82,6 +82,19 @@ make_fixture legacy-launcher 'pkgbase = legacy-launcher
 	depends = java-runtime
 	pkgname = legacy-launcher'
 
+make_fixture calamares 'pkgbase = calamares
+	pkgdesc = Distribution-independent installer framework.
+	depends = qt5-base
+	pkgname = calamares'
+cat >"$FIXTURES/calamares/PKGBUILD" <<'EOF'
+build() {
+  local _skip_modules=(
+    packagechooser
+    packagechooserq
+  )
+}
+EOF
+
 # Gói luôn dựng hỏng, để kiểm tra đường lỗi.
 make_fixture broken-package 'pkgbase = broken-package
 	depends = git
@@ -206,27 +219,53 @@ exit 1
 FAKE
 chmod 0755 -- "$FAKE_BIN/pacman"
 
-# --- git/curl giả: "tải" PKGBUILD từ AUR giả -------------------------------
-# git clone hỏng với coccoc-browser-stable để buộc script rơi xuống đường
-# snapshot (curl + tar) — đúng tình huống AUR chặn git smart HTTP bằng tường bot.
+# --- git/curl giả: AUR gốc, mirror GitHub và snapshot ----------------------
+# yay mô phỏng lỗi TLS trên aur.example.invalid rồi tải được từ mirror GitHub;
+# coccoc mô phỏng lỗi ở cả hai nguồn git rồi thành công qua snapshot cgit.
 cat >"$FAKE_BIN/git" <<FAKE
 #!/usr/bin/env bash
 set -uo pipefail
 printf 'git %s\n' "\$*" >>"\$FAKE_CALLS"
 [[ "\${1:-}" == clone ]] || { echo "fake git: chỉ hỗ trợ clone" >&2; exit 1; }
 shift
-url="" dest=""
+url="" dest="" branch=""
 while ((\$#)); do
   case "\$1" in
-    -*) ;;
-    *) if [[ -z "\$url" ]]; then url="\$1"; else dest="\$1"; fi ;;
+    --branch) branch="\$2"; shift 2 ;;
+    --depth) shift 2 ;;
+    --single-branch | --quiet) shift ;;
+    --)
+      shift
+      url="\$1"; dest="\$2"
+      break
+      ;;
+    -*) shift ;;
+    *)
+      if [[ -z "\$url" ]]; then url="\$1"; else dest="\$1"; fi
+      shift
+      ;;
   esac
-  shift
 done
-pkg="\${url##*/}"; pkg="\${pkg%.git}"
-if [[ "\$pkg" == coccoc-browser-stable ]]; then
-  echo "fatal: unable to access '\$url': The requested URL returned error: 403" >&2
-  exit 128
+if [[ "\$url" == https://github.com/archlinux/aur.git ]]; then
+  pkg="\$branch"
+  if [[ "\${FAKE_FAIL_CALAMARES:-0}" == 1 && "\$pkg" == calamares ]]; then
+    echo "fatal: unable to access '\$url': TLS connection failed" >&2
+    exit 128
+  fi
+  if [[ "\$pkg" == coccoc-browser-stable ]]; then
+    echo "fatal: remote branch '\$pkg' unavailable in test mirror" >&2
+    exit 128
+  fi
+else
+  pkg="\${url##*/}"; pkg="\${pkg%.git}"
+  if [[ "\$pkg" == coccoc-browser-stable ]]; then
+    echo "fatal: unable to access '\$url': The requested URL returned error: 403" >&2
+    exit 128
+  fi
+  if [[ "\$pkg" == yay || "\$pkg" == calamares ]]; then
+    echo "fatal: unable to access '\$url': TLS connect error: unexpected eof while reading" >&2
+    exit 128
+  fi
 fi
 [[ -d "$FIXTURES/\$pkg" ]] || { echo "fatal: repository '\$url' not found" >&2; exit 128; }
 mkdir -p -- "\$dest"
@@ -248,6 +287,10 @@ while ((\$#)); do
   esac
 done
 pkg="\$(basename -- "\$url" .tar.gz)"
+if [[ "\${FAKE_FAIL_CALAMARES:-0}" == 1 && "\$pkg" == calamares ]]; then
+  echo "curl: TLS connect error while requesting calamares snapshot" >&2
+  exit 22
+fi
 [[ -n "\$out" && -d "$FIXTURES/\$pkg" ]] || exit 22
 # Snapshot thật của AUR là tarball chứa thư mục <pkg>/; dựng đúng bố cục đó.
 tmp="\$(mktemp -d)"
@@ -273,6 +316,17 @@ if printf '%s\n' "$*" | grep -q -- '--printsrcinfo'; then
   exit 0
 fi
 pkgdir="$(basename -- "$PWD")"
+if [[ "$pkgdir" == calamares ]]; then
+  if grep -qE '^[[:space:]]*packagechooser[[:space:]]*$' PKGBUILD; then
+    echo "==> ERROR: packagechooser remains disabled in PKGBUILD." >&2
+    exit 1
+  fi
+  grep -qE '^[[:space:]]*packagechooserq[[:space:]]*$' PKGBUILD || {
+    echo "==> ERROR: unrelated packagechooserq setting was changed." >&2
+    exit 1
+  }
+  touch "$FAKE_CALAMARES_CHOOSER_ENABLED"
+fi
 if [[ "$pkgdir" == broken-package ]]; then
   echo "==> ERROR: A failure occurred in build()." >&2
   exit 1
@@ -397,11 +451,20 @@ chmod 0755 -- "$FAKE_BIN/findmnt"
 # $1: manifest, $2: user|root, $3: nhãn (quyết định tên thư mục state/airootfs)
 run_builder() {
   local manifest="$1" mode="$2" label="$3"
+  local stage_calamares="${4:-0}" fail_calamares="${5:-0}"
   local state="$SANDBOX/state.$label"
   local airootfs="$SANDBOX/airootfs.$label"
+  local staged_calamares="$airootfs/usr/share/anios/installer/calamares"
+  local -a extra_env=()
   rm -rf -- "$state" "$airootfs"
   mkdir -p -- "$state" "$airootfs/root/.anios-aur" "$airootfs/usr/share/anios" \
     "$airootfs/var/tmp" "$airootfs/var/cache/pacman/pkg"
+  if [[ "$stage_calamares" == 1 ]]; then
+    mkdir -p -- "$staged_calamares"
+  fi
+  if [[ "$fail_calamares" == 1 ]]; then
+    extra_env+=("FAKE_FAIL_CALAMARES=1")
+  fi
   : >"$state/calls"
   # Ảnh live giả: những gói packages.x86_64 đã cài TRƯỚC khi hook AUR chạy.
   printf '%s\t%s\t%s\n' \
@@ -426,6 +489,7 @@ run_builder() {
     "FAKE_PACMAN_STATE=$state"
     "FAKE_CALLS=$state/calls"
     "FAKE_MAKEPKG_USER=$state/makepkg-user"
+    "FAKE_CALAMARES_CHOOSER_ENABLED=$state/calamares-chooser-enabled"
     "FAKE_DROP_USER=$state/drop-user"
     "FAKE_DROP_USER_FILE=$state/drop-user"
     "FAKE_USER_CREATED=$state/user-created"
@@ -434,8 +498,11 @@ run_builder() {
     "ANIOS_AUR_REPORT=$airootfs/usr/share/anios/aur-packages.txt"
     "ANIOS_AUR_PKG_CACHE=$airootfs/var/cache/pacman/pkg"
     "ANIOS_AUR_ROOT=https://aur.example.invalid"
+    "ANIOS_AUR_GITHUB_MIRROR=https://github.com/archlinux/aur.git"
+    "ANIOS_AUR_CALAMARES_STAGED_DIR=$staged_calamares"
     "ANIOS_AUR_RETRIES=0"
     "ANIOS_AUR_KEEP_TMP=${ANIOS_AUR_KEEP_TMP:-0}"
+    "${extra_env[@]}"
     bash ${ANIOS_SELFTEST_TRACE:+"-x"} "$airootfs/root/.anios-aur/anios-aur-build.sh"
   )
   local trace_out="/dev/stderr"
@@ -471,10 +538,15 @@ CALLS="$SANDBOX/state.ok/calls"
 INSTALLED="$SANDBOX/state.ok/installed"
 AIROOTFS_OK="$SANDBOX/airootfs.ok"
 
-# git clone bị 403 với coccoc nên phải rơi xuống snapshot .tar.gz.
-grep -q '^git clone .*yay.git' "$CALLS" || fail "không clone yay từ AUR"
+# yay mô phỏng lỗi TLS ở AUR rồi phải lấy từ mirror GitHub; coccoc mô phỏng
+# lỗi ở cả hai git host trước khi dùng snapshot .tar.gz.
+grep -q '^git clone .*yay.git' "$CALLS" || fail "không thử clone yay từ AUR"
+grep -q '^git clone .*--branch yay -- https://github.com/archlinux/aur.git' "$CALLS" ||
+  fail "không thử mirror GitHub sau lỗi git AUR"
+grep -q '^git clone .*--branch coccoc-browser-stable -- https://github.com/archlinux/aur.git' "$CALLS" ||
+  fail "không thử mirror GitHub trước snapshot coccoc"
 grep -q '^curl .*coccoc-browser-stable.tar.gz' "$CALLS" ||
-  fail "không thử tải snapshot khi git clone bị AUR chặn"
+  fail "không thử tải snapshot khi cả hai git host đều lỗi"
 
 # makepkg phải được gọi đúng cờ mà AniOS chọn (không -s/-i/-r: script tự cài dep
 # và tự pacman -U để tài khoản dựng gói không cần sudo).
@@ -540,6 +612,39 @@ for pkg in yay coccoc-browser-stable legacy-launcher; do
   grep -qE "^$pkg=" "$report" || fail "báo cáo gói AUR thiếu $pkg"
 done
 pass "dựng và cài được yay, coccoc-browser-stable, legacy-launcher vào ảnh giả"
+
+# --- 1b. Calamares: mirror GitHub và packagechooser -------------------------
+MANIFEST_CALAMARES="$SANDBOX/packages.aur.calamares"
+printf '%s\n' calamares >"$MANIFEST_CALAMARES"
+status=0
+run_builder "$MANIFEST_CALAMARES" user calamares || status=$?
+if (( status != 0 )); then
+  cat "$SANDBOX/state.calamares/stderr" >&2
+  fail "Calamares không được dựng từ mirror GitHub (exit $status)"
+fi
+grep -q '^git clone .*calamares.git' "$SANDBOX/state.calamares/calls" ||
+  fail "không thử tải Calamares từ AUR trước"
+grep -q '^git clone .*--branch calamares -- https://github.com/archlinux/aur.git' \
+  "$SANDBOX/state.calamares/calls" || fail "không lấy Calamares từ mirror GitHub"
+[[ -e "$SANDBOX/state.calamares/calamares-chooser-enabled" ]] ||
+  fail "PKGBUILD Calamares vẫn bỏ qua packagechooser bắt buộc"
+pass "Calamares được lấy từ mirror GitHub và bật module packagechooser"
+
+# Nếu cả AUR, mirror và snapshot đều lỗi, chỉ báo lỗi tải gói gốc — không để
+# chẩn đoán phụ về Calamares/packagechooser che mất nguyên nhân.
+status=0
+run_builder "$MANIFEST_CALAMARES" user calamares-fetch-failed 1 1 || status=$?
+(( status != 0 )) || fail "AUR hỏng mà builder vẫn báo Calamares thành công"
+grep -qF 'Bỏ qua kiểm tra packagechooser: gói calamares đã thất bại trước đó' \
+  "$SANDBOX/state.calamares-fetch-failed/stdout" ||
+  fail "không bỏ qua kiểm tra packagechooser sau khi tải Calamares thất bại"
+grep -qF 'calamares (dựng thất bại' "$SANDBOX/state.calamares-fetch-failed/stderr" ||
+  fail "phần tổng kết không nêu lỗi AUR gốc của Calamares"
+if grep -qF 'does not provide its packagechooser module' \
+  "$SANDBOX/state.calamares-fetch-failed/stderr"; then
+  fail "kiểm tra packagechooser đã che lỗi tải Calamares trước đó"
+fi
+pass "lỗi lấy Calamares được giữ làm nguyên nhân chính thay vì lỗi packagechooser phụ"
 
 # --- 2. Nhánh chạy bằng root: tạo tài khoản thường rồi hạ quyền -------------
 if unshare --map-root-user true >/dev/null 2>&1; then

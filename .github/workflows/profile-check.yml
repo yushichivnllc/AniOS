@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Lua for Hyprland config checks
-        run: sudo apt-get update && sudo apt-get install -y lua5.4
+        run: sudo apt-get update && sudo apt-get install -y lua5.4 python3-yaml
       - name: Check shell syntax and profile structure
         env:
           LUA: lua5.4
@@ -46,6 +46,10 @@ jobs:
         # file nhưng bước kiểm tra báo thiếu" bị bắt trong vài giây, không phải
         # sau một lượt dựng ISO dài.
         run: ./scripts/selftest-check-live-audio.sh
+      - name: Self-test Calamares installer helpers
+        # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
+        # trên cây hệ thống giả; không cài gì lên runner.
+        run: ./scripts/selftest-installer.sh
       - name: Validate JSON, SDDM theme, and session configuration
         run: |
           python3 - <<'PY'
@@ -112,5 +116,27 @@ jobs:
           assert 'NAME="AniOS"' in os_release
           assert 'ID=arch' in os_release
           assert any(line.startswith('PRETTY_NAME="AniOS (') for line in os_release)
-          print("JSON, SDDM theme, Wayland session, and AniOS identity parse successfully")
+          import yaml
+
+          calamares_root = pathlib.Path("profile/installer/calamares")
+          for config_path in calamares_root.rglob("*.conf"):
+              yaml.safe_load(config_path.read_text())
+          yaml.safe_load((calamares_root / "branding/anios/branding.desc").read_text())
+          settings = yaml.safe_load((calamares_root / "settings.conf").read_text())
+          execution = next(step["exec"] for step in settings["sequence"] if "exec" in step)
+          required_order = ["shellprocess@anios-pacstrap", "shellprocess@anios-skel", "users",
+                            "grubcfg", "shellprocess@anios-finalize", "bootloader"]
+          positions = [execution.index(module) for module in required_order]
+          assert positions == sorted(positions), "Calamares install jobs are in an unsafe order"
+          assert ("default", "gorgeous-grubphemous") == tuple(
+              item["id"] for item in yaml.safe_load(
+                  (calamares_root / "modules/packagechooser-grub.conf").read_text())["items"])
+          assert ("anios", "wuwa") == tuple(
+              item["id"] for item in yaml.safe_load(
+                  (calamares_root / "modules/packagechooser-sddm.conf").read_text())["items"])
+          assert ("imi", "end4") == tuple(
+              item["id"] for item in yaml.safe_load(
+                  (calamares_root / "modules/packagechooser-dotfiles.conf").read_text())["items"])
+
+          print("JSON, SDDM theme, Calamares YAML, install sequence, and AniOS identity parse successfully")
           PY

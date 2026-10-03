@@ -1,0 +1,34 @@
+---
+componentName: anios
+welcomeStyleCalamares: false
+welcomeExpandingLogo: true
+windowExpanding: normal
+windowSize: "1180px,760px"
+windowPlacement: center
+sidebar: widget
+navigation: widget
+
+strings:
+  productName: "AniOS"
+  shortProductName: "AniOS"
+  version: "rolling"
+  shortVersion: "rolling"
+  versionedName: "AniOS (Arch Linux · Hyprland)"
+  shortVersionedName: "AniOS"
+  bootloaderEntryName: "AniOS"
+  productUrl: "https://github.com/yushichivnllc/AniOS"
+  supportUrl: "https://github.com/yushichivnllc/AniOS/issues"
+  knownIssuesUrl: "https://github.com/yushichivnllc/AniOS/issues"
+  releaseNotesUrl: "https://github.com/yushichivnllc/AniOS/releases"
+  donateUrl: ""
+
+images:
+  productIcon: "anios-mark.svg"
+  productLogo: "anios-mark.svg"
+  productWelcome: "wallpaper.png"
+
+style:
+  SidebarBackground: "#0a1626"
+  SidebarText: "#eaf4fd"
+  SidebarTextCurrent: "#0a1626"
+  SidebarBackgroundCurrent: "#4ea6ea"

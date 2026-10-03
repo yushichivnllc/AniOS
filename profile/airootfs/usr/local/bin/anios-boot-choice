@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# First-boot GUI entry point: continue in the Live ISO or open Calamares.
+set -Eeuo pipefail
+
+fail_dialog() {
+  kdialog --title "AniOS" --error "$1" || true
+}
+
+command -v kdialog >/dev/null 2>&1 || exit 0
+
+calamares_bin="${ANIOS_CALAMARES_BIN:-$(command -v calamares 2>/dev/null || true)}"
+calamares_settings="${ANIOS_CALAMARES_SETTINGS:-/etc/calamares/settings.conf}"
+calamares_module_dir="${ANIOS_CALAMARES_MODULE_DIR:-/usr/lib/calamares/modules}"
+if [[ -z "$calamares_bin" || ! -x "$calamares_bin" || ! -s "$calamares_settings" ]]; then
+  kdialog --title "Welcome to AniOS" --msgbox \
+    "This Live ISO was built without the optional Calamares installer. The Live desktop will continue normally."
+  exit 0
+fi
+
+chooser_module="$(find "$calamares_module_dir" -type f -iname '*packagechooser*' -print -quit 2>/dev/null || true)"
+if [[ -z "$chooser_module" ]]; then
+  fail_dialog "The Calamares package chooser module is missing, so theme and dotfiles selection cannot be loaded. The Live desktop will continue."
+  exit 0
+fi
+
+choice="$(kdialog --title "Welcome to AniOS" --default live --menu \
+  "Choose how to start. Selecting Live ISO closes this window and keeps the current desktop session running." \
+  live "Live ISO — use AniOS without installing" \
+  install "Install AniOS — start the graphical installer")" || exit 0
+
+case "$choice" in
+  live)
+    # The dialog has closed; keep the current Live session running.
+    exit 0
+    ;;
+  install)
+    command -v pkexec >/dev/null 2>&1 || {
+      fail_dialog "pkexec is not available. The installer cannot be started with administrator privileges."
+      exit 1
+    }
+    [[ -n "${XDG_RUNTIME_DIR:-}" && -n "${WAYLAND_DISPLAY:-}" ]] || {
+      fail_dialog "The Wayland session is not ready. Please start Calamares from the AniOS desktop after login."
+      exit 1
+    }
+
+    # pkexec clears the environment by design. Re-add the current session's
+    # Wayland socket for the privileged Qt process; root can connect to the
+    # user's runtime socket without relying on /run/user/0 being created.
+    wayland_socket="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    [[ -S "$wayland_socket" ]] || {
+      fail_dialog "The Wayland display socket is unavailable: $wayland_socket"
+      exit 1
+    }
+    launch_log="${XDG_RUNTIME_DIR}/anios-calamares-launch.log"
+    if ! pkexec env \
+      XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+      WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
+      XDG_SESSION_TYPE=wayland \
+      QT_QPA_PLATFORM=wayland \
+      "$calamares_bin" >"$launch_log" 2>&1; then
+      fail_dialog "Calamares did not start (or administrator authentication was cancelled). Details: $launch_log"
+      exit 1
+    fi
+    ;;
+  *)
+    exit 0
+    ;;
+esac

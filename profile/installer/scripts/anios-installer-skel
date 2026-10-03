@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Prepare a safe AniOS skeleton before Calamares creates the target user.
+set -Eeuo pipefail
+
+LIVE_ROOT="${ANIOS_LIVE_ROOT:-/}"
+target_root="${1:-}"
+dotfiles_choice="${2:-}"
+
+fail() { echo "AniOS installer: $*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || fail "this step must run as root"
+[[ -n "$target_root" && "$target_root" == /* ]] || fail "invalid target root"
+[[ "$dotfiles_choice" == imi || "$dotfiles_choice" == end4 ]] ||
+  fail "unknown dotfiles choice: $dotfiles_choice"
+[[ -d "$target_root" && "$target_root" != / ]] || fail "target root is not a mounted directory"
+command -v mountpoint >/dev/null 2>&1 || fail "mountpoint is missing"
+target_root="$(realpath -e -- "$target_root")" || fail "cannot resolve target root"
+[[ "$target_root" != / && "$target_root" != /run/archiso* ]] ||
+  fail "refusing to modify the Live system"
+mountpoint -q -- "$target_root" || fail "refusing to write to a target that is not mounted"
+
+source_skel="$LIVE_ROOT/usr/share/anios/skel"
+target_skel="$target_root/usr/share/anios/skel"
+target_etc_skel="$target_root/etc/skel"
+[[ -d "$source_skel/.config/hypr" ]] || fail "AniOS skeleton is missing: $source_skel"
+
+install -d -m 0755 -- "$target_skel" "$target_etc_skel"
+cp -a -- "$source_skel/." "$target_skel/"
+
+# Live-only files must never follow the user into the installed system.
+rm -f -- \
+  "$target_skel/Desktop/README.txt" \
+  "$target_skel/Desktop/Sober.desktop"
+
+hyprlock="$target_skel/.config/hypr/hyprlock.conf"
+[[ -s "$hyprlock" ]] || fail "AniOS hyprlock configuration is missing"
+# The Live lock screen uses a public password and a Live-only PAM service.
+sed -i \
+  -e 's/pam:module = anios-live/pam:module = hyprlock/' \
+  -e 's/Hyprland live gaming desktop/Hyprland desktop/' \
+  -e '/1111/d' \
+  "$hyprlock"
+# Drop the complete Live-password label, including its explanatory comments.
+sed -i '/^# Nhắc mật khẩu live:/,/^}/d' "$hyprlock"
+
+if grep -R -nF '1111' "$target_skel"; then
+  fail "Live password text remains in the target skeleton"
+fi
+if grep -R -nE 'anios-live|ARCH LINUX LIVE|live gaming desktop' "$target_skel/.config/hypr"; then
+  fail "Live-only lock/session branding remains in the target skeleton"
+fi
+
+# Make a copy under /usr/share for AniOS' desktop-switch helper, then use the
+# exact same sanitized skeleton for the new user's /etc/skel defaults.
+cp -a -- "$target_skel/." "$target_etc_skel/"
+chown -R 0:0 -- "$target_skel" "$target_etc_skel"
+chmod -R go-w -- "$target_skel" "$target_etc_skel"
+
+# Install the AniOS session entry points before Calamares' displaymanager
+# module runs; it needs the target .desktop file and TryExec binary for SDDM.
+for session in anios.desktop anios-imi.desktop anios-minimal.desktop; do
+  source_session="$LIVE_ROOT/usr/share/wayland-sessions/$session"
+  [[ -s "$source_session" ]] || fail "Wayland session file is missing: $source_session"
+  install -D -m 0644 -- "$source_session" "$target_root/usr/share/wayland-sessions/$session"
+done
+[[ -s "$LIVE_ROOT/usr/local/bin/anios-session" ]] ||
+  fail "AniOS session launcher is missing: $LIVE_ROOT/usr/local/bin/anios-session"
+install -D -m 0755 -- "$LIVE_ROOT/usr/local/bin/anios-session" \
+  "$target_root/usr/local/bin/anios-session"
+
+printf 'AniOS installer: prepared clean %s dotfiles and Wayland sessions in target /etc/skel\n' "$dotfiles_choice"

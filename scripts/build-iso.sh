@@ -6,8 +6,8 @@ OUT_DIR="$ROOT_DIR/out"
 WORK_DIR="$ROOT_DIR/work"
 CLEAN_WORK=0
 SKIP_CHECKS=0
-# Gói AUR (yay, coccoc-browser-stable, legacy-launcher) được dựng ngay trong
-# chroot lúc build. Tắt bằng --no-aur khi máy dựng không ra được AUR.
+# Các gói trong profile/packages.aur.x86_64 được dựng ngay trong chroot lúc build.
+# Tắt --no-aur nếu cả AUR, mirror GitHub và snapshot đều không truy cập được.
 WITH_AUR=1
 # Giữ nguyên tham số gốc để khi tự gọi lại bằng sudo không mất tuỳ chọn nào.
 ORIG_ARGS=("$@")
@@ -23,9 +23,9 @@ Arch Linux x86_64 host, archiso, network access, and root privileges.
                  scratch instead of reusing a previous airootfs
   --skip-checks  do not run scripts/check-profile.sh before building
   --no-aur       do not bake in the AUR packages listed in
-                 profile/packages.aur.x86_64 (yay, coccoc-browser-stable,
-                 legacy-launcher). Use this when the build machine cannot reach
-                 aur.archlinux.org; the resulting ISO has no AUR helper.
+                 profile/packages.aur.x86_64. Use this when the build machine
+                 cannot reach aur.archlinux.org, GitHub's AUR mirror or cgit;
+                 the resulting ISO has no graphical installer or AUR helper.
 EOF
 }
 
@@ -293,6 +293,99 @@ fi
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
+# --- Calamares installer payload ------------------------------------------
+# Installer configs/assets are kept out of pacman-owned paths until the AUR hook
+# has installed Calamares; scripts/anios-aur-build.sh then copies settings into
+# /etc/calamares and verifies that packagechooser is actually present.
+if (( WITH_AUR )); then
+  INSTALLER_SRC="$ROOT_DIR/profile/installer"
+  INSTALLER_STAGE="$BUILD_PROFILE/airootfs/usr/share/anios/installer"
+  for component in \
+    "$INSTALLER_SRC/calamares/settings.conf" \
+    "$ROOT_DIR/profile/install/packages.x86_64" \
+    "$INSTALLER_SRC/scripts/anios-installer-pacstrap" \
+    "$INSTALLER_SRC/scripts/anios-installer-skel" \
+    "$INSTALLER_SRC/scripts/anios-installer-finalize" \
+    "$INSTALLER_SRC/scripts/anios-end4-first-login" \
+    "$INSTALLER_SRC/scripts/anios-end4-setup" \
+    "$INSTALLER_SRC/licenses/Grubphemous-LICENSE" \
+    "$INSTALLER_SRC/licenses/Grubphemous-README.md" \
+    "$ROOT_DIR/profile/branding/wallpaper.png" \
+    "$ROOT_DIR/profile/airootfs/usr/share/sddm/themes/wuwa/fallback.png"; do
+    [[ -s "$component" ]] || { echo "Missing installer component: $component" >&2; exit 1; }
+  done
+
+  install -d -m 0755 -- "$INSTALLER_STAGE/calamares" \
+    "$INSTALLER_STAGE/previews" "$INSTALLER_STAGE/upstream/grubphemous" \
+    "$INSTALLER_STAGE/licenses" "$INSTALLER_STAGE/scripts" \
+    "$BUILD_PROFILE/airootfs/usr/local/lib/anios"
+  cp -a -- "$INSTALLER_SRC/calamares/." "$INSTALLER_STAGE/calamares/"
+  install -m 0644 -- "$ROOT_DIR/profile/install/packages.x86_64" "$INSTALLER_STAGE/packages.x86_64"
+  install -m 0644 -- "$INSTALLER_SRC/licenses/Grubphemous-LICENSE" \
+    "$INSTALLER_STAGE/licenses/Grubphemous-LICENSE"
+  install -m 0644 -- "$INSTALLER_SRC/licenses/Grubphemous-README.md" \
+    "$INSTALLER_STAGE/licenses/Grubphemous-README.md"
+  install -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
+    "$INSTALLER_STAGE/previews/wallpaper.png"
+  install -m 0644 -- "$ROOT_DIR/profile/branding/wallpaper.png" \
+    "$INSTALLER_STAGE/calamares/branding/anios/wallpaper.png"
+  install -m 0644 -- "$ROOT_DIR/profile/airootfs/usr/share/sddm/themes/wuwa/fallback.png" \
+    "$INSTALLER_STAGE/previews/qylock.png"
+
+  # Grubphemous is featured by Jacksaur/Gorgeous-GRUB. Pin its upstream source,
+  # ship only the actual GRUB theme and preview, and retain its MIT/CC-BY credits.
+  GRUBPHEMOUS_COMMIT="baf07c65cf69e91a70567ccf17503bc1d1c1de51"
+  grubphemous_tmp="$(mktemp -d "${TMPDIR:-/tmp}/anios-grubphemous.XXXXXX")"
+  grubphemous_archive="$grubphemous_tmp/theme.tar.gz"
+  grubphemous_url="https://codeload.github.com/pvtoari/grubphemous-theme/tar.gz/$GRUBPHEMOUS_COMMIT"
+  curl -fSL --retry 3 --retry-delay 2 --max-time 300 \
+    -o "$grubphemous_archive" "$grubphemous_url" || {
+      rm -rf -- "$grubphemous_tmp"
+      echo "Could not download the pinned Gorgeous-GRUB theme: $grubphemous_url" >&2
+      exit 1
+    }
+  tar -xzf "$grubphemous_archive" -C "$grubphemous_tmp" || {
+    rm -rf -- "$grubphemous_tmp"
+    echo "The Gorgeous-GRUB theme archive is invalid: $grubphemous_url" >&2
+    exit 1
+  }
+  grubphemous_theme_txt="$(find "$grubphemous_tmp" -type f -path '*/grubphemous/theme.txt' -print -quit)"
+  if [[ -z "$grubphemous_theme_txt" ]]; then
+    rm -rf -- "$grubphemous_tmp"
+    echo "The pinned Gorgeous-GRUB theme archive has no grubphemous/theme.txt" >&2
+    exit 1
+  fi
+  grubphemous_repo="${grubphemous_theme_txt%/grubphemous/theme.txt}"
+  grubphemous_theme="$grubphemous_repo/grubphemous"
+  for asset in theme.txt background.png blasphemous-regular-15.pf2 \
+    blasphemous-regular-20.pf2 blasphemous-regular-30.pf2; do
+    [[ -s "$grubphemous_theme/$asset" ]] || {
+      rm -rf -- "$grubphemous_tmp"
+      echo "Pinned Gorgeous-GRUB theme is missing: $asset" >&2
+      exit 1
+    }
+  done
+  [[ -s "$grubphemous_repo/resources/preview.png" && -s "$grubphemous_repo/LICENSE" && -s "$grubphemous_repo/README.md" ]] || {
+    rm -rf -- "$grubphemous_tmp"
+    echo "Pinned Gorgeous-GRUB theme is missing its preview or license/attribution" >&2
+    exit 1
+  }
+  cp -a -- "$grubphemous_theme/." "$INSTALLER_STAGE/upstream/grubphemous/"
+  install -m 0644 -- "$grubphemous_repo/resources/preview.png" "$INSTALLER_STAGE/previews/grub-gorgeous.png"
+  install -m 0644 -- "$grubphemous_repo/LICENSE" "$INSTALLER_STAGE/licenses/Grubphemous-LICENSE"
+  install -m 0644 -- "$grubphemous_repo/README.md" "$INSTALLER_STAGE/licenses/Grubphemous-README.md"
+  rm -rf -- "$grubphemous_tmp"
+
+  for helper in anios-installer-pacstrap anios-installer-skel anios-installer-finalize; do
+    install -m 0644 -- "$INSTALLER_SRC/scripts/$helper" \
+      "$BUILD_PROFILE/airootfs/usr/local/lib/anios/$helper"
+  done
+  # The finalizer installs these only if the user selected end-4 dotfiles.
+  for helper in anios-end4-first-login anios-end4-setup; do
+    install -m 0644 -- "$INSTALLER_SRC/scripts/$helper" "$INSTALLER_STAGE/scripts/$helper"
+  done
+fi
+
 # Releng có cấu hình autologin root trên tty1 (getty@tty1.service.d/autologin.conf).
 # Xoá cấu hình này để tty1 không bị agetty chiếm dụng, giúp SDDM khởi chạy
 # bình thường trên VT1 mà không bị xung đột.
@@ -446,15 +539,15 @@ cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
   "$BUILD_PROFILE/airootfs/etc/skel/"
 
 # --- Gói AUR được nướng sẵn vào ảnh live ----------------------------------
-# pacman không cài được AUR, nên các gói trong profile/packages.aur.x86_64 (yay,
-# coccoc-browser-stable, legacy-launcher) phải được makepkg dựng ngay bên trong
+# pacman không cài được AUR, nên các gói trong profile/packages.aur.x86_64
+# (calamares, yay, coccoc-browser-stable, legacy-launcher) phải được makepkg dựng ngay bên trong
 # chroot airootfs. mkarchiso mở đúng một chỗ cho việc đó: hook
 # <airootfs>/root/customize_airootfs.sh, được chạy bằng arch-chroot SAU khi
 # pacstrap cài xong packages.x86_64 và TRƯỚC khi sinh pkglist (hàm
 # _build_iso_base của mkarchiso). Nhờ thứ tự đó:
 #   * base-devel/git và mọi thư viện mà gói AUR cần đã có sẵn trước makepkg;
-#   * gói AUR nằm trong pacman DB của ảnh nên xuất hiện trong
-#     /arch/pkglist.x86_64.txt và `yay -Syu` của phiên live nhận ra chúng.
+#   * Calamares và các ứng dụng AUR nằm trong pacman DB của ảnh để người dùng
+#     chạy chúng ngay trong phiên Live, còn `yay -Syu` nhận biết đúng những gói đã cài.
 #
 # Không dùng cách "dựng sẵn gói rồi khai báo một kho pacman cục bộ trong ảnh":
 # kho đó trỏ vào đường dẫn chỉ tồn tại lúc dựng, nên mọi lệnh pacman của người
@@ -472,15 +565,15 @@ if (( WITH_AUR )); then
 
   # Hook này bị archiso đánh dấu deprecated nhưng vẫn còn trong mkarchiso. Nếu
   # một bản archiso tương lai bỏ hẳn nó thì gói AUR sẽ âm thầm biến mất khỏi ảnh,
-  # nên kiểm tra ngay lúc dựng thay vì phát hành ISO thiếu yay/Cốc Cốc.
+  # nên kiểm tra ngay lúc dựng thay vì phát hành ISO thiếu Calamares/yay/Cốc Cốc.
   MKARCHISO_BIN="$(command -v mkarchiso)"
   if ! grep -q 'customize_airootfs.sh' "$MKARCHISO_BIN"; then
     cat >&2 <<'EOF'
 mkarchiso on this machine no longer runs airootfs/root/customize_airootfs.sh,
 which is the only hook AniOS can use to build AUR packages inside the image.
 
-The AUR packages in profile/packages.aur.x86_64 (yay, coccoc-browser-stable,
-legacy-launcher) would silently be missing from the ISO, so the build stops
+The AUR packages in profile/packages.aur.x86_64 (Calamares, yay,
+coccoc-browser-stable, legacy-launcher) would silently be missing from the ISO, so the build stops
 here. Either build with an archiso version that still supports the hook, or run
 `sudo ./scripts/build-iso.sh --no-aur` for an ISO without the AUR packages.
 EOF
@@ -539,7 +632,7 @@ fi
 HOOK_BODY
   chmod 0755 -- "$AUR_HOOK"
 else
-  printf 'Skipping the AUR packages (--no-aur): the ISO will have no yay/Coc Coc/Legacy Launcher\n'
+  printf 'Skipping the AUR packages (--no-aur): the ISO will have no Calamares/yay/Coc Coc/Legacy Launcher\n'
 fi
 
 # --- Sober (Roblox) từ Flathub, cài sẵn vào ảnh ---------------------------
@@ -648,6 +741,7 @@ insert_permission "/etc/grub.d/99_anios_evangelion" "0:0:755"
 insert_permission "/usr/local/bin/anios-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-switch-desktop" "0:0:755"
 insert_permission "/usr/local/bin/anios-session" "0:0:755"
+insert_permission "/usr/local/bin/anios-boot-choice" "0:0:755"
 insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-check" "0:0:755"
@@ -657,6 +751,11 @@ insert_permission "/usr/local/bin/anios-sober" "0:0:755"
 insert_permission "/opt/seanime/seanime" "0:0:755"
 insert_permission "/usr/local/lib/anios/create-live-user" "0:0:755"
 insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
+if (( WITH_AUR )); then
+  insert_permission "/usr/local/lib/anios/anios-installer-pacstrap" "0:0:755"
+  insert_permission "/usr/local/lib/anios/anios-installer-skel" "0:0:755"
+  insert_permission "/usr/local/lib/anios/anios-installer-finalize" "0:0:755"
+fi
 
 for entry in \
   '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
@@ -664,6 +763,7 @@ for entry in \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-desktop"]="0:0:755"' \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
+  '["/usr/local/bin/anios-boot-choice"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
@@ -676,6 +776,15 @@ for entry in \
   grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||
     { echo "Failed to declare file_permissions entry: $entry" >&2; exit 1; }
 done
+if (( WITH_AUR )); then
+  for entry in \
+    '["/usr/local/lib/anios/anios-installer-pacstrap"]="0:0:755"' \
+    '["/usr/local/lib/anios/anios-installer-skel"]="0:0:755"' \
+    '["/usr/local/lib/anios/anios-installer-finalize"]="0:0:755"'; do
+    grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||
+      { echo "Failed to declare file_permissions entry: $entry" >&2; exit 1; }
+  done
+fi
 
 printf 'Building AniOS ISO\n  Profile: %s\n  Work:    %s\n  Output:  %s\n' "$BUILD_PROFILE" "$WORK_DIR" "$OUT_DIR"
 
@@ -745,7 +854,7 @@ sudoers_nopasswd_rules() {
 # Hook customize_airootfs.sh là chỗ duy nhất AniOS dựng được gói AUR, và nó bị
 # archiso đánh dấu deprecated. Nếu hook không chạy (archiso đổi, airootfs được
 # tái sử dụng từ lần dựng trước, script dựng gói bị bỏ qua...) thì mkarchiso vẫn
-# báo thành công và cho ra một ISO thiếu yay/Cốc Cốc. Vì vậy phải đối chiếu với
+# báo thành công và cho ra một ISO thiếu Calamares/yay/Cốc Cốc. Vì vậy phải đối chiếu với
 # pacman DB của chính airootfs vừa dựng — đó là nguồn sự thật mà pkglist trên ISO
 # cũng được sinh ra từ đó.
 if (( WITH_AUR )); then

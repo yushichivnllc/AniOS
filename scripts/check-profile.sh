@@ -12,7 +12,8 @@ pass() { echo "OK: $*"; }
 
 # --- Danh sách gói ---------------------------------------------------------
 for package in \
-  linux-zen shadow steam hyprland networkmanager waybar sddm hyprlock \
+  linux-zen arch-install-scripts btrfs-progs cryptsetup e2fsprogs efibootmgr gptfdisk \
+  lvm2 parted shadow steam hyprland networkmanager waybar sddm hyprlock \
   qt6-declarative qt6-multimedia qt6-multimedia-ffmpeg qt6-5compat \
   gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
   fcitx5 fcitx5-unikey ibus ibus-unikey xf86-video-fbdev xf86-video-vesa \
@@ -35,7 +36,7 @@ done
 # packages.x86_64 được pacstrap đọc trực tiếp nên CHỈ được chứa gói của kho chính
 # thức. Gói AUR phải nằm trong profile/packages.aur.x86_64, nơi
 # scripts/anios-aur-build.sh dựng chúng bằng makepkg bên trong chroot.
-for aur_only in yay yay-bin coccoc-browser-stable legacy-launcher; do
+for aur_only in calamares yay yay-bin coccoc-browser-stable legacy-launcher; do
   ! grep -qxF "$aur_only" "$ROOT_DIR/profile/packages.x86_64" ||
     fail "$aur_only only exists in the AUR; pacstrap cannot resolve it. Move it to profile/packages.aur.x86_64"
 done
@@ -76,6 +77,7 @@ expected="$(printf '%s\n' \
 for declaration in \
   '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
   '["/usr/local/bin/anios-session"]="0:0:755"' \
+  '["/usr/local/bin/anios-boot-choice"]="0:0:755"' \
   '["/usr/local/bin/anios-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-desktop"]="0:0:755"' \
   '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
@@ -102,7 +104,8 @@ fi
 # --- Cú pháp shell --------------------------------------------------------
 while IFS= read -r -d '' script; do
   bash -n "$script" || fail "shell syntax error: $script"
-done < <(find "$ROOT_DIR/scripts" "$AIROOTFS/usr/local" -type f -print0 2>/dev/null)
+done < <(find "$ROOT_DIR/scripts" "$AIROOTFS/usr/local" \
+  "$ROOT_DIR/profile/installer/scripts" -type f -print0 2>/dev/null)
 
 # --- Danh tính AniOS ------------------------------------------------------
 OS_RELEASE="$AIROOTFS/etc/os-release"
@@ -357,6 +360,13 @@ for hypr_lua in \
   [[ ! -e "${hypr_lua%.lua}.conf" ]] ||
     fail "obsolete Hyprland config ${hypr_lua%.lua}.conf: Hyprland now reads hyprland.lua"
 done
+# Keep both skeleton trees byte-for-byte aligned even on hosts without Lua.
+for config_dir in hypr matugen/templates/hyprland quickshell; do
+  if ! diff -qr "$AIROOTFS/etc/skel/.config/$config_dir" \
+    "$AIROOTFS/usr/share/anios/skel/.config/$config_dir"; then
+    fail "the Live and installed-user skeleton copies differ: $config_dir"
+  fi
+done
 if command -v "${LUA:-lua}" >/dev/null 2>&1; then
   "$ROOT_DIR/scripts/check-hyprland.sh" || fail "Hyprland Lua validation failed"
 else
@@ -533,7 +543,7 @@ grep -qF 'selftest-check-live-audio.sh' "$ROOT_DIR/.github/workflows/profile-che
   fail "the profile workflow must run scripts/selftest-check-live-audio.sh"
 
 # --- Gói AUR được dựng và cài sẵn lúc build --------------------------------
-# pacman không cài được AUR, nên yay, coccoc-browser-stable và legacy-launcher
+# pacman không cài được AUR, nên calamares, yay, coccoc-browser-stable và legacy-launcher
 # phải được makepkg dựng BÊN TRONG chroot airootfs (scripts/anios-aur-build.sh,
 # gọi từ hook customize_airootfs.sh mà scripts/build-iso.sh sinh ra). Nhóm kiểm tra
 # dưới đây khoá lại những quyết định dễ bị phá khi sửa tay.
@@ -545,7 +555,7 @@ LIVE_AUR_SELFCHECK="$ROOT_DIR/scripts/selftest-check-live-aur.sh"
 BUILD_ISO="$ROOT_DIR/scripts/build-iso.sh"
 
 [[ -s "$AUR_MANIFEST" ]] || fail "AUR manifest is missing: profile/packages.aur.x86_64"
-for aur_pkg in yay coccoc-browser-stable legacy-launcher; do
+for aur_pkg in calamares yay coccoc-browser-stable legacy-launcher; do
   grep -qE "^${aur_pkg}(=[^[:space:]]+)?([[:space:]]|#|$)" "$AUR_MANIFEST" ||
     fail "the AUR manifest must bake $aur_pkg into the live image"
 done
@@ -603,7 +613,7 @@ grep -qF 'AUR_FAILED' "$AUR_BUILDER" ||
 # đánh dấu deprecated, nếu nó biến mất thì mkarchiso vẫn báo thành công và cho ra
 # một ISO thiếu gói AUR.
 grep -qF -- '--no-aur' "$BUILD_ISO" ||
-  fail "build-iso.sh must offer --no-aur for machines that cannot reach the AUR"
+  fail "build-iso.sh must offer --no-aur for machines that cannot reach any AUR source"
 grep -qF 'customize_airootfs.sh' "$BUILD_ISO" ||
   fail "build-iso.sh must generate the airootfs/root/customize_airootfs.sh hook that builds the AUR packages"
 grep -qF 'packages.aur.x86_64' "$BUILD_ISO" ||
@@ -656,4 +666,68 @@ grep -qE '^sudoers_nopasswd_rules\(\) \{$' "$BUILD_ISO" ||
 grep -qF 'sudoers_nopasswd_rules "$airootfs_dir"' "$BUILD_ISO" ||
   fail "build-iso.sh must check the built image for leaked NOPASSWD rules with sudoers_nopasswd_rules"
 
-pass "AniOS profile checks passed (ISO build still requires Arch Linux + archiso)"
+# --- Calamares installer ---------------------------------------------------
+INSTALLER_ROOT="$ROOT_DIR/profile/installer"
+INSTALLER_SELFTEST="$ROOT_DIR/scripts/selftest-installer.sh"
+TARGET_MANIFEST="$ROOT_DIR/profile/install/packages.x86_64"
+BOOT_CHOICE="$AIROOTFS/usr/local/bin/anios-boot-choice"
+
+[[ -x "$BOOT_CHOICE" ]] || fail "Live ISO boot chooser is missing or not executable"
+[[ -x "$INSTALLER_SELFTEST" ]] || fail "installer self-test is missing or not executable"
+grep -qF 'selftest-installer.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-installer.sh"
+grep -qF 'anios-boot-choice' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" ||
+  fail "the AniOS graphical session must open the Live ISO / installer choice"
+grep -qF 'ANIOS_LIVE' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session must gate the welcome chooser to the Live ISO only"
+grep -qxF 'calamares' "$AUR_MANIFEST" || fail "Calamares must be built into the Live ISO"
+[[ -s "$TARGET_MANIFEST" ]] || fail "the curated target package manifest is missing"
+for target_package in base linux-zen grub sddm networkmanager lib32-mesa; do
+  grep -qxF "$target_package" "$TARGET_MANIFEST" ||
+    fail "the target installer manifest is missing $target_package"
+done
+for installer_file in \
+  "$INSTALLER_ROOT/calamares/settings.conf" \
+  "$INSTALLER_ROOT/calamares/modules/packagechooser-grub.conf" \
+  "$INSTALLER_ROOT/calamares/modules/packagechooser-sddm.conf" \
+  "$INSTALLER_ROOT/calamares/modules/packagechooser-dotfiles.conf" \
+  "$INSTALLER_ROOT/calamares/modules/services-systemd.conf" \
+  "$INSTALLER_ROOT/scripts/anios-installer-pacstrap" \
+  "$INSTALLER_ROOT/scripts/anios-installer-skel" \
+  "$INSTALLER_ROOT/scripts/anios-installer-finalize" \
+  "$INSTALLER_ROOT/licenses/Grubphemous-LICENSE" \
+  "$INSTALLER_ROOT/licenses/Grubphemous-README.md"; do
+  [[ -s "$installer_file" ]] || fail "installer component is missing: ${installer_file#"$ROOT_DIR/"}"
+done
+for script in "$INSTALLER_ROOT"/scripts/*; do
+  [[ -x "$script" ]] || fail "installer helper is not executable: ${script#"$ROOT_DIR/"}"
+  bash -n "$script" || fail "shell syntax error: ${script#"$ROOT_DIR/"}"
+done
+grep -qF 'gorgeous-grubphemous' "$INSTALLER_ROOT/scripts/anios-installer-finalize" ||
+  fail "the GRUB finalizer must accept the Gorgeous-GRUB selection"
+! grep -qF 'catppuccin-mocha' "$INSTALLER_ROOT/scripts/anios-installer-finalize" ||
+  fail "the GRUB finalizer still selects the obsolete Catppuccin option"
+grep -qF 'install_calamares_configuration' "$AUR_BUILDER" ||
+  fail "the AUR hook must stage AniOS Calamares configuration after package install"
+grep -qF 'modules/packagechooser-grub.conf' "$AUR_BUILDER" ||
+  fail "the AUR hook must verify AniOS packagechooser module configurations"
+for staged_path in \
+  'previews/grub-gorgeous.png' \
+  'previews/qylock.png' \
+  'previews/wallpaper.png' \
+  'upstream/grubphemous' \
+  'packages.x86_64'; do
+  grep -qF "$staged_path" "$BUILD_ISO" ||
+    fail "build-iso.sh does not stage installer asset $staged_path"
+done
+[[ -x "$AIROOTFS/usr/local/bin/anios-session" ]] || fail "anios-session must be executable"
+
+grep -qF 'END4_COMMIT="547836f1b01a45445cfbbcd92b206d1b5ceee4d9"' \
+  "$INSTALLER_ROOT/scripts/anios-end4-setup" ||
+  fail "end-4 upstream revision must be pinned to the verified commit"
+grep -qF 'exec ./setup install' "$INSTALLER_ROOT/scripts/anios-end4-setup" ||
+  fail "end-4 must run only its interactive install command after user consent"
+grep -qF '[[ $EUID -ne 0 ]]' "$INSTALLER_ROOT/scripts/anios-end4-setup" ||
+  fail "end-4 setup must never run as root"
+
+pass "AniOS profile and installer checks passed (ISO build still requires Arch Linux + archiso)"

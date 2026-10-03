@@ -8,6 +8,16 @@ linux-zen-headers
 intel-ucode
 amd-ucode
 archlinux-keyring
+# Calamares calls pacstrap to install the curated target package manifest and
+# uses these tools while preparing ext4/btrfs, LUKS, LVM and EFI partitions.
+arch-install-scripts
+btrfs-progs
+cryptsetup
+e2fsprogs
+efibootmgr
+gptfdisk
+lvm2
+parted
 
 # Hyprland: desktop tối giản, ít hiệu ứng cho máy phòng net
 # Từ 0.55 Hyprland đọc cấu hình Lua (~/.config/hypr/hyprland.lua); hyprlock
