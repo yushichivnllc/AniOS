@@ -12,6 +12,14 @@ export QT_IM_MODULE=fcitx
 export XMODIFIERS=@im=fcitx
 export SDL_IM_MODULE=fcitx
 
+# The Live-only welcome/installer choice is gated by archiso's runtime mount.
+# Installed sessions deliberately clear the marker and never prompt at login.
+if [[ -d /run/archiso ]]; then
+  export ANIOS_LIVE=1
+else
+  unset ANIOS_LIVE
+fi
+
 mode="${1:-}"
 if [[ "$mode" == "--imi" || "$mode" == "imi" || "$mode" == "immaterial-impulse" ]]; then
   export ANIOS_DESKTOP="imi"

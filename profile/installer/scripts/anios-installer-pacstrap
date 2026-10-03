@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Install the curated official-repository AniOS target set into Calamares' mount.
+set -Eeuo pipefail
+
+TARGET_ROOT="${1:-}"
+MANIFEST="${ANIOS_TARGET_MANIFEST:-/usr/share/anios/installer/packages.x86_64}"
+PACMAN_CONF="${ANIOS_LIVE_PACMAN_CONF:-/etc/pacman.conf}"
+
+fail() { echo "AniOS installer: $*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || fail "pacstrap must run as root"
+[[ -n "$TARGET_ROOT" && "$TARGET_ROOT" == /* && "$TARGET_ROOT" != / ]] ||
+  fail "invalid target root"
+[[ -d "$TARGET_ROOT" ]] || fail "target root does not exist: $TARGET_ROOT"
+command -v mountpoint >/dev/null 2>&1 || fail "mountpoint is missing"
+command -v pacstrap >/dev/null 2>&1 || fail "pacstrap is missing from the Live ISO"
+[[ -s "$MANIFEST" ]] || fail "target package manifest is missing: $MANIFEST"
+[[ -s "$PACMAN_CONF" ]] || fail "Live pacman.conf is missing: $PACMAN_CONF"
+
+# A bad Global Storage value must never turn the live root into the pacstrap
+# target. Calamares mounts the selected root at a dedicated mount point first.
+target_real="$(realpath -e -- "$TARGET_ROOT")" || fail "cannot resolve target root"
+[[ "$target_real" != / && "$target_real" != /run/archiso* ]] ||
+  fail "refusing to install into the Live system"
+mountpoint -q -- "$target_real" || fail "target root is not mounted"
+
+packages=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line="${line%%#*}"
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line%"${line##*[![:space:]]}"}"
+  [[ -n "$line" ]] || continue
+  [[ "$line" =~ ^[A-Za-z0-9@._+-]+$ ]] || fail "invalid package name in manifest: $line"
+  packages+=("$line")
+done <"$MANIFEST"
+
+(( ${#packages[@]} > 0 )) || fail "target package manifest is empty"
+
+# Steam, Wine and other 32-bit target packages must resolve from multilib on
+# the Live pacman config. build-iso.sh enables that repository for both roots.
+if grep -qxF 'lib32-mesa' "$MANIFEST" &&
+  ! grep -qE '^[[:space:]]*\[multilib\][[:space:]]*$' "$PACMAN_CONF"; then
+  fail "multilib is disabled in the Live pacman.conf"
+fi
+
+printf 'AniOS installer: pacstrap %s with %d curated packages\n' "$target_real" "${#packages[@]}"
+pacstrap -K -C "$PACMAN_CONF" "$target_real" "${packages[@]}"
+
+[[ -x "$target_real/usr/bin/pacman" ]] || fail "pacstrap returned successfully but target pacman is missing"
+printf 'AniOS installer: target packages installed successfully\n'

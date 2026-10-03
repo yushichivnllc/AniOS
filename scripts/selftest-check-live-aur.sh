@@ -156,13 +156,17 @@ make_fake_image() {
   local img="$1"
   rm -rf -- "$img"
   mkdir -p -- "$img"/{usr/bin,usr/share/anios,root,home,var/tmp} \
-    "$img"/etc/sudoers.d "$img"/var/lib/pacman/local
+    "$img"/etc/sudoers.d "$img"/var/lib/pacman/local \
+    "$img"/etc/calamares/modules "$img"/usr/lib/calamares/modules \
+    "$img"/usr/local/lib/anios "$img"/usr/share/anios/installer/previews \
+    "$img"/usr/share/anios/installer/scripts "$img"/usr/share/anios/installer/upstream/grubphemous
 
   # pacman DB thật (libalpm/be_local.c): mỗi gói đã cài là một thư mục
   # <tên>-<pkgver>-<pkgrel> (KHÔNG có hậu tố -<arch>; chỉ file .pkg.tar.zst mới
   # có -<arch>), bên trong có desc/files, kèm tệp ALPM_DB_VERSION ở gốc local/.
   printf '9\n' >"$img/var/lib/pacman/local/ALPM_DB_VERSION"
   local dbpkgs=(
+    calamares-3.4.2-2
     yay-13.0.1-1
     coccoc-browser-stable-152.0.7977.124-1
     legacy-launcher-latest-1
@@ -190,10 +194,28 @@ make_fake_image() {
 
   # Binary của các gói trên.
   local bin
-  for bin in yay makepkg git python3 pip node npm wine winetricks flatpak java pacman \
+  for bin in calamares yay makepkg git python3 pip node npm wine winetricks flatpak java pacman \
     hyprland steam; do
     printf '#!/bin/sh\necho %s\n' "$bin" >"$img/usr/bin/$bin"
     chmod 0755 -- "$img/usr/bin/$bin"
+  done
+
+  # AniOS installer payload and the Calamares packagechooser module.
+  printf '%s\n' '---' >"$img/etc/calamares/settings.conf"
+  for config in packagechooser-grub.conf packagechooser-sddm.conf packagechooser-dotfiles.conf; do
+    printf '%s\n' '---' >"$img/etc/calamares/modules/$config"
+  done
+  printf 'plugin\n' >"$img/usr/lib/calamares/modules/libcalamares_viewmodule_packagechooser.so"
+  for path in \
+    usr/local/lib/anios/anios-installer-pacstrap \
+    usr/local/lib/anios/anios-installer-skel \
+    usr/local/lib/anios/anios-installer-finalize \
+    usr/share/anios/installer/packages.x86_64 \
+    usr/share/anios/installer/previews/grub-gorgeous.png \
+    usr/share/anios/installer/previews/qylock.png \
+    usr/share/anios/installer/scripts/anios-end4-setup \
+    usr/share/anios/installer/upstream/grubphemous/theme.txt; do
+    printf 'fixture\n' >"$img/$path"
   done
 
   # /etc/passwd: tài khoản live anios, KHÔNG có tài khoản dựng gói tạm.
@@ -214,6 +236,7 @@ SUDOERS
   cat >"$img/usr/share/anios/aur-packages.txt" <<'REPORT'
 # Gói AUR được dựng và cài sẵn trong ảnh live AniOS này.
 # Trong phiên live, cập nhật cả kho chính thức lẫn AUR bằng: yay -Syu
+calamares=3.4.2-2
 yay=13.0.1-1
 coccoc-browser-stable=152.0.7977.124-1
 legacy-launcher=latest-1
@@ -228,6 +251,7 @@ steam 1.0.0.82-1
 pipewire-audio 1.4.0-1
 ibus-unikey 0.4.0-1
 firefox 135.0-1
+calamares 3.4.2-2
 yay 13.0.1-1
 coccoc-browser-stable 152.0.7977.124-1
 legacy-launcher latest-1
@@ -262,14 +286,17 @@ status=0
 run_checker "$IMG" "$out" || status=$?
 (( status == 0 )) || { cat "$out" >&2; fail "ảnh tốt mà script trả exit $status"; }
 grep -qF 'THIẾU' "$out" && { cat "$out" >&2; fail "ảnh tốt mà vẫn báo THIẾU"; }
-for pkg in yay coccoc-browser-stable legacy-launcher python nodejs wine flatpak; do
+for pkg in calamares yay coccoc-browser-stable legacy-launcher python nodejs wine flatpak; do
   grep -qE "OK    $pkg\b" "$out" || { cat "$out" >&2; fail "ảnh tốt mà không xác nhận gói $pkg"; }
 done
+grep -qF 'OK    usr/bin/calamares' "$out" || fail "không xác nhận binary usr/bin/calamares"
 grep -qF 'OK    usr/bin/yay' "$out" || fail "không xác nhận binary usr/bin/yay"
+grep -qF 'OK    usr/lib/calamares/modules/*packagechooser*' "$out" ||
+  fail "không xác nhận module Calamares packagechooser"
 grep -qF 'OK    root/.anios-aur đã được dọn' "$out" || fail "không xác nhận rác dựng gói đã dọn"
 grep -qF 'OK    không có luật sudo NOPASSWD nào' "$out" || fail "không xác nhận ảnh sạch NOPASSWD"
 grep -qE 'yay=13\.0\.1-1' "$out" || fail "không in báo cáo gói AUR có trong ảnh"
-pass "ảnh tốt: đủ yay + gói AUR, python, nodejs, wine, không rác, exit 0"
+pass "ảnh tốt: đủ Calamares, yay + gói AUR, python, nodejs, wine, không rác, exit 0"
 
 # --- 2. Thiếu binary ------------------------------------------------------
 IMG2="$SANDBOX/img-nobin"
@@ -287,6 +314,18 @@ grep -qF 'unbound variable' "$out" &&
 grep -qE '^::error::Ảnh live thiếu [1-9][0-9]* mục' "$out" ||
   { cat "$out" >&2; fail "không in dòng tổng kết ::error:: kèm số mục thiếu"; }
 pass "thiếu binary của gói AUR bị phát hiện"
+
+# --- 2b. Thiếu Calamares packagechooser -----------------------------------
+IMG2B="$SANDBOX/img-no-packagechooser"
+make_fake_image "$IMG2B"
+rm -f -- "$IMG2B/usr/lib/calamares/modules/libcalamares_viewmodule_packagechooser.so"
+out="$SANDBOX/out-no-packagechooser"
+status=0
+run_checker "$IMG2B" "$out" || status=$?
+(( status != 0 )) || fail "thiếu module packagechooser mà script vẫn exit 0"
+grep -qF 'THIẾU Calamares packagechooser module' "$out" ||
+  { cat "$out" >&2; fail "không nêu đúng module Calamares còn thiếu"; }
+pass "thiếu module Calamares packagechooser bị phát hiện"
 
 # --- 3. Gói AUR không nằm trong pacman DB ---------------------------------
 IMG3="$SANDBOX/img-nopkg"
@@ -383,4 +422,4 @@ grep -qF '(bỏ qua đối chiếu pkglist' "$out" || fail "không nói rõ đã
 grep -qF 'OK    yay' "$out" || fail "không có pkglist thì không xác nhận được gói AUR"
 pass "vẫn kiểm tra được gói AUR khi chỉ có airootfs.sfs, không có pkglist"
 
-echo "AniOS live AUR check self-test passed"
+echo "AniOS live Calamares/AUR check self-test passed"

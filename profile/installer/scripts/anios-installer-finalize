@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# Apply AniOS branding, selected themes and target-only settings after pacstrap.
+set -Eeuo pipefail
+
+LIVE_ROOT="${ANIOS_LIVE_ROOT:-/}"
+INSTALLER_DATA="${ANIOS_INSTALLER_DATA:-$LIVE_ROOT/usr/share/anios/installer}"
+TARGET_ROOT="${1:-}"
+TARGET_USER="${2:-}"
+GRUB_CHOICE="${3:-}"
+SDDM_CHOICE="${4:-}"
+DOTFILES_CHOICE="${5:-}"
+
+fail() { echo "AniOS installer: $*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || fail "finalization must run as root"
+[[ -n "$TARGET_ROOT" && "$TARGET_ROOT" == /* && "$TARGET_ROOT" != / ]] ||
+  fail "invalid target root"
+[[ -d "$TARGET_ROOT" ]] || fail "target root does not exist"
+command -v mountpoint >/dev/null 2>&1 || fail "mountpoint is missing"
+mountpoint -q -- "$TARGET_ROOT" || fail "target root is not mounted"
+[[ "$TARGET_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*\$?$ ]] ||
+  fail "invalid target username"
+case "$GRUB_CHOICE" in default|gorgeous-grubphemous) ;; *) fail "unknown GRUB theme: $GRUB_CHOICE" ;; esac
+case "$SDDM_CHOICE" in anios|wuwa) ;; *) fail "unknown SDDM theme: $SDDM_CHOICE" ;; esac
+case "$DOTFILES_CHOICE" in imi|end4) ;; *) fail "unknown dotfiles choice: $DOTFILES_CHOICE" ;; esac
+
+TARGET_ROOT="$(realpath -e -- "$TARGET_ROOT")"
+[[ "$TARGET_ROOT" != / && "$TARGET_ROOT" != /run/archiso* ]] ||
+  fail "refusing to modify the Live system"
+
+required_source_files=(
+  "$LIVE_ROOT/usr/share/anios/wallpaper.png"
+  "$LIVE_ROOT/usr/share/sddm/themes/anios/Main.qml"
+  "$LIVE_ROOT/usr/share/sddm/themes/wuwa/Main.qml"
+  "$LIVE_ROOT/usr/share/wayland-sessions/anios.desktop"
+  "$LIVE_ROOT/usr/local/bin/anios-session"
+  "$LIVE_ROOT/usr/local/bin/anios-audio-setup"
+  "$LIVE_ROOT/usr/local/bin/anios-audio-check"
+  "$LIVE_ROOT/usr/local/bin/anios-switch-desktop"
+  "$LIVE_ROOT/usr/local/bin/anios-update"
+  "$LIVE_ROOT/etc/systemd/zram-generator.conf"
+  "$TARGET_ROOT/usr/share/anios/skel/.config/hypr/hyprland.lua"
+  "$TARGET_ROOT/etc/skel/.config/hypr/hyprland.lua"
+)
+for path in "${required_source_files[@]}"; do
+  [[ -s "$path" ]] || fail "required installer source/target file is missing: $path"
+done
+
+user_record="$(awk -F: -v name="$TARGET_USER" '$1 == name { print $1 ":" $3 ":" $4 ":" $6; exit }' "$TARGET_ROOT/etc/passwd")"
+[[ -n "$user_record" ]] || fail "Calamares did not create target user '$TARGET_USER'"
+IFS=: read -r _ user_uid user_gid user_home <<<"$user_record"
+[[ "$user_home" == /home/* ]] || fail "refusing an unexpected home directory: $user_home"
+install -d -m 0700 -- "$TARGET_ROOT$user_home"
+chown "$user_uid:$user_gid" -- "$TARGET_ROOT$user_home"
+
+# Use the live wallpaper and the same SDDM themes shown in the chooser.
+install -D -m 0644 -- "$LIVE_ROOT/usr/share/anios/wallpaper.png" \
+  "$TARGET_ROOT/usr/share/anios/wallpaper.png"
+install -d -m 0755 -- "$TARGET_ROOT/usr/share/sddm/themes"
+for theme in anios wuwa; do
+  source_theme="$LIVE_ROOT/usr/share/sddm/themes/$theme"
+  [[ -s "$source_theme/Main.qml" && -s "$source_theme/theme.conf" ]] ||
+    fail "SDDM theme source is incomplete: $source_theme"
+  cp -a -- "$source_theme" "$TARGET_ROOT/usr/share/sddm/themes/"
+done
+
+# Remove Live-only wording from the installed greeter without changing the Live ISO.
+sed -i \
+  -e 's/Hyprland live gaming desktop/Hyprland desktop/' \
+  "$TARGET_ROOT/usr/share/sddm/themes/anios/Main.qml"
+sed -i \
+  -e 's/ANIOS · ARCH LINUX LIVE/ANIOS · ARCH LINUX/' \
+  "$TARGET_ROOT/usr/share/sddm/themes/wuwa/Main.qml"
+sed -i \
+  -e 's/AniOS live SDDM theme/AniOS SDDM theme/' \
+  "$TARGET_ROOT/usr/share/sddm/themes/anios/metadata.desktop"
+
+install -d -m 0755 -- "$TARGET_ROOT/etc/sddm.conf.d"
+set_ini_value() {
+  local file="$1" section="$2" key="$3" value="$4" tmp
+  install -d -m 0755 -- "$(dirname -- "$file")"
+  [[ -f "$file" ]] || : >"$file"
+  tmp="$(mktemp "$(dirname -- "$file")/.anios-sddm.XXXXXX")"
+  awk -v wanted="[$section]" -v key="$key" -v value="$value" '
+    BEGIN { in_section = 0; section_seen = 0; key_seen = 0 }
+    /^\[[^]]+\][[:space:]]*$/ {
+      if (in_section && !key_seen) print key "=" value
+      in_section = ($0 == wanted)
+      key_seen = 0
+      if (in_section) section_seen = 1
+      print
+      next
+    }
+    in_section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      if (!key_seen) print key "=" value
+      key_seen = 1
+      next
+    }
+    { print }
+    END {
+      if (in_section && !key_seen) print key "=" value
+      if (!section_seen) {
+        if (NR > 0) print ""
+        print wanted
+        print key "=" value
+      }
+    }
+  ' "$file" >"$tmp"
+  install -m 0644 -- "$tmp" "$file"
+  rm -f -- "$tmp"
+}
+set_ini_value "$TARGET_ROOT/etc/sddm.conf" Theme Current "$SDDM_CHOICE"
+set_ini_value "$TARGET_ROOT/etc/sddm.conf.d/20-anios-theme.conf" Theme Current "$SDDM_CHOICE"
+
+# Install AniOS' session entries and helper commands, but not Live persistence,
+# autologin, PAM, sudoers, Sober, README or os-release files.
+install -d -m 0755 -- "$TARGET_ROOT/usr/share/wayland-sessions"
+for session in anios.desktop anios-imi.desktop anios-minimal.desktop; do
+  source_session="$LIVE_ROOT/usr/share/wayland-sessions/$session"
+  [[ -s "$source_session" ]] || fail "Wayland session file is missing: $source_session"
+  install -m 0644 -- "$source_session" "$TARGET_ROOT/usr/share/wayland-sessions/$session"
+done
+sed -i 's/live desktop session/desktop session/g' \
+  "$TARGET_ROOT/usr/share/wayland-sessions/anios.desktop" \
+  "$TARGET_ROOT/usr/share/wayland-sessions/anios-imi.desktop" \
+  "$TARGET_ROOT/usr/share/wayland-sessions/anios-minimal.desktop"
+
+for binary in \
+  anios-session anios-audio-setup anios-audio-check anios-switch-desktop \
+  anios-switch-im anios-update; do
+  source_binary="$LIVE_ROOT/usr/local/bin/$binary"
+  [[ -s "$source_binary" ]] || fail "AniOS helper is missing: $source_binary"
+  install -D -m 0755 -- "$source_binary" "$TARGET_ROOT/usr/local/bin/$binary"
+done
+
+# The IMI dotfiles use these build-time fonts; this directory is AniOS-owned
+# and is not a package path, so it cannot collide with pacstrap.
+if [[ -d "$LIVE_ROOT/usr/share/fonts/anios-imi" ]]; then
+  install -d -m 0755 -- "$TARGET_ROOT/usr/share/fonts/anios-imi"
+  cp -a -- "$LIVE_ROOT/usr/share/fonts/anios-imi/." "$TARGET_ROOT/usr/share/fonts/anios-imi/"
+fi
+install -D -m 0644 -- "$LIVE_ROOT/etc/systemd/zram-generator.conf" \
+  "$TARGET_ROOT/etc/systemd/zram-generator.conf"
+
+# Steam and Wine ship 32-bit packages. Keep multilib enabled after the first boot,
+# even though the Live pacman.conf used for pacstrap is a separate file.
+enable_multilib() {
+  local config="$1"
+  if ! grep -qE '^[[:space:]]*\[multilib\][[:space:]]*$' "$config"; then
+    cat >>"$config" <<'EOF'
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+EOF
+  else
+    sed -i '/^[[:space:]]*\[multilib\][[:space:]]*$/,/^[[:space:]]*$/ s/^[[:space:]]*#//' "$config"
+  fi
+}
+[[ -s "$TARGET_ROOT/etc/pacman.conf" ]] || fail "target pacman.conf is missing"
+enable_multilib "$TARGET_ROOT/etc/pacman.conf"
+
+# Keep Arch's ID and package-owned metadata; change only user-facing AniOS names.
+set_os_release_value() {
+  local file="$1" key="$2" value="$3" tmp
+  tmp="$(mktemp "$(dirname -- "$file")/.anios-os-release.XXXXXX")"
+  awk -v key="$key" -v replacement="$key=\"$value\"" '
+    BEGIN { prefix = key "="; seen = 0 }
+    index($0, prefix) == 1 {
+      if (!seen) print replacement
+      seen = 1
+      next
+    }
+    { print }
+    END { if (!seen) print replacement }
+  ' "$file" >"$tmp"
+  install -m 0644 -- "$tmp" "$file"
+  rm -f -- "$tmp"
+}
+[[ -s "$TARGET_ROOT/etc/os-release" ]] || fail "target /etc/os-release is missing"
+set_os_release_value "$TARGET_ROOT/etc/os-release" NAME "AniOS"
+set_os_release_value "$TARGET_ROOT/etc/os-release" PRETTY_NAME "AniOS (Arch Linux based, Hyprland desktop)"
+
+# Configure GRUB after Calamares' grubcfg module and before bootloader runs grub-mkconfig.
+grub_defaults="$TARGET_ROOT/etc/default/grub"
+[[ -s "$grub_defaults" ]] || fail "target /etc/default/grub is missing"
+set_grub_option() {
+  local file="$1" key="$2" value="$3" tmp
+  tmp="$(mktemp "$(dirname -- "$file")/.anios-grub.XXXXXX")"
+  awk -v key="$key" -v replacement="$key=\"$value\"" '
+    BEGIN { prefix = key "="; seen = 0 }
+    $0 ~ "^[[:space:]]*" prefix {
+      if (!seen) print replacement
+      seen = 1
+      next
+    }
+    { print }
+    END { if (!seen) print replacement }
+  ' "$file" >"$tmp"
+  install -m 0644 -- "$tmp" "$file"
+  rm -f -- "$tmp"
+}
+unset_grub_option() {
+  local file="$1" key="$2" tmp
+  tmp="$(mktemp "$(dirname -- "$file")/.anios-grub.XXXXXX")"
+  awk -v key="$key" '$0 !~ "^[[:space:]]*" key "[[:space:]]*=" { print }' "$file" >"$tmp"
+  install -m 0644 -- "$tmp" "$file"
+  rm -f -- "$tmp"
+}
+
+set_grub_option "$grub_defaults" GRUB_DISABLE_OS_PROBER false
+set_grub_option "$grub_defaults" GRUB_ENABLE_CRYPTODISK y
+if [[ "$GRUB_CHOICE" == gorgeous-grubphemous ]]; then
+  theme_source="$INSTALLER_DATA/upstream/grubphemous"
+  theme_target="$TARGET_ROOT/boot/grub/themes/anios-grubphemous"
+  for asset in theme.txt background.png blasphemous-regular-15.pf2 \
+    blasphemous-regular-20.pf2 blasphemous-regular-30.pf2; do
+    [[ -s "$theme_source/$asset" ]] || fail "Gorgeous-GRUB theme asset is missing: $asset"
+  done
+  [[ -s "$INSTALLER_DATA/licenses/Grubphemous-LICENSE" &&
+    -s "$INSTALLER_DATA/licenses/Grubphemous-README.md" ]] ||
+    fail "Gorgeous-GRUB theme license/attribution is missing"
+  install -d -m 0755 -- "$theme_target"
+  cp -a -- "$theme_source/." "$theme_target/"
+  # GRUB_FONT loads one font file. The upstream theme uses sizes 20 and 30;
+  # use its bundled size-30 font for both so the menu does not fall back to
+  # GRUB's default unicode font for the small keymap label.
+  sed -i 's/Blasphemous Regular 20/Blasphemous Regular 30/g' "$theme_target/theme.txt"
+  install -D -m 0644 -- "$INSTALLER_DATA/licenses/Grubphemous-LICENSE" \
+    "$TARGET_ROOT/usr/share/licenses/anios/grubphemous/LICENSE"
+  install -D -m 0644 -- "$INSTALLER_DATA/licenses/Grubphemous-README.md" \
+    "$TARGET_ROOT/usr/share/licenses/anios/grubphemous/README.md"
+  set_grub_option "$grub_defaults" GRUB_THEME "/boot/grub/themes/anios-grubphemous/theme.txt"
+  set_grub_option "$grub_defaults" GRUB_FONT "/boot/grub/themes/anios-grubphemous/blasphemous-regular-30.pf2"
+  set_grub_option "$grub_defaults" GRUB_TERMINAL_OUTPUT gfxterm
+  set_grub_option "$grub_defaults" GRUB_GFXMODE auto
+else
+  unset_grub_option "$grub_defaults" GRUB_THEME
+  unset_grub_option "$grub_defaults" GRUB_FONT
+  set_grub_option "$grub_defaults" GRUB_TERMINAL_OUTPUT console
+fi
+
+# Install end-4 only as a first-login, user-approved action. Its upstream setup
+# refuses root and may download AUR packages, so it must not run in Calamares.
+if [[ "$DOTFILES_CHOICE" == end4 ]]; then
+  for script in anios-end4-first-login anios-end4-setup; do
+    source_script="$INSTALLER_DATA/scripts/$script"
+    [[ -s "$source_script" ]] || fail "end-4 helper is missing: $source_script"
+    install -D -m 0755 -- "$source_script" "$TARGET_ROOT/usr/local/bin/$script"
+  done
+  install -d -m 0700 -- "$TARGET_ROOT$user_home/.config/anios"
+  chown "$user_uid:$user_gid" -- "$TARGET_ROOT$user_home/.config/anios"
+  : >"$TARGET_ROOT$user_home/.config/anios/end4-setup-pending"
+  chmod 0600 -- "$TARGET_ROOT$user_home/.config/anios/end4-setup-pending"
+  chown "$user_uid:$user_gid" -- "$TARGET_ROOT$user_home/.config/anios/end4-setup-pending"
+fi
+
+printf 'AniOS installer: finalized user %s (GRUB=%s, SDDM=%s, dotfiles=%s)\n' \
+  "$TARGET_USER" "$GRUB_CHOICE" "$SDDM_CHOICE" "$DOTFILES_CHOICE"

@@ -20,6 +20,10 @@
 # dừng lại kèm nhật ký và gợi ý, chứ không âm thầm phát hành ISO thiếu gói.
 # Muốn dựng ISO không có các gói AUR: sudo ./scripts/build-iso.sh --no-aur
 
+# Calamares GUI installer. The build hook overlays AniOS modules/branding only
+# after this package has been installed and verifies that packagechooser exists.
+calamares
+
 # Trình trợ giúp AUR: người dùng quán net gõ `yay -S <gói>` là cài được ngay,
 # không phải tự clone AUR và chạy makepkg. Dựng từ mã nguồn Go — makedepend `go`
 # chỉ cần lúc dựng nên được cài tạm trong chroot rồi gỡ sạch (xem ghi chú trên).

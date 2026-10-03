@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kiểm tra các gói cài sẵn mới của AniOS ngay bên trong airootfs.sfs vừa dựng:
-# gói AUR (yay, coccoc-browser-stable, legacy-launcher), python, nodejs, wine và
+# gói AUR (Calamares, yay, coccoc-browser-stable, legacy-launcher), python, nodejs, wine và
 # bộ công cụ để yay dựng được gói ngay trong phiên live (base-devel, git).
 #
 #   Usage: scripts/check-live-aur.sh <airootfs.sfs> [pkglist.x86_64.txt]
@@ -67,7 +67,7 @@ ERRORS=0
 # --- Những gì phải có trong ảnh live --------------------------------------
 # Gói AUR: dựng lúc build bởi scripts/anios-aur-build.sh, liệt kê trong
 # profile/packages.aur.x86_64.
-AUR_PACKAGES=(yay coccoc-browser-stable legacy-launcher)
+AUR_PACKAGES=(calamares yay coccoc-browser-stable legacy-launcher)
 # Gói kho chính thức cài sẵn theo yêu cầu (python, nodejs, wine, flatpak) và những
 # thứ bắt buộc phải có để `yay -S <gói>` chạy được ngay trong phiên live.
 REPO_PACKAGES=(
@@ -76,6 +76,19 @@ REPO_PACKAGES=(
 )
 # Binary phải tồn tại để người dùng thật sự chạy được các gói trên.
 REQUIRED_FILES=(
+  usr/bin/calamares
+  etc/calamares/settings.conf
+  etc/calamares/modules/packagechooser-grub.conf
+  etc/calamares/modules/packagechooser-sddm.conf
+  etc/calamares/modules/packagechooser-dotfiles.conf
+  usr/local/lib/anios/anios-installer-pacstrap
+  usr/local/lib/anios/anios-installer-skel
+  usr/local/lib/anios/anios-installer-finalize
+  usr/share/anios/installer/packages.x86_64
+  usr/share/anios/installer/previews/grub-gorgeous.png
+  usr/share/anios/installer/previews/qylock.png
+  usr/share/anios/installer/scripts/anios-end4-setup
+  usr/share/anios/installer/upstream/grubphemous/theme.txt
   usr/bin/yay
   usr/bin/makepkg
   usr/bin/git
@@ -163,7 +176,7 @@ sfs_children() {
   done < <(sfs_ll "$dir")
 }
 
-echo "Kiểm tra gói AUR, python, nodejs, wine trong $SQUASHFS"
+echo "Kiểm tra Calamares, gói AUR, python, nodejs, wine trong $SQUASHFS"
 
 # --- 1. Gói đã cài: đọc pacman DB của chính ảnh live ----------------------
 LOCAL_DB_CHILDREN="$(sfs_children var/lib/pacman/local)"
@@ -231,6 +244,12 @@ for path in "${REQUIRED_FILES[@]}"; do
     missing "$path (gói có trong DB mà không để lại binary này?)"
   fi
 done
+calamares_modules="$(sfs_children usr/lib/calamares/modules)"
+if grep -qi 'packagechooser' <<<"$calamares_modules"; then
+  ok "usr/lib/calamares/modules/*packagechooser*"
+else
+  missing "Calamares packagechooser module (GRUB/SDDM/dotfiles choices)"
+fi
 
 # Báo cáo gói AUR do scripts/anios-aur-build.sh ghi lại: người tải ISO biết bản
 # này dựng được những gói AUR nào, phiên bản bao nhiêu.
@@ -307,4 +326,4 @@ if (( ERRORS > 0 )); then
   exit 1
 fi
 
-echo "Ảnh live có đủ yay + gói AUR, python, nodejs, wine và không còn rác dựng gói"
+echo "Ảnh live có đủ Calamares, yay + gói AUR, python, nodejs, wine và không còn rác dựng gói"

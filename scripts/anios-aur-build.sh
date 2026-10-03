@@ -405,6 +405,34 @@ remove_orphan_build_deps() {
     log "Cảnh báo: không gỡ được makedepend mồ côi (ảnh sẽ nặng hơn một chút)"
 }
 
+# Copy the AniOS Calamares configuration only after the stable package has been
+# installed. Keeping it staged under /usr/share/anios avoids pacman file clashes.
+install_calamares_configuration() {
+  local staged="/usr/share/anios/installer/calamares" module_file
+  [[ -d "$staged" ]] || return 0 # `--no-aur` deliberately omits the installer.
+  pacman -Q calamares >/dev/null 2>&1 ||
+    die "Calamares configuration was staged but the stable calamares package is not installed." \
+      "Keep calamares in profile/packages.aur.x86_64 or build with --no-aur to omit the installer."
+  module_file="$(find /usr/lib/calamares/modules -type f -iname '*packagechooser*' -print -quit 2>/dev/null || true)"
+  [[ -n "$module_file" ]] ||
+    die "The stable Calamares package does not provide its packagechooser module." \
+      "AniOS needs packagechooser to save the GRUB, SDDM and dotfiles choices."
+  for config in \
+    settings.conf \
+    modules/packagechooser-grub.conf \
+    modules/packagechooser-sddm.conf \
+    modules/packagechooser-dotfiles.conf \
+    modules/shellprocess-anios-pacstrap.conf \
+    modules/shellprocess-anios-skel.conf \
+    modules/shellprocess-anios-finalize.conf \
+    branding/anios/branding.desc; do
+    [[ -s "$staged/$config" ]] || die "Missing AniOS Calamares configuration: $staged/$config"
+  done
+  install -d -m 0755 -- /etc/calamares
+  cp -a -- "$staged/." /etc/calamares/
+  log "Installed AniOS Calamares config; packagechooser plugin: $module_file"
+}
+
 # --- Chuẩn bị -------------------------------------------------------------
 [[ -s "$MANIFEST" ]] ||
   die "Không tìm thấy danh sách gói AUR: $MANIFEST" \
@@ -495,6 +523,7 @@ for index in "${!AUR_PKGBASES[@]}"; do
 done
 
 remove_orphan_build_deps
+install_calamares_configuration
 
 # --- Báo cáo gói AUR có trong ảnh (để đối chiếu về sau) -------------------
 if [[ -n "$REPORT" ]]; then

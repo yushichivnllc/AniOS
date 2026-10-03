@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Install the pinned end-4 dotfiles only when the installed user explicitly asks.
+set -Eeuo pipefail
+
+readonly END4_COMMIT="547836f1b01a45445cfbbcd92b206d1b5ceee4d9"
+readonly END4_URL="https://github.com/end-4/dots-hyprland.git"
+repo_dir="${XDG_DATA_HOME:-$HOME/.local/share}/anios/dots-hyprland"
+
+fail() { echo "AniOS end-4 setup: $*" >&2; exit 1; }
+
+[[ $EUID -ne 0 ]] || fail "do not run this setup as root"
+[[ -n "${HOME:-}" && "$HOME" != /root ]] || fail "the target user's HOME is not set"
+command -v git >/dev/null 2>&1 || fail "git is not installed"
+[[ -x /usr/bin/foot || -x "$(command -v foot 2>/dev/null || true)" ]] ||
+  fail "the Foot terminal is not installed"
+
+install -d -m 0755 -- "$(dirname -- "$repo_dir")"
+if [[ ! -d "$repo_dir/.git" ]]; then
+  if [[ -e "$repo_dir" ]]; then
+    fail "refusing to replace a non-Git directory: $repo_dir"
+  fi
+  git init --quiet "$repo_dir"
+  git -C "$repo_dir" remote add origin "$END4_URL"
+fi
+
+git -C "$repo_dir" remote set-url origin "$END4_URL"
+printf 'Fetching end-4/dots-hyprland at pinned commit %s…\n' "$END4_COMMIT"
+git -C "$repo_dir" fetch --depth 1 origin "$END4_COMMIT"
+git -C "$repo_dir" checkout --force --detach FETCH_HEAD
+[[ "$(git -C "$repo_dir" rev-parse HEAD)" == "$END4_COMMIT" ]] ||
+  fail "upstream did not provide the expected pinned revision"
+
+cd -- "$repo_dir"
+[[ -x ./setup ]] || fail "the pinned repository does not contain an executable setup script"
+printf '\nStarting the upstream interactive installer as %s.\n' "$(id -un)"
+printf 'It may request your password to install official/AUR dependencies.\n\n'
+exec ./setup install
