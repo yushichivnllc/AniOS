@@ -1,0 +1,20 @@
+[Unit]
+Description=AniOS network check (why Steam reports "needs to be online")
+Documentation=file:///usr/local/bin/anios-netcheck
+# Chạy sau khi NetworkManager lên (DHCP/địa chỉ có thể tới muộn hơn vài giây;
+# script tự đợi thêm bằng --wait). Không kéo network-online.target: trạm net
+# không có Internet vẫn phải vào desktop bình thường.
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/anios-netcheck --quiet --fix --wait 20
+# Chỉ ghi nhật ký: mạng hỏng không được làm unit báo failed (systemctl --failed
+# trong phiên live phải sạch) — kết quả nằm ở journal và trong báo cáo của
+# anios-netcheck khi người dùng tự chạy.
+SuccessExitStatus=0 1
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

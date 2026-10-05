@@ -46,6 +46,13 @@ jobs:
         # file nhưng bước kiểm tra báo thiếu" bị bắt trong vài giây, không phải
         # sau một lượt dựng ISO dài.
         run: ./scripts/selftest-check-live-audio.sh
+      - name: Self-test the live network checker
+        # scripts/anios-netcheck chạy trong phiên live khi Steam báo "needs to be
+        # online to update". Bài này giả lập getent/curl/nmcli/resolvectl để chạy
+        # đúng script đó trên cây /etc giả: DNS chết hẳn, DNS chỉ hỏng với tên
+        # Valve, IPv6 "nửa sống", captive portal trả HTML, các bước --fix/--fix-dns
+        # và chế độ --quiet dùng cho unit lúc boot đều phải hoạt động.
+        run: ./scripts/selftest-anios-netcheck.sh
       - name: Self-test Calamares installer helpers
         # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
         # trên cây hệ thống giả; không cài gì lên runner.

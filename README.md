@@ -241,12 +241,33 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
 - **Phần mềm Windows**: `wine` + `winetricks` cài sẵn (kho `multilib` được bật từ lúc dựng nên phần 32-bit đầy đủ). Chạy `wine <file.exe>`; lần đầu Wine có thể đề nghị tải thêm Gecko/Mono. Game Windows nên ưu tiên qua Steam/Proton.
 - **Lập trình**: `python` + `pip`, `nodejs` + `npm` và Java (`jre-openjdk`) có sẵn; `base-devel` + `git` cũng nằm trong ảnh để `yay` tự dựng được gói AUR ngay trong phiên.
 - **Minecraft**: `legacy-launcher` (bản classic của llaun.ch) cài sẵn, mở từ launcher; cần Java (đã có) và tài khoản Minecraft hợp lệ.
-- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải được ghi vào ổ lưu trữ trên USB nên dung lượng trống bằng phần còn lại của USB (xem [bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)). Nếu phiên đang ở chế độ RAM dự phòng thì hãy copy file cần giữ ra ổ ngoài trước khi tắt máy.
+- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Nếu Steam báo `Steam needs to be online to update` hoặc `DownloadManifest - exhausted list of download hosts` dù máy đã có mạng, xem [mục riêng bên dưới](#steam-báo-steam-needs-to-be-online-to-update). Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải được ghi vào ổ lưu trữ trên USB nên dung lượng trống bằng phần còn lại của USB (xem [bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)). Nếu phiên đang ở chế độ RAM dự phòng thì hãy copy file cần giữ ra ổ ngoài trước khi tắt máy.
 - Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+A` mở công cụ kiểm tra âm thanh; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
 - **Màn hình khoá dùng mật khẩu**, không phải cơ chế bảo mật mạnh: nhập `1111` để mở khoá. Tài khoản live và `sudo` dùng cùng mật khẩu; mật khẩu này được tạo sẵn trong ảnh từ lúc build (pacman hook `anios-live-user.hook` viết hash vào `/etc/shadow`) và được `anios-live-home.service` đặt lại ở mỗi lần khởi động như dự phòng. Vì vậy đừng để dữ liệu quan trọng trong phiên live.
 - Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện theme **Wuthering Waves** của Qylock; chọn phiên **AniOS (Hyprland)** rồi nhập `1111` để vào lại. Theme hiện khung nền tĩnh ngay, rồi mới khởi tạo video sau 1,2 giây; nếu thiếu codec video thì khung tĩnh vẫn giữ cho màn hình đăng nhập dùng được. Các lỗi không vào được SDDM đã được xử lý triệt để: tắt tiến trình agetty autologin tty1 của releng để tránh tranh chấp VT, chuẩn hoá UID 1000 và nhóm quyền phần cứng (wheel, video, audio, input, seat) cho tài khoản `anios`, sửa liên kết dịch vụ chuẩn bị thư mục người dùng (`anios-live-home.service`), cấu hình `MinimumUid=500` cho SDDM, bổ sung fallback tài khoản tự động trong theme, và "nướng" mật khẩu `1111` vào `/etc/shadow` từ lúc build bằng pacman hook để đăng nhập thủ công SDDM (stack PAM `sddm` → `pam_unix`) không phụ thuộc vào việc service lúc khởi động có chạy thành công hay không — autologin thì luôn qua được vì dùng stack `sddm-autologin` (kết thúc bằng `pam_permit`).
 - Desktop mặc định giữ hiệu ứng ở mức "rẻ" cho iGPU đời cũ: cửa sổ thường **không** blur, animation chỉ là fade/popin ngắn, blur dành riêng cho các lớp phủ bán trong suốt (Waybar, Fuzzel, Mako) qua `layerrule`, còn màn hình khoá hyprlock tự blur nền một lần lúc khoá. `Super+Space` bật/tắt chế độ cửa sổ nổi.
 - **Cấu hình Hyprland** nằm ở `~/.config/hypr/hyprland.lua` (bản sao gốc trong ảnh: `/usr/share/anios/skel/.config/hypr/hyprland.lua`): từ Hyprland 0.55 cấu hình viết bằng Lua thay cho `hyprland.conf` cũ, nên sau khi sửa chỉ cần `Super+Shift+R` để nạp lại. Màn hình khoá dùng định dạng riêng của hyprlock (`~/.config/hypr/hyprlock.conf`).
+
+### Steam báo "Steam needs to be online to update"
+
+Chuỗi log `DownloadManifest - exhausted list of download hosts` → `Failed to load manifest` → `Download failed: http error 0` → `Steam needs to be online to update` là lỗi mạng của phiên live chứ không phải lỗi Steam: nó xảy ra khi tên máy chủ Valve không phân giải được, khi máy có IPv6 toàn cục nhưng IPv6 không ra được Internet, hoặc khi TLS bị chặn giữa đường — trong khi trình duyệt (có Happy Eyeballs, có cache) vẫn mở web bình thường. Bản ISO này xử lý sẵn ba nguyên nhân hay gặp nhất ngay từ lúc dựng:
+
+- **Chỉ NetworkManager quản lý mạng.** releng của archiso bật sẵn `systemd-networkd` + `iwd`; profile của AniOS chỉ *thêm* file lên trên nên trước đây hai trình quản lý mạng cùng chạy, cùng giành card mạng, còn `iwd` giành luôn card Wi-Fi khỏi `wpa_supplicant` của NetworkManager — kết nối và DNS chập chờn, và Steam tải manifest thất bại. Từ bản này bốn unit `systemd-networkd.service`, `systemd-networkd.socket`, `systemd-networkd-wait-online.service`, `iwd.service` bị **mặt nạ** (`/etc/systemd/system/<unit>` → `/dev/null`) và `scripts/build-iso.sh` gỡ các symlink bật dịch vụ tương ứng của releng rồi dừng bản dựng nếu chúng còn sót. Wi-Fi do NetworkManager + wpa_supplicant đảm nhiệm như mọi thứ khác trong ảnh (`nmcli`, `nmtui`, Quickshell, Waybar).
+- **DNS luôn có đường dự phòng.** NetworkManager được ghim `dns=systemd-resolved` (`/etc/NetworkManager/conf.d/10-anios-dns.conf`) — đúng chế độ NetworkManager tự chọn khi `/etc/resolv.conf` là symlink tới stub của resolved, nhưng ghi rõ để một thay đổi của releng không âm thầm đổi chủ — và `systemd-resolved` được đặt `FallbackDNS=1.1.1.1 8.8.8.8 9.9.9.9 149.112.112.112` (`/etc/systemd/resolved.conf.d/10-anios-live.conf`). Mạng không phát nameserver qua DHCP, hoặc phát máy chủ DNS hỏng/chặn tên Valve, không còn làm Steam chết ngay khi mở.
+- **Tự kiểm tra khi vào desktop.** `anios-netcheck.service` chạy `anios-netcheck --quiet --fix` ngay sau NetworkManager; kết quả nằm trong `journalctl -u anios-netcheck`.
+
+Khi vẫn thấy lỗi, gõ `anios-netcheck` trong Foot (hoặc mở **Kiểm tra mạng AniOS** trong launcher). Công cụ lần lượt kiểm tra đồng hồ hệ thống (giờ lệch làm mọi bắt tay TLS thất bại), liên kết mạng và máy chủ DNS đang dùng, phân giải bốn tên máy chủ Valve bằng đúng `getaddrinfo` mà Steam dùng, khả năng ra Internet bằng IPv4 lẫn IPv6, rồi tải thử manifest client của Steam và nhận diện captive portal. Các tuỳ chọn:
+
+```bash
+anios-netcheck                 # báo cáo đầy đủ, exit 1 nếu phát hiện lỗi
+anios-netcheck --fix           # khởi động lại systemd-resolved, ghi DNS công cộng nếu DNS chết hẳn, ưu tiên IPv4 khi IPv6 "nửa sống"
+anios-netcheck --fix-dns       # ép dùng DNS công cộng khi nhà mạng chặn/đầu độc DNS của Valve
+anios-netcheck --pause         # đợi Enter trước khi thoát (khi mở từ menu ứng dụng)
+```
+
+`--fix-dns` ghi `/etc/resolv.conf` (bản gốc được sao lưu ở `/run/anios-netcheck`) và tạo `/etc/NetworkManager/conf.d/99-anios-netcheck.conf` (`dns=none`) để NetworkManager không ghi đè lại bằng DNS hỏng của DHCP; muốn trở về bình thường thì xoá tệp drop-in đó rồi chạy `sudo nmcli general reload`. Khi IPv6 "nửa sống" (máy có địa chỉ IPv6 toàn cục nhưng không ra được Internet), `--fix` thêm dòng `precedence ::ffff:0:0/96  100` vào `/etc/gai.conf` để mọi chương trình ưu tiên IPv4; xoá dòng đó khi mạng đã bình thường.
+
+Vài thứ công cụ không tự sửa được, phải làm tay: đăng nhập captive portal (mở trình duyệt), tắt proxy trong **Steam → Settings → Downloads**, và xoá thư mục cài dở `~/.local/share/Steam` nếu lần cập nhật trước bị đứt giữa đường. Nếu mạng của quán chặn hẳn HTTPS tới `steampowered.com`/`steamstatic.com` thì máy không thể tự cập nhật Steam — đổi mạng hoặc dùng VPN ở tầng router.
 
 ### Lưu trữ trên USB (không chạy trong RAM kiểu Tails)
 
@@ -346,7 +367,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 
 ## Cấu trúc repository
 
-- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf` hỗ trợ song song Minimal và Immaterial Impulse), Quickshell, Waybar, Matugen, dotfile cài sẵn, ibus & fcitx5, công cụ chuyển đổi giao diện (`usr/local/bin/anios-switch-desktop`), dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng và cấu hình phiên, kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
+- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf` hỗ trợ song song Minimal và Immaterial Impulse), Quickshell, Waybar, Matugen, dotfile cài sẵn, ibus & fcitx5, công cụ chuyển đổi giao diện (`usr/local/bin/anios-switch-desktop`), dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng **chỉ do NetworkManager quản lý** (mặt nạ `systemd-networkd*` + `iwd`, drop-in `dns=systemd-resolved` cùng `FallbackDNS` của resolved, `usr/local/bin/anios-netcheck` và unit chạy nó), kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
 - `profile/airootfs/usr/share/sddm/themes/wuwa/` — theme Qylock Wuthering Waves, mã nguồn giấy phép GPL-3.0; thông tin upstream và commit nguồn ở `UPSTREAM`.
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
 - `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).
@@ -363,8 +384,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-build-iso-sudoers.sh` — tự kiểm tra bước "không có luật sudo `NOPASSWD` nào lọt vào ảnh" ở cuối `build-iso.sh` trên airootfs giả: `/etc/sudoers` mặc định của gói `sudo` phải sạch, luật thật phải bị bắt kèm `file:dòng`; không cần Arch Linux.
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
 - `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.
+- `scripts/selftest-anios-netcheck.sh` — tự kiểm tra `anios-netcheck` bằng `getent`/`curl`/`nmcli`/`resolvectl` giả trên cây `/etc` giả: DNS chết hẳn, DNS chỉ sai với tên Valve, IPv6 "nửa sống", captive portal, các bước `--fix`/`--fix-dns` và chế độ `--quiet` dùng cho unit.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
-- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request.
+- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, installer).
 
 ## Kiểm tra nhanh
 
@@ -372,6 +394,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/check-profile.sh               # cấu trúc profile, danh sách gói, manifest AUR, ràng buộc CI
 ./scripts/check-hyprland.sh              # kiểm tra Lua bắt buộc (Arch: lua; Ubuntu: lua5.4)
 ./scripts/selftest-check-live-audio.sh    # logic đọc ảnh live (cần bash, không cần Arch)
+./scripts/selftest-anios-netcheck.sh     # chẩn đoán/tự sửa mạng của phiên live trên /etc giả
 ./scripts/selftest-anios-aur-build.sh     # bước dựng gói AUR trong chroot giả
 ./scripts/selftest-check-live-aur.sh      # bước kiểm tra Calamares/gói AUR/python/nodejs/wine trong ảnh giả
 ./scripts/selftest-installer.sh           # mô phỏng chọn Live/Install và các bước cài hệ thống

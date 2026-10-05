@@ -1,0 +1,514 @@
+#!/usr/bin/env bash
+# anios-netcheck — chẩn đoán vì sao Steam báo "needs to be online to update".
+#
+# Steam tải manifest của client bằng getaddrinfo(3) của glibc rồi tự mở kết nối
+# TCP/TLS, KHÔNG dùng Happy Eyeballs và không tự chuyển sang IPv4 khi IPv6 chết.
+# Vì vậy có ba kiểu mạng làm Steam báo lỗi ngay lập tức
+#   [..] Download failed: http error 0
+#   [..] DownloadManifest - exhausted list of download hosts
+#   [..] Error: Steam needs to be online to update.
+# trong khi trình duyệt (có Happy Eyeballs, có DoH, có cache) vẫn mở web bình
+# thường:
+#   1. DNS không trả lời hoặc trả lời sai cho tên máy chủ Valve: DHCP không phát
+#      nameserver, systemd-resolved không chạy, nhà mạng chặn/đầu độc DNS quán net;
+#   2. IPv6 "nửa sống": máy có địa chỉ IPv6 toàn cục nhưng không ra được Internet;
+#   3. captive portal hoặc proxy chặn TLS: bắt tay SSL luôn thất bại.
+#
+# Script kiểm tra lần lượt bằng ĐÚNG đường đi mà Steam dùng (getaddrinfo của
+# glibc, rồi HTTP/TLS tới các máy chủ tải client), in kết luận và — khi được yêu
+# cầu — tự sửa những lỗi sửa được an toàn trong phiên live.
+#
+#   anios-netcheck                 # báo cáo đầy đủ, exit 1 nếu phát hiện lỗi
+#   anios-netcheck --quiet         # chỉ ghi những gì cần thiết (dùng cho unit)
+#   anios-netcheck --wait 20       # đợi mạng lên tối đa 20 giây trước khi kiểm tra
+#   anios-netcheck --fix           # tự sửa: DNS chết hẳn, IPv6 nửa sống
+#   anios-netcheck --fix-dns       # ép dùng DNS công cộng (nhà mạng chặn DNS)
+#   anios-netcheck --pause         # đợi Enter trước khi thoát (chạy từ menu)
+#
+# Ghi chú cho CI/tự kiểm tra: ANIOS_NETCHECK_ROOT đặt tiền tố cho mọi đường dẫn
+# trong ảnh (/etc, /run) để scripts/selftest-anios-netcheck.sh chạy được trên máy
+# thường mà không cần root; mọi lệnh ngoài đều đi qua PATH nên bài tự kiểm tra
+# thay được bằng lệnh giả.
+set -Eeuo pipefail
+
+PREFIX="${ANIOS_NETCHECK_ROOT:-}"
+
+MANIFEST_PATH=/client/steam_client_ubuntu12
+# Máy chủ tải client/Steam runtime. Đây chính là danh sách mà bản bootstrapper
+# của Steam dùng; tên nào không phân giải được thì Steam báo "exhausted list".
+STEAM_HOSTS=(
+  client-update.steamstatic.com
+  cdn.steamstatic.com
+  media.steampowered.com
+  client-download.steampowered.com
+)
+# DNS công cộng dùng cho --fix-dns và cho tệp resolv.conf dự phòng.
+PUBLIC_DNS=(1.1.1.1 8.8.8.8 9.9.9.9 149.112.112.112)
+RESOLV_CONF="$PREFIX/etc/resolv.conf"
+GAI_CONF="$PREFIX/etc/gai.conf"
+STATE_DIR="$PREFIX/run/anios-netcheck"
+NM_DNS_DROPIN="$PREFIX/etc/NetworkManager/conf.d/99-anios-netcheck.conf"
+
+QUIET=0
+DO_FIX=0
+DO_FIX_DNS=0
+DO_PAUSE=0
+WAIT_SECONDS=15
+
+# Kết quả từng bước; các hàm check_* điền vào hai biến này.
+PROBLEMS=()      # mô tả lỗi phát hiện được, kèm cách sửa ngay trong chuỗi
+DNS_BROKEN=0     # 1 khi KHÔNG tên Valve nào phân giải được
+DNS_PARTIAL=0    # 1 khi một phần tên Valve không phân giải được
+IPV6_BROKEN=0    # 1 khi có IPv6 toàn cục nhưng không ra được Internet
+IPV4_OK=0
+STEAM_TLS_OK=0
+CAPTIVE_PORTAL=0
+LINK_UP=0
+
+usage() {
+  cat <<'EOF'
+Usage: anios-netcheck [--quiet] [--fix] [--fix-dns] [--wait N] [--pause]
+
+  --quiet     chỉ in cảnh báo và kết luận (dùng cho anios-netcheck.service)
+  --fix       tự sửa lỗi sửa được an toàn: DNS chết hẳn, IPv6 nửa sống
+  --fix-dns   ép dùng DNS công cộng (1.1.1.1, 8.8.8.8, 9.9.9.9, 149.112.112.112);
+              dùng khi nhà mạng chặn/đầu độc DNS, sao lưu ở /run/anios-netcheck
+  --wait N    đợi mạng lên tối đa N giây trước khi kiểm tra (mặc định 15, 0 = không đợi)
+  --pause     đợi Enter trước khi thoát (khi mở từ menu ứng dụng)
+  -h, --help  in hướng dẫn này
+
+Exit: 0 = không thấy lỗi, 1 = có lỗi, 2 = sai tham số.
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --quiet) QUIET=1 ;;
+    --fix) DO_FIX=1 ;;
+    --fix-dns) DO_FIX_DNS=1; DO_FIX=1 ;;
+    --pause) DO_PAUSE=1 ;;
+    --wait)
+      [[ $# -ge 2 ]] || { echo "Thiếu số giây sau --wait" >&2; exit 2; }
+      WAIT_SECONDS="$2"
+      shift
+      ;;
+    -h | --help) usage; exit 0 ;;
+    *)
+      echo "Tham số không hợp lệ: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+[[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] || { echo "--wait cần số nguyên giây" >&2; exit 2; }
+if ((DO_FIX)) && [[ $EUID -ne 0 && -z "$PREFIX" ]]; then
+  echo "--fix cần chạy bằng root (sudo anios-netcheck --fix)" >&2
+  exit 2
+fi
+
+say() { ((QUIET)) || printf '%s\n' "$*"; }
+step() { ((QUIET)) || printf '\n[%s] %s\n' "$*"; }
+ok() { ((QUIET)) || printf '      OK   %s\n' "$*"; }
+note() { ((QUIET)) || printf '      --   %s\n' "$*"; }
+problem() {
+  local text="$1"
+  PROBLEMS+=("$text")
+  printf '      !!   %s\n' "$text" >&2
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------
+# 0. Đợi mạng lên (unit chạy ngay sau NetworkManager nên DHCP có thể chưa xong)
+# ---------------------------------------------------------------------------
+wait_for_link() {
+  local waited=0
+  ((WAIT_SECONDS > 0)) || return 0
+  while ((waited < WAIT_SECONDS)); do
+    if [[ -n "$(default_route)" ]]; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  note "Chưa thấy route mặc định sau ${WAIT_SECONDS}s."
+}
+
+default_route() {
+  if have ip; then
+    ip -4 route show default 2>/dev/null | awk 'NR==1 { print $0 }'
+  elif have nmcli; then
+    nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null |
+      awk -F: '$3 == "connected" { print $1; exit }'
+  fi
+}
+
+active_link() {
+  if have nmcli; then
+    nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null |
+      awk -F: '$3 == "connected" { printf "%s (%s) ", $1, $2 }'
+  fi
+}
+
+dns_servers_in_use() {
+  local line
+  if have resolvectl; then
+    while IFS= read -r line; do
+      [[ "$line" == *"Current DNS Server"* ]] || continue
+      printf '%s; ' "${line#*: }"
+    done < <(resolvectl status 2>/dev/null || true)
+  fi
+  if [[ -e "$RESOLV_CONF" ]]; then
+    while IFS= read -r line; do
+      case "$line" in
+        nameserver*) printf '%s; ' "${line#nameserver }" ;;
+      esac
+    done <"$RESOLV_CONF" || true
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 1. Đồng hồ hệ thống — lệch giờ làm mọi bắt tay TLS thất bại
+# ---------------------------------------------------------------------------
+check_time() {
+  step "1/6 Đồng hồ hệ thống"
+  local now sync=unknown
+  now="$(date '+%Y-%m-%d %H:%M:%S %z')"
+  if have timedatectl; then
+    sync="$(timedatectl show -p NTPSynchronized --value 2>/dev/null || echo unknown)"
+  fi
+  local year
+  year="$(date +%Y)"
+  if ((year < 2020 || year > 2100)); then
+    problem "Đồng hồ đang là năm $year; TLS sẽ lỗi chứng chỉ và Steam không tải được. Sửa: sudo timedatectl set-ntp true (hoặc date -s ...)"
+  elif [[ "$sync" == "no" ]]; then
+    note "$now (NTP chưa đồng bộ — bình thường vài giây sau khi boot)"
+  else
+    ok "$now (NTP: $sync)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 2. Liên kết mạng và DNS đang được dùng
+# ---------------------------------------------------------------------------
+check_link() {
+  step "2/6 Liên kết mạng"
+  local link dns
+  link="$(active_link)"
+  if [[ -n "$link" ]]; then
+    LINK_UP=1
+    ok "Đang kết nối: $link"
+  elif [[ -n "$(default_route)" ]]; then
+    LINK_UP=1
+    ok "Có route mặc định"
+  else
+    problem "Không có kết nối mạng nào đang hoạt động. Nếu dùng Wi-Fi: kết nối bằng biểu tượng mạng trên thanh trạng thái, nmtui, hoặc nmcli device wifi connect <SSID>"
+    return 0
+  fi
+  dns="$(dns_servers_in_use)"
+  if [[ -n "$dns" ]]; then
+    ok "Máy chủ DNS: $dns"
+  else
+    problem "Không tìm thấy máy chủ DNS nào (không có nameserver trong /etc/resolv.conf và resolvectl không báo). Sửa: sudo anios-netcheck --fix-dns"
+  fi
+  if [[ -L "$RESOLV_CONF" ]]; then
+    note "/etc/resolv.conf → $(readlink "$RESOLV_CONF")"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 3. Phân giải tên máy chủ Valve bằng chính glibc (getent ahosts)
+# ---------------------------------------------------------------------------
+probe_dns() {
+  local host="$1" out line addr
+  local v4=0 v6=0
+  out="$(getent ahosts "$host" 2>/dev/null || true)"
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    addr="${line%%[[:space:]]*}"
+    if [[ "$addr" == *:* ]]; then
+      v6=$((v6 + 1))
+    else
+      v4=$((v4 + 1))
+    fi
+  done <<<"$out"
+  printf '%s %s\n' "$v4" "$v6"
+}
+
+check_dns() {
+  step "3/6 Phân giải tên máy chủ Steam/Valve (qua glibc, giống Steam)"
+  local host counts v4 v6 resolved=0 failed=0
+  local any_v6=0
+  for host in "${STEAM_HOSTS[@]}"; do
+    counts="$(probe_dns "$host")"
+    v4="${counts%% *}"
+    v6="${counts##* }"
+    any_v6=$((any_v6 + v6))
+    if ((v4 + v6 > 0)); then
+      resolved=$((resolved + 1))
+      ok "$host → $v4 IPv4, $v6 IPv6"
+    else
+      failed=$((failed + 1))
+      problem "$host: KHÔNG phân giải được (Steam sẽ báo 'http error 0' ngay lập tức)"
+    fi
+  done
+  if ((failed > 0 && resolved == 0)); then
+    DNS_BROKEN=1
+  elif ((failed > 0)); then
+    DNS_PARTIAL=1
+  fi
+  # Một tên bất kỳ của Valve không phân giải được cũng đủ làm Steam chết, nên
+  # đây là lỗi chứ không phải cảnh báo.
+  if ((failed > 0)); then
+    note "Kiểm chứng thêm bằng một tên ngoài Valve:"
+    if getent ahosts example.com >/dev/null 2>&1; then
+      note "  example.com phân giải được → DNS của mạng vẫn sống, nhưng không trả lời đúng cho tên máy chủ Valve (kiểu chặn/đầu độc DNS hay gặp ở mạng phòng net)"
+    else
+      note "  example.com cũng không phân giải được → DNS đang chết hoàn toàn"
+    fi
+  fi
+  ((any_v6 > 0)) || note "Không tên Valve nào có bản ghi IPv6 (mạng chỉ có IPv4)"
+}
+
+# ---------------------------------------------------------------------------
+# 4. IPv4/IPv6: máy có IPv6 toàn cục mà không ra được Internet là bẫy chết người
+#    của Steam (nó thử địa chỉ IPv6 trước rồi bỏ cuộc, không fallback).
+# ---------------------------------------------------------------------------
+http_code() {
+  local url="$1" code
+  shift
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 4 --max-time 8 "$@" "$url" 2>/dev/null)" || code=000
+  [[ -n "$code" ]] || code=000
+  printf '%s' "$code"
+}
+
+global_ipv6_address() {
+  have ip || return 1
+  ip -6 addr show scope global 2>/dev/null | awk '/inet6 / { print $2; exit }'
+}
+
+check_families() {
+  step "4/6 Ra Internet bằng IPv4 và IPv6"
+  local code
+  if ! have curl; then
+    problem "Thiếu curl — không kiểm tra được kết nối. Cài: sudo pacman -S curl"
+    return 0
+  fi
+  code="$(http_code http://1.1.1.1/ -4)"
+  if [[ "$code" != "000" ]]; then
+    IPV4_OK=1
+    ok "IPv4: OK (HTTP $code tới 1.1.1.1)"
+  else
+    problem "IPv4: không kết nối được tới 1.1.1.1 (TCP/80). Kiểm tra dây/Wi-Fi, gateway, captive portal"
+  fi
+
+  local addr
+  addr="$(global_ipv6_address || true)"
+  code="$(http_code 'http://[2606:4700:4700::1111]/' -6)"
+  if [[ "$code" != "000" ]]; then
+    ok "IPv6: OK (HTTP $code)"
+  elif [[ -z "$addr" ]]; then
+    note "IPv6: máy không có địa chỉ IPv6 toàn cục (bỏ qua)"
+  elif ((IPV4_OK)); then
+    IPV6_BROKEN=1
+    problem "IPv6 nửa sống: có địa chỉ $addr nhưng không ra được Internet. Steam không tự chuyển sang IPv4 nên báo 'needs to be online'. Sửa: sudo anios-netcheck --fix"
+  else
+    note "IPv6: không ra được Internet (nhưng IPv4 cũng hỏng, sửa IPv4 trước)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 5. Tải manifest client của Steam đúng như bootstrapper làm
+# ---------------------------------------------------------------------------
+fetch_manifest() {
+  local host="$1" scheme="$2" body="$3" headers
+  headers="$(curl -sS -4 -o "$body" -w '%{http_code} %{content_type}' \
+    --connect-timeout 5 --max-time 15 "$scheme://$host$MANIFEST_PATH" 2>/dev/null)" ||
+    headers='000 -'
+  [[ -n "$headers" ]] || headers='000 -'
+  printf '%s' "$headers"
+}
+
+check_steam_download() {
+  step "5/6 Tải manifest client của Steam"
+  if ! have curl; then
+    note "Bỏ qua: thiếu curl"
+    return 0
+  fi
+  local host body code ctype head_text
+  body="$(mktemp)"
+  for host in "${STEAM_HOSTS[@]}"; do
+    code="$(fetch_manifest "$host" https "$body")"
+    ctype="${code#* }"
+    code="${code%% *}"
+    head_text="$(head -c 200 "$body" 2>/dev/null || true)"
+    if [[ "$code" == "200" && "$head_text" == *ubuntu12* ]]; then
+      STEAM_TLS_OK=1
+      ok "$host: HTTPS 200, nội dung manifest hợp lệ"
+      break
+    fi
+    if ((IPV4_OK)) && [[ "$code" == "000" ]]; then
+      # Thử HTTP thường: bootstrapper vẫn dùng http:// cho một số máy chủ, và
+      # HTTP thất bại trong khi HTTPS cũng thất bại thường là do bị chặn hẳn.
+      local http_code_text
+      http_code_text="$(fetch_manifest "$host" http "$body")"
+      if [[ "${http_code_text%% *}" == "200" && "$(head -c 200 "$body")" == *ubuntu12* ]]; then
+        problem "$host: chỉ HTTP hoạt động, HTTPS bị chặn (proxy/captive portal?). Steam cần HTTPS để tự cập nhật"
+        break
+      fi
+    fi
+    if [[ "$ctype" == *html* || "$head_text" == *"<html"* || "$head_text" == *"<HTML"* ]]; then
+      CAPTIVE_PORTAL=1
+      problem "$host trả về trang HTML thay vì manifest → có captive portal/proxy đang chặn (mở trình duyệt, đăng nhập mạng rồi thử lại)"
+      break
+    fi
+    note "$host: thất bại (HTTP ${code})"
+  done
+  rm -f -- "$body"
+  if ((!STEAM_TLS_OK && !CAPTIVE_PORTAL)); then
+    problem "Không tải được manifest client từ bất kỳ máy chủ Valve nào. Đây chính là lỗi 'needs to be online to update' của Steam"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Sửa lỗi (chỉ khi có --fix / --fix-dns, và chỉ sửa những gì chắc chắn an toàn)
+# ---------------------------------------------------------------------------
+backup_once() {
+  local file="$1"
+  [[ -e "$file" ]] || return 0
+  install -d -m 0755 "$STATE_DIR"
+  local backup="$STATE_DIR/$(basename "$file").bak"
+  [[ -e "$backup" ]] || cp -a -- "$file" "$backup"
+  note "Đã sao lưu $file → $backup"
+}
+
+write_public_dns() {
+  local resolv="$1" dns
+  install -d -m 0755 "$(dirname "$resolv")" 2>/dev/null || true
+  backup_once "$resolv"
+  {
+    printf '# AniOS: DNS dự phòng do anios-netcheck ghi.\n'
+    printf '# Lý do: máy chủ DNS của mạng không trả lời được tên máy chủ Valve.\n'
+    for dns in "${PUBLIC_DNS[@]}"; do
+      printf 'nameserver %s\n' "$dns"
+    done
+    printf 'options timeout:2 attempts:2\n'
+  } >"$resolv"
+  # NetworkManager phải ngừng ghi đè tệp này, nếu không bản ghi DHCP (đang hỏng)
+  # sẽ quay lại ở lần đổi mạng kế tiếp.
+  if [[ -d "$(dirname "$NM_DNS_DROPIN")" ]]; then
+    cat >"$NM_DNS_DROPIN" <<'EOF'
+# AniOS: anios-netcheck --fix-dns ghi tệp này để NetworkManager không ghi đè
+# /etc/resolv.conf bằng DNS lấy từ DHCP. Xoá tệp và chạy
+# `sudo nmcli general reload` để trở lại bình thường.
+[main]
+dns=none
+EOF
+    have nmcli && nmcli general reload >/dev/null 2>&1 || true
+    have systemctl && systemctl reload-or-restart NetworkManager >/dev/null 2>&1 || true
+  fi
+  printf '      FIX  Đã ghi DNS công cộng vào %s\n' "$resolv"
+}
+
+prefer_ipv4() {
+  local gai="$1"
+  if [[ -e "$gai" ]] && grep -qF '^precedence ::ffff:0:0/96  100' "$gai"; then
+    note "$gai đã ưu tiên IPv4 từ trước"
+    return 0
+  fi
+  install -d -m 0755 "$(dirname "$gai")" 2>/dev/null || true
+  backup_once "$gai"
+  {
+    printf '# AniOS: mạng này có IPv6 toàn cục nhưng không ra được Internet.\n'
+    printf '# Steam thử địa chỉ IPv6 trước rồi bỏ cuộc (không có Happy Eyeballs),\n'
+    printf '# nên tạm ưu tiên IPv4 cho mọi chương trình dùng getaddrinfo(3).\n'
+    printf 'precedence ::ffff:0:0/96  100\n'
+  } >>"$gai"
+  chmod 0644 -- "$gai"
+  printf '      FIX  Đã ưu tiên IPv4 trong %s (bỏ dòng precedence khi mạng đã ổn)\n' "$gai"
+}
+
+apply_fixes() {
+  step "Sửa lỗi"
+  # Không có liên kết mạng thì đừng "sửa" gì: ghi DNS công cộng lúc máy đang
+  # offline chỉ làm NetworkManager thôi cập nhật resolv.conf về sau, còn nguyên
+  # nhân (chưa nối Wi-Fi/dây) thì vẫn nguyên.
+  if ((!LINK_UP)); then
+    printf '      FIX  Bỏ qua: chưa có liên kết mạng nào để sửa (nối mạng trước, rồi chạy lại)\n'
+    return 0
+  fi
+  if ((DNS_BROKEN)) || [[ -z "$(dns_servers_in_use)" ]]; then
+    # Thử khởi động lại stub resolver trước: rẻ hơn và không đổi DNS của mạng.
+    if have systemctl && [[ -L "$RESOLV_CONF" ]] && [[ "$(readlink "$RESOLV_CONF")" == /run/systemd/resolve/* ]]; then
+      if have systemctl && systemctl restart systemd-resolved >/dev/null 2>&1; then
+        printf '      FIX  Đã khởi động lại systemd-resolved\n'
+        sleep 1
+        local host
+        for host in "${STEAM_HOSTS[@]}"; do
+          if (($(probe_dns "$host" | awk '{ print $1 + $2 }') > 0)); then
+            DNS_BROKEN=0
+            printf '      FIX  DNS đã trả lời lại sau khi khởi động lại resolved\n'
+            break
+          fi
+        done
+      fi
+    fi
+    if ((DNS_BROKEN)) || [[ -z "$(dns_servers_in_use)" ]]; then
+      write_public_dns "$RESOLV_CONF"
+    fi
+  fi
+  if ((IPV6_BROKEN)); then
+    prefer_ipv4 "$GAI_CONF"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# 6. Kết luận
+# ---------------------------------------------------------------------------
+print_verdict() {
+  step "6/6 Kết luận"
+  if ((${#PROBLEMS[@]} == 0)); then
+    say "      Mạng đáp ứng được yêu cầu của Steam."
+    say "      Nếu Steam vẫn báo 'needs to be online', hãy xoá thư mục cài đặt dở"
+    say "      (~/.local/share/Steam) rồi mở lại, hoặc kiểm tra proxy trong"
+    say "      Steam → Settings → Downloads."
+    return 0
+  fi
+  say "      Phát hiện ${#PROBLEMS[@]} vấn đề có thể làm Steam báo"
+  say '      "Steam needs to be online to update":'
+  local item
+  for item in "${PROBLEMS[@]}"; do
+    say "      - $item"
+  done
+  say ""
+  say "      Gợi ý sửa nhanh:"
+  say "        sudo anios-netcheck --fix       # sửa DNS chết, IPv6 nửa sống"
+  say "        sudo anios-netcheck --fix-dns   # nhà mạng chặn/đầu độc DNS"
+  say "      Nhật ký của lần tự kiểm tra lúc khởi động: journalctl -u anios-netcheck"
+}
+
+main() {
+  say "== AniOS network check =="
+  wait_for_link
+  check_time
+  check_link
+  check_dns
+  check_families
+  check_steam_download
+  if ((DO_FIX_DNS)); then
+    # Người dùng yêu cầu rõ ràng: thay DNS của mạng bằng DNS công cộng.
+    write_public_dns "$RESOLV_CONF"
+  elif ((DO_FIX)); then
+    apply_fixes
+  fi
+  print_verdict
+  if ((DO_PAUSE)) && [[ -t 0 ]]; then
+    printf '\nNhấn Enter để đóng...'
+    read -r _ || true
+  fi
+  ((${#PROBLEMS[@]} == 0)) || return 1
+  return 0
+}
+
+main "$@"

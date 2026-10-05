@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kiểm tra mạng AniOS
+Comment=Chẩn đoán lỗi Steam báo "needs to be online to update" (DNS, IPv6, captive portal)
+Exec=foot -e /usr/local/bin/anios-netcheck --pause
+Icon=network-wired
+Terminal=false
+Categories=System;Network;
