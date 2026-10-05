@@ -4,6 +4,7 @@ Phiên live dùng tài khoản [35manios[0m và tự động vào desktop Hypr
 Mở ứng dụng: [35mSuper+D[0m (Steam nằm trong launcher và trên Desktop).
 Terminal: [35mSuper+Return[0m · Đổi cửa sổ nổi: [35mSuper+Space[0m · Gõ tiếng Việt: [35mCtrl+Space[0m.
 Wi-Fi: biểu tượng mạng trên thanh trạng thái hoặc [35mnmtui[0m · Thoát phiên: [35mSuper+Shift+E[0m.
+Steam báo [35m"needs to be online to update"[0m? Chạy [35manios-netcheck[0m (có trong menu ứng dụng).
 Khi cần cứu hộ: [35mCtrl+Alt+F2[0m mở TTY, [35mCtrl+Alt+F1[0m quay lại desktop. Khoá màn hình: [35mSuper+Shift+L[0m.
 
 Dữ liệu và game được lưu trên phần trống của USB (xem [35manios-persist[0m); mật khẩu live và sudo là [35m1111[0m, đừng để dữ liệu nhạy cảm.

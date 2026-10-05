@@ -293,6 +293,67 @@ fi
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
+# --- Chỉ NetworkManager được quản lý mạng của ảnh live ---------------------
+# profile/airootfs chỉ THÊM file lên bản sao releng ở trên, không xoá được gì, nên
+# dàn mạng của releng (systemd-networkd + iwd) vẫn được bật sẵn và sẽ chạy song
+# song với NetworkManager mà AniOS dùng — mọi thứ trên desktop (quickshell/imi,
+# Waybar, nmtui, README) đều gọi nmcli. Hai trình quản lý mạng cùng giành một card
+# mạng, còn iwd giành card Wi-Fi khỏi NetworkManager (NM chỉ có wpa_supplicant),
+# cho ra kết nối chập chờn hoặc không có DNS; biểu hiện thường gặp là Steam báo
+# "Steam needs to be online to update" trong khi trình duyệt vẫn mở được web.
+#
+# Ngoài việc xoá các symlink bật dịch vụ ở đây, profile/airootfs còn ship mặt nạ
+# (symlink tới /dev/null) cho chính những unit đó, nên không thứ gì kéo chúng dậy
+# lại được. systemd-resolved VẪN được giữ và bật: đó là trình phân giải DNS mà
+# NetworkManager được trỏ tới (etc/NetworkManager/conf.d/10-anios-dns.conf) và
+# /etc/resolv.conf của ảnh live trỏ vào stub của nó.
+releng_network_units=(
+  'etc/systemd/system/multi-user.target.wants/systemd-networkd.service'
+  'etc/systemd/system/multi-user.target.wants/iwd.service'
+  'etc/systemd/system/sockets.target.wants/systemd-networkd.socket'
+  'etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service'
+  'etc/systemd/system/dbus-org.freedesktop.network1.service'
+)
+for rel in "${releng_network_units[@]}"; do
+  rm -f -- "$BUILD_PROFILE/airootfs/$rel"
+done
+
+# /etc/resolv.conf phải là stub của systemd-resolved; NetworkManager được ghim
+# dns=systemd-resolved nên nó KHÔNG ghi tệp này, và một tệp thường (hay symlink
+# trỏ nơi khác) do releng đổi trong tương lai sẽ làm cả hệ thống mất DNS.
+resolv_conf="$BUILD_PROFILE/airootfs/etc/resolv.conf"
+resolv_stub=/run/systemd/resolve/stub-resolv.conf
+if [[ "$(readlink -- "$resolv_conf" 2>/dev/null || true)" != "$resolv_stub" ]]; then
+  echo "AniOS: /etc/resolv.conf không trỏ tới $resolv_stub; ghi lại cho đúng"
+  rm -f -- "$resolv_conf"
+  install -d -m 0755 -- "$(dirname -- "$resolv_conf")"
+  ln -s -- "$resolv_stub" "$resolv_conf"
+fi
+
+network_fail=0
+for rel in "${releng_network_units[@]}"; do
+  if [[ -e "$BUILD_PROFILE/airootfs/$rel" || -L "$BUILD_PROFILE/airootfs/$rel" ]]; then
+    echo "AniOS: the releng network unit is still enabled in the image: $rel" >&2
+    network_fail=1
+  fi
+done
+for unit in systemd-networkd.service systemd-networkd.socket \
+  systemd-networkd-wait-online.service iwd.service; do
+  mask="$BUILD_PROFILE/airootfs/etc/systemd/system/$unit"
+  if [[ ! -L "$mask" || "$(readlink -- "$mask")" != /dev/null ]]; then
+    echo "AniOS: $unit must be masked (symlink to /dev/null) so only NetworkManager manages the network" >&2
+    network_fail=1
+  fi
+done
+for rel in \
+  'etc/systemd/system/multi-user.target.wants/NetworkManager.service' \
+  'etc/systemd/system/multi-user.target.wants/systemd-resolved.service' \
+  'etc/systemd/system/multi-user.target.wants/anios-netcheck.service'; do
+  [[ -L "$BUILD_PROFILE/airootfs/$rel" ]] || { echo "AniOS: not enabled in the image: $rel" >&2; network_fail=1; }
+done
+(( network_fail == 0 )) ||
+  { echo "AniOS: refusing to continue with an ambiguous network stack (see above)" >&2; exit 1; }
+
 # --- Calamares installer payload ------------------------------------------
 # Installer configs/assets are kept out of pacman-owned paths until the AUR hook
 # has installed Calamares; scripts/anios-aur-build.sh then copies settings into
@@ -746,6 +807,7 @@ insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
 insert_permission "/usr/local/bin/anios-audio-check" "0:0:755"
 insert_permission "/usr/local/bin/anios-update" "0:0:755"
+insert_permission "/usr/local/bin/anios-netcheck" "0:0:755"
 insert_permission "/usr/local/bin/anios-persist" "0:0:755"
 insert_permission "/usr/local/bin/anios-sober" "0:0:755"
 insert_permission "/opt/seanime/seanime" "0:0:755"
@@ -768,6 +830,7 @@ for entry in \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
   '["/usr/local/bin/anios-update"]="0:0:755"' \
+  '["/usr/local/bin/anios-netcheck"]="0:0:755"' \
   '["/usr/local/bin/anios-persist"]="0:0:755"' \
   '["/usr/local/bin/anios-sober"]="0:0:755"' \
   '["/opt/seanime/seanime"]="0:0:755"' \

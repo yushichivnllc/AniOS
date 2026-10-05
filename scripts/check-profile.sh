@@ -84,6 +84,7 @@ for declaration in \
   '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
   '["/usr/local/bin/anios-persist"]="0:0:755"' \
+  '["/usr/local/bin/anios-netcheck"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
@@ -511,6 +512,63 @@ for audio_package in pipewire-alsa pipewire-audio; do
   grep -qxF "$audio_package" "$ROOT_DIR/profile/packages.x86_64" ||
     fail "ALSA-to-PipeWire routing needs the $audio_package package in the manifest"
 done
+
+# --- Mạng của phiên live: chỉ NetworkManager quản lý ----------------------
+# profile/airootfs chỉ THÊM file lên bản sao releng của build-iso.sh, nên dàn
+# mạng của releng (systemd-networkd + iwd) vẫn được bật nguyên và chạy song
+# song với NetworkManager mà mọi thứ trên desktop gọi (nmcli/nmtui, quickshell,
+# Waybar). Hai trình quản lý cùng giành một card mạng — và iwd còn giành card
+# Wi-Fi khỏi wpa_supplicant của NM — cho ra kết nối/DNS chập chờn. Biểu hiện dễ
+# thấy nhất là Steam báo "needs to be online to update" dù trình duyệt vẫn mở
+# được web. build-iso.sh phải gỡ symlink bật dịch vụ của releng, còn profile
+# phải ship mặt nạ (symlink tới /dev/null) để không gì kéo chúng dậy lại.
+for unit in systemd-networkd.service systemd-networkd.socket \
+  systemd-networkd-wait-online.service iwd.service; do
+  mask="$AIROOTFS/etc/systemd/system/$unit"
+  [[ -L "$mask" && "$(readlink "$mask")" == /dev/null ]] ||
+    fail "etc/systemd/system/$unit must be a mask (symlink to /dev/null) so only NetworkManager manages the network"
+done
+for releng_unit in \
+  'etc/systemd/system/multi-user.target.wants/systemd-networkd.service' \
+  'etc/systemd/system/multi-user.target.wants/iwd.service' \
+  'etc/systemd/system/sockets.target.wants/systemd-networkd.socket' \
+  'etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service'; do
+  grep -qF "$releng_unit" "$ROOT_DIR/scripts/build-iso.sh" ||
+    fail "build-iso.sh must remove the releng enablement $releng_unit so it cannot run next to NetworkManager"
+done
+grep -qF 'multi-user.target.wants/systemd-resolved.service' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must verify systemd-resolved stays enabled: it is the DNS service NetworkManager is pinned to"
+# DNS: NetworkManager được ghim sang systemd-resolved, còn resolved phải luôn có
+# DNS dự phòng để mạng không phát nameserver (hoặc DHCP phát tệp rỗng) vẫn phân
+# giải được tên máy chủ Valve.
+grep -qF 'dns=systemd-resolved' "$AIROOTFS/etc/NetworkManager/conf.d/10-anios-dns.conf" ||
+  fail "NetworkManager must be pinned to dns=systemd-resolved (etc/NetworkManager/conf.d/10-anios-dns.conf)"
+grep -qF 'FallbackDNS=1.1.1.1 8.8.8.8' "$AIROOTFS/etc/systemd/resolved.conf.d/10-anios-live.conf" ||
+  fail "systemd-resolved must carry public fallback DNS for networks whose DHCP serves none"
+# Công cụ chẩn đoán/tự sửa mà người dùng gọi khi Steam vẫn báo lỗi, cùng unit
+# chạy nó ngay sau khi NetworkManager lên.
+NETCHECK="$AIROOTFS/usr/local/bin/anios-netcheck"
+[[ -x "$NETCHECK" ]] || fail "usr/local/bin/anios-netcheck must be executable"
+bash -n "$NETCHECK" || fail "shell syntax error: usr/local/bin/anios-netcheck"
+grep -qF '["/usr/local/bin/anios-netcheck"]="0:0:755"' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must declare file_permissions for /usr/local/bin/anios-netcheck"
+NETCHECK_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-netcheck.service"
+[[ -s "$NETCHECK_UNIT" ]] || fail "anios-netcheck.service is missing"
+grep -qF 'ExecStart=/usr/local/bin/anios-netcheck --quiet --fix' "$NETCHECK_UNIT" ||
+  fail "anios-netcheck.service must run the checker quietly and repair what it can"
+grep -qF 'SuccessExitStatus=0 1' "$NETCHECK_UNIT" ||
+  fail "anios-netcheck.service must not mark the boot failed when the network is down (SuccessExitStatus=0 1)"
+[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-netcheck.service" ]] ||
+  fail "anios-netcheck.service is not enabled"
+[[ -s "$AIROOTFS/usr/share/applications/anios-netcheck.desktop" ]] ||
+  fail "the anios-netcheck desktop launcher is missing"
+grep -qF 'anios-netcheck' "$AIROOTFS/etc/motd" ||
+  fail "the live motd must point users at anios-netcheck when Steam reports 'needs to be online'"
+NETCHECK_SELFTEST="$ROOT_DIR/scripts/selftest-anios-netcheck.sh"
+[[ -x "$NETCHECK_SELFTEST" ]] ||
+  fail "missing or not executable: scripts/selftest-anios-netcheck.sh"
+grep -qF 'selftest-anios-netcheck.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-anios-netcheck.sh"
 
 # --- Quyền của script dựng ISO -------------------------------------------
 [[ -x "$ROOT_DIR/scripts/build-iso.sh" ]] || fail "build script is not executable"
