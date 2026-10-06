@@ -3,30 +3,76 @@
 set -Eeuo pipefail
 
 fail_dialog() {
-  kdialog --title "AniOS" --error "$1" || true
+  if command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "AniOS" --error "$1" || true
+  else
+    printf 'AniOS: %s\n' "$1" >&2
+  fi
 }
-
-command -v kdialog >/dev/null 2>&1 || exit 0
 
 calamares_bin="${ANIOS_CALAMARES_BIN:-$(command -v calamares 2>/dev/null || true)}"
 calamares_settings="${ANIOS_CALAMARES_SETTINGS:-/etc/calamares/settings.conf}"
 calamares_module_dir="${ANIOS_CALAMARES_MODULE_DIR:-/usr/lib/calamares/modules}"
+installer_available=1
+
 if [[ -z "$calamares_bin" || ! -x "$calamares_bin" || ! -s "$calamares_settings" ]]; then
-  kdialog --title "Welcome to AniOS" --msgbox \
-    "This Live ISO was built without the optional Calamares installer. The Live desktop will continue normally."
-  exit 0
+  installer_available=0
+else
+  chooser_module="$(find "$calamares_module_dir" -type f -iname '*packagechooser*' -print -quit 2>/dev/null || true)"
+  [[ -n "$chooser_module" ]] || installer_available=0
 fi
 
-chooser_module="$(find "$calamares_module_dir" -type f -iname '*packagechooser*' -print -quit 2>/dev/null || true)"
-if [[ -z "$chooser_module" ]]; then
-  fail_dialog "The Calamares package chooser module is missing, so theme and dotfiles selection cannot be loaded. The Live desktop will continue."
-  exit 0
+chooser_ui="${ANIOS_BOOT_CHOICE_QML:-/usr/share/anios/boot-choice.qml}"
+qml_bin="${ANIOS_QML_BIN:-}"
+if [[ -z "$qml_bin" ]]; then
+  qml_bin="$(command -v qml6 2>/dev/null || command -v qml 2>/dev/null || true)"
+fi
+choice=""
+
+# Use the Material-styled QML chooser in the normal Live desktop. KDialog remains a
+# compatibility fallback for images where the QML runtime or Material module
+# cannot start; closing the QML window simply continues in the Live session.
+if [[ -n "$qml_bin" ]] && command -v "$qml_bin" >/dev/null 2>&1 && [[ -s "$chooser_ui" ]]; then
+  qml_args=("$chooser_ui")
+  if (( ! installer_available )); then
+    qml_args+=(-- --installer-unavailable)
+  fi
+
+  qml_status=0
+  if chooser_output="$(QT_QUICK_CONTROLS_STYLE=Material \
+    QT_QUICK_CONTROLS_MATERIAL_THEME=Dark \
+    QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+    "$qml_bin" "${qml_args[@]}" 2>&1)"; then
+    choice="$(printf '%s\n' "$chooser_output" |
+      sed -nE 's/.*ANIOS_BOOT_CHOICE=(live|install).*/\1/p' | tail -n 1)"
+    if [[ -z "$choice" ]] && ! grep -qF 'ANIOS_BOOT_CHOICE_READY=1' <<<"$chooser_output"; then
+      # A zero exit without the QML ready marker means no window was created.
+      qml_status=1
+    fi
+  else
+    qml_status=$?
+  fi
+
+  if (( qml_status != 0 )); then
+    launch_log="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/anios-boot-choice-qml.log"
+    printf '%s\n' "$chooser_output" >"$launch_log" 2>/dev/null || true
+    printf 'AniOS: Material chooser failed (status %s); details: %s\n' \
+      "$qml_status" "$launch_log" >&2
+  elif [[ -z "$choice" ]]; then
+    # The QML window was shown and then closed without a card selection.
+    exit 0
+  fi
 fi
 
-choice="$(kdialog --title "Welcome to AniOS" --default live --menu \
-  "Choose how to start. Selecting Live ISO closes this window and keeps the current desktop session running." \
-  live "Live ISO — use AniOS without installing" \
-  install "Install AniOS — start the graphical installer")" || exit 0
+# Fallback if qml6/qml is unavailable, the QML asset is missing, or the QML
+# runtime failed. A missing installer still cannot be launched (checked below).
+if [[ -z "$choice" ]]; then
+  command -v kdialog >/dev/null 2>&1 || exit 0
+  choice="$(kdialog --title "Welcome to AniOS" --default live --menu \
+    "Choose how to start. Selecting Live closes this window and keeps the current desktop session running." \
+    live "Live ISO — use AniOS without installing" \
+    install "Install AniOS — start the graphical installer")" || exit 0
+fi
 
 case "$choice" in
   live)
@@ -34,6 +80,10 @@ case "$choice" in
     exit 0
     ;;
   install)
+    if (( ! installer_available )); then
+      fail_dialog "The Calamares installer is not available in this Live ISO. The Live desktop will continue."
+      exit 0
+    fi
     command -v pkexec >/dev/null 2>&1 || {
       fail_dialog "pkexec is not available. The installer cannot be started with administrator privileges."
       exit 1

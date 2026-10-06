@@ -48,7 +48,7 @@ sudo ./scripts/build-iso.sh --no-aur
 
 ### Cài AniOS từ Live ISO
 
-Trên ISO dựng mặc định (có AUR), AniOS tự đăng nhập vào desktop Live rồi mở hộp thoại chọn **Live ISO** hoặc **Install AniOS**. Chọn Live chỉ đóng hộp thoại và tiếp tục phiên hiện tại; chọn Install sẽ mở Calamares với các bước chọn ngôn ngữ/bàn phím, phân vùng, tài khoản và xác nhận trước khi cài. Cần kết nối Internet và tối thiểu 30 GB dung lượng trống.
+Trên ISO dựng mặc định (có AUR), AniOS tự đăng nhập vào desktop Live rồi mở màn hình chào mừng theo phong cách **Material Design** với hai lựa chọn **Dùng thử AniOS Live** và **Cài đặt AniOS**. Dùng thử sẽ đóng màn hình và giữ nguyên phiên hiện tại; cài đặt mở Calamares với các bước chọn ngôn ngữ/bàn phím, phân vùng, tài khoản và xác nhận trước khi cài. Cần kết nối Internet và tối thiểu 30 GB dung lượng trống.
 
 Trong Calamares, người dùng có thể chọn:
 
@@ -56,7 +56,7 @@ Trong Calamares, người dùng có thể chọn:
 - **SDDM**: theme AniOS hoặc **Qylock / Wuthering Waves** từ [Darkkal44/qylock](https://github.com/Darkkal44/qylock).
 - **Dotfiles Hyprland**: **Immaterial Impulse** (được đóng gói sẵn, dùng offline) hoặc [end-4/dots-hyprland](https://github.com/end-4/dots-hyprland). Nếu chọn end-4, ở lần đăng nhập đầu tiên ứng dụng sẽ hỏi xác nhận trước khi tải revision đã pin và chạy trình cài đặt upstream dưới tài khoản người dùng; cần Internet, `sudo` và tải thêm gói.
 
-Dựng bằng `--no-aur` vẫn vào được Live, nhưng không có Calamares nên lựa chọn Install sẽ báo rõ rằng installer đã bị lược bỏ.
+Dựng bằng `--no-aur` vẫn vào được Live; thẻ cài đặt trong màn hình chào mừng sẽ bị vô hiệu hoá và báo rõ Calamares không có trong ảnh.
 
 ### Lỗi `failed to commit transaction (conflicting files)`
 
@@ -380,7 +380,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
-- `scripts/selftest-installer.sh` — mô phỏng menu Live/Install và kiểm tra pacstrap, staging dotfiles, lựa chọn GRUB/SDDM và finalizer trong sandbox.
+- `scripts/selftest-installer.sh` — mô phỏng giao diện Material Live/Install (và nhánh dự phòng KDialog), rồi kiểm tra pacstrap, staging dotfiles, lựa chọn GRUB/SDDM và finalizer trong sandbox.
 - `scripts/selftest-build-iso-sudoers.sh` — tự kiểm tra bước "không có luật sudo `NOPASSWD` nào lọt vào ảnh" ở cuối `build-iso.sh` trên airootfs giả: `/etc/sudoers` mặc định của gói `sudo` phải sạch, luật thật phải bị bắt kèm `file:dòng`; không cần Arch Linux.
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
 - `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.
