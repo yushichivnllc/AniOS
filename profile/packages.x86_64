@@ -126,6 +126,7 @@ hyprsunset
 bc
 starship
 imagemagick
+# QML Material welcome selector (qml6) and Wayland platform plugin.
 qt6-wayland
 qt6-declarative
 qt6-svg

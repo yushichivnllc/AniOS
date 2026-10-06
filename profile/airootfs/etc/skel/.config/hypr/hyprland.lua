@@ -209,6 +209,11 @@ else
     -- Cửa sổ fullscreen thì bỏ bo góc để không hở viền đen ở mép màn hình.
     hl.window_rule({ match = { fullscreen = 1 }, rounding = 0 })
 
+    -- The first-boot QML welcome window is a dialog, but explicitly float and
+    -- center it so both Live/Install cards stay usable in the Minimal session.
+    hl.window_rule({ match = { title = "^(AniOS - Welcome)$" }, float = true })
+    hl.window_rule({ match = { title = "^(AniOS - Welcome)$" }, center = true })
+
     -- Hộp thoại nhỏ nên nổi và nằm giữa màn hình cho dễ thao tác bằng chuột.
     for _, dlg in ipairs({
         "^(pavucontrol)$",

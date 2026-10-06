@@ -729,8 +729,41 @@ INSTALLER_ROOT="$ROOT_DIR/profile/installer"
 INSTALLER_SELFTEST="$ROOT_DIR/scripts/selftest-installer.sh"
 TARGET_MANIFEST="$ROOT_DIR/profile/install/packages.x86_64"
 BOOT_CHOICE="$AIROOTFS/usr/local/bin/anios-boot-choice"
+BOOT_CHOICE_QML="$AIROOTFS/usr/share/anios/boot-choice.qml"
 
 [[ -x "$BOOT_CHOICE" ]] || fail "Live ISO boot chooser is missing or not executable"
+[[ -s "$BOOT_CHOICE_QML" ]] || fail "Material Live/Install chooser UI is missing"
+grep -qF 'import QtQuick.Controls.Material' "$BOOT_CHOICE_QML" ||
+  fail "Live/Install chooser must use Qt Quick Controls Material"
+grep -qF 'ANIOS_BOOT_CHOICE=' "$BOOT_CHOICE_QML" ||
+  fail "Live/Install chooser must report the selected action to its launcher"
+grep -qF 'installer-unavailable' "$BOOT_CHOICE_QML" ||
+  fail "Live/Install chooser must disable Install on images without Calamares"
+python3 - "$BOOT_CHOICE_QML" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+qml = Path(sys.argv[1]).read_text()
+code = re.sub(r"/\*.*?\*/", "", qml, flags=re.S)
+code = re.sub(r"//[^\n]*", "", code)
+code = re.sub(r'"(?:\\.|[^"\\])*"', '""', code)
+for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
+    assert code.count(opener) == code.count(closer), \
+        f"unbalanced {opener}{closer} in the Material boot chooser"
+for required in (
+    "ApplicationWindow", "Material.theme: Material.Dark",
+    "enabled: root.installerAvailable", 'root.choose("live")',
+    'root.choose("install")', 'console.log("ANIOS_BOOT_CHOICE=" + mode)',
+):
+    assert required in qml, f"Material boot chooser is missing {required}"
+PY
+grep -qF 'command -v qml6' "$BOOT_CHOICE" ||
+  fail "Live/Install chooser must launch the packaged Qt 6 QML runtime"
+grep -qF '^(AniOS - Welcome)$' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" ||
+  fail "Minimal Hyprland session must center the Live/Install chooser"
+grep -qF '^(AniOS - Welcome)$' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/rules.lua" ||
+  fail "Immaterial Impulse session must center the Live/Install chooser"
 [[ -x "$INSTALLER_SELFTEST" ]] || fail "installer self-test is missing or not executable"
 grep -qF 'selftest-installer.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
   fail "the profile workflow must run scripts/selftest-installer.sh"
