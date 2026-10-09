@@ -219,22 +219,10 @@ grep -qF 'org.vinegarhq.Sober' "$AIROOTFS/usr/local/bin/anios-sober" || fail "an
 grep -qF 'flatpak install --system --noninteractive -y flathub org.vinegarhq.Sober' "$ROOT_DIR/scripts/build-iso.sh" ||
   fail "build-iso.sh must bake Sober into the image"
 [[ -s "$AIROOTFS/etc/skel/Desktop/Sober.desktop" ]] || fail "the Sober desktop shortcut is missing"
-# Seanime: server nướng sẵn ở /opt/seanime, chạy bằng service, và Firefox luôn mở
-# giao diện web của nó (trang chủ + trang khởi động).
-SEANIME_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-seanime.service"
-[[ -s "$SEANIME_UNIT" ]] || fail "anios-seanime.service is missing"
-grep -qxF 'ExecStart=/opt/seanime/seanime --datadir /home/anios/.config/Seanime' "$SEANIME_UNIT" ||
-  fail "anios-seanime.service must run /opt/seanime/seanime"
-[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-seanime.service" ]] ||
-  fail "anios-seanime.service is not enabled"
 FIREFOX_POLICY="$AIROOTFS/etc/firefox/policies/policies.json"
 [[ -s "$FIREFOX_POLICY" ]] || fail "Firefox policies.json is missing"
-grep -qF '"URL": "http://127.0.0.1:43211/"' "$FIREFOX_POLICY" ||
-  fail "Firefox homepage must be the Seanime web UI (http://127.0.0.1:43211/)"
-grep -qF '"StartPage": "homepage"' "$FIREFOX_POLICY" ||
-  fail "Firefox must open the homepage on every start"
-grep -qF 'seanime-${SEANIME_VERSION}_Linux_x86_64.tar.gz' "$ROOT_DIR/scripts/build-iso.sh" ||
-  fail "build-iso.sh must download the Seanime server"
+! grep -qF "127.0.0.1:43211" "$FIREFOX_POLICY" ||
+  fail "Firefox must not point at the removed Seanime server"
 PERSIST_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-persist.service"
 [[ -s "$PERSIST_UNIT" ]] || fail "anios-persist.service is missing"
 grep -qxF 'ExecStart=/usr/local/bin/anios-persist auto' "$PERSIST_UNIT" ||

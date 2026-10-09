@@ -35,9 +35,6 @@ Phần mềm cài sẵn trong ảnh (ngoài Steam, trình duyệt, Discord, VS C
                      yay -S <tên gói>     cài gói (kể cả gói ngoài kho chính thức)
                      yay -Syu             cập nhật toàn bộ, gồm cả AUR
                      hoặc gõ: update-aur
-  Seanime          server anime chạy nền ở http://127.0.0.1:43211, Firefox mở
-                   sẵn trang này mỗi lần khởi động. Kiểm tra server:
-                     seanime-status       (= systemctl status anios-seanime)
   Flatpak          cài và chạy ứng dụng từ Flathub (flatpak install <app-id>)
   AI cục bộ        Ollama backend Vulkan chạy nền (service bật sẵn):
                      ollama run <tên-model>   chat LLM trong terminal

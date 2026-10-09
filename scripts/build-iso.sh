@@ -494,29 +494,6 @@ SpaceGrotesk[wght].ttf|https://raw.githubusercontent.com/google/fonts/main/ofl/s
 EOF
 fi
 
-# --- Seanime server (https://seanime.app/download) -------------------------
-# Server Seanime bản Linux x64 kèm giao diện web nhúng sẵn, không có trong kho Arch
-# nên được tải từ GitHub Releases lúc dựng ISO (không đưa binary vào git) và đặt ở
-# /opt/seanime/seanime. anios-seanime.service chạy nó bằng tài khoản live ở cổng
-# 43211, còn /etc/firefox/policies/policies.json đặt trang chủ Firefox là
-# http://127.0.0.1:43211/ nên mỗi lần mở Firefox là hiện giao diện Seanime.
-# Đổi phiên bản: SEANIME_VERSION=3.10.3 ./scripts/build-iso.sh ...
-SEANIME_VERSION="${SEANIME_VERSION:-3.10.3}"
-SEANIME_URL="https://github.com/5rahim/seanime/releases/download/v${SEANIME_VERSION}/seanime-${SEANIME_VERSION}_Linux_x86_64.tar.gz"
-seanime_tmp="$(mktemp -d "${TMPDIR:-/tmp}/anios-seanime.XXXXXX")"
-printf 'Downloading Seanime server %s\n' "$SEANIME_VERSION"
-curl -fSL --retry 3 --retry-delay 5 --max-time 600 -o "$seanime_tmp/seanime.tar.gz" "$SEANIME_URL" ||
-  { rm -rf -- "$seanime_tmp"; echo "Could not download the Seanime server from $SEANIME_URL" >&2; exit 1; }
-tar -xzf "$seanime_tmp/seanime.tar.gz" -C "$seanime_tmp" ||
-  { rm -rf -- "$seanime_tmp"; echo "The Seanime archive is not a valid tar.gz: $SEANIME_URL" >&2; exit 1; }
-seanime_bin="$(find "$seanime_tmp" -type f -name seanime | head -n1)"
-[[ -n "$seanime_bin" ]] ||
-  { rm -rf -- "$seanime_tmp"; echo "No 'seanime' binary inside $SEANIME_URL" >&2; exit 1; }
-install -D -m 0755 -- "$seanime_bin" "$BUILD_PROFILE/airootfs/opt/seanime/seanime"
-rm -rf -- "$seanime_tmp"
-# File ELF x86-64 thật, không phải trang lỗi HTML.
-[[ "$(head -c4 "$BUILD_PROFILE/airootfs/opt/seanime/seanime" | od -An -tx1 | tr -d ' \n')" == 7f454c46 ]] ||
-  { echo "The downloaded Seanime server is not an ELF binary" >&2; exit 1; }
 
 # --- Theme GRUB Evangelion (Ayanami) khi mở AniOS --------------------------
 # Nguồn: https://github.com/Aleph1-9012/Evangelion (themes/ayanami/1080p).
@@ -810,7 +787,6 @@ insert_permission "/usr/local/bin/anios-update" "0:0:755"
 insert_permission "/usr/local/bin/anios-netcheck" "0:0:755"
 insert_permission "/usr/local/bin/anios-persist" "0:0:755"
 insert_permission "/usr/local/bin/anios-sober" "0:0:755"
-insert_permission "/opt/seanime/seanime" "0:0:755"
 insert_permission "/usr/local/lib/anios/create-live-user" "0:0:755"
 insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
 if (( WITH_AUR )); then
@@ -833,7 +809,6 @@ for entry in \
   '["/usr/local/bin/anios-netcheck"]="0:0:755"' \
   '["/usr/local/bin/anios-persist"]="0:0:755"' \
   '["/usr/local/bin/anios-sober"]="0:0:755"' \
-  '["/opt/seanime/seanime"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
   '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
   grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||

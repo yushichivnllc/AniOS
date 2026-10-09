@@ -43,7 +43,6 @@ alias update='/usr/local/bin/anios-update'
 # yay (trợ lý AUR) đã cài sẵn trong ảnh: cập nhật và cài thêm gói ngoài kho chính thức
 alias update-aur='/usr/local/bin/anios-update --aur'
 alias aur-search='yay -Ss'
-alias seanime-status='systemctl status anios-seanime --no-pager'
 alias cls='clear'
 
 # Dấu nhắc lệnh (prompt): dùng starship (cài sẵn trong ảnh) để prompt của bash

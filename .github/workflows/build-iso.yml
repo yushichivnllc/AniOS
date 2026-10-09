@@ -314,7 +314,6 @@ jobs:
             usr/local/bin/anios-setup \
             usr/local/bin/anios-persist \
             usr/local/bin/anios-sober \
-            opt/seanime/seanime \
             usr/local/bin/anios-switch-desktop \
             usr/local/bin/anios-switch-im \
             usr/local/lib/anios/live-home-setup \
@@ -334,7 +333,6 @@ jobs:
           check_mode usr/local/bin/anios-setup 755
           check_mode usr/local/bin/anios-persist 755
           check_mode usr/local/bin/anios-sober 755
-          check_mode opt/seanime/seanime 755
           check_mode usr/local/bin/anios-switch-desktop 755
           check_mode usr/local/bin/anios-switch-im 755
           check_mode usr/local/lib/anios/live-home-setup 755
