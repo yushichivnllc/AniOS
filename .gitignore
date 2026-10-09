@@ -4,3 +4,8 @@
 *.iso
 *.iso.sig
 *.sha256
+
+# Python cache (AniOS Reddit và các công cụ Python khác)
+__pycache__/
+*.pyc
+.pytest_cache/
