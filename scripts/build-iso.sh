@@ -770,60 +770,106 @@ fi
 # thi của script và quyền 0440 của file sudoers bị mất trong chroot. Muốn giữ
 # thì phải khai báo lại trong file_permissions của profile (đúng như releng
 # làm cho /etc/shadow hay /usr/local/bin/choose-mirror).
-insert_permission() {
-  local path="$1" permissions="$2"
-  sed -i "/^file_permissions=(/a\\  [\"${path}\"]=\"${permissions}\"" "$BUILD_PROFILE/profiledef.sh"
-}
-insert_permission "/etc/sudoers.d/10-anios-live" "0:0:440"
-insert_permission "/etc/grub.d/99_anios_evangelion" "0:0:755"
-insert_permission "/usr/local/bin/anios-setup" "0:0:755"
-insert_permission "/usr/local/bin/anios-switch-desktop" "0:0:755"
-insert_permission "/usr/local/bin/anios-session" "0:0:755"
-insert_permission "/usr/local/bin/anios-boot-choice" "0:0:755"
-insert_permission "/usr/local/bin/anios-switch-im" "0:0:755"
-insert_permission "/usr/local/bin/anios-audio-setup" "0:0:755"
-insert_permission "/usr/local/bin/anios-audio-check" "0:0:755"
-insert_permission "/usr/local/bin/anios-update" "0:0:755"
-insert_permission "/usr/local/bin/anios-netcheck" "0:0:755"
-insert_permission "/usr/local/bin/anios-persist" "0:0:755"
-insert_permission "/usr/local/bin/anios-sober" "0:0:755"
-insert_permission "/usr/local/lib/anios/create-live-user" "0:0:755"
-insert_permission "/usr/local/lib/anios/live-home-setup" "0:0:755"
+#
+# MỘT danh sách duy nhất "<đường dẫn trong ảnh>:<uid>:<gid>:<mode>", dùng cho cả
+# hai việc: ghi vào profiledef.sh và đối chiếu sau khi ghi. Trước đây mỗi việc giữ
+# một bản chép tay và hai bản đó lệch nhau — bản đối chiếu có
+# /usr/local/bin/anios-steam-quit (script mà anios-steam-quit.service gọi lúc tắt
+# máy) còn bản ghi thì không — nên MỌI lượt dựng đều dừng sau vài phút CI với
+# "Failed to declare file_permissions entry". Nay thêm script mới vào airootfs chỉ
+# cần thêm đúng một dòng ở đây; scripts/selftest-build-iso-permissions.sh bắt lỗi
+# quên khai báo trong vài giây mà không cần dựng ISO.
+ANIOS_FILE_PERMISSIONS=(
+  '/etc/sudoers.d/10-anios-live:0:0:440'
+  '/etc/grub.d/99_anios_evangelion:0:0:755'
+  '/usr/local/bin/anios-setup:0:0:755'
+  '/usr/local/bin/anios-switch-desktop:0:0:755'
+  '/usr/local/bin/anios-session:0:0:755'
+  '/usr/local/bin/anios-boot-choice:0:0:755'
+  '/usr/local/bin/anios-switch-im:0:0:755'
+  '/usr/local/bin/anios-audio-setup:0:0:755'
+  '/usr/local/bin/anios-audio-check:0:0:755'
+  '/usr/local/bin/anios-update:0:0:755'
+  '/usr/local/bin/anios-netcheck:0:0:755'
+  '/usr/local/bin/anios-steam-quit:0:0:755'
+  '/usr/local/bin/anios-persist:0:0:755'
+  '/usr/local/bin/anios-sober:0:0:755'
+  '/usr/local/lib/anios/create-live-user:0:0:755'
+  '/usr/local/lib/anios/live-home-setup:0:0:755'
+)
 if (( WITH_AUR )); then
-  insert_permission "/usr/local/lib/anios/anios-installer-pacstrap" "0:0:755"
-  insert_permission "/usr/local/lib/anios/anios-installer-skel" "0:0:755"
-  insert_permission "/usr/local/lib/anios/anios-installer-finalize" "0:0:755"
+  # Ba helper này KHÔNG nằm trong profile/airootfs: bước "Calamares installer
+  # payload" ở trên chép chúng từ profile/installer/scripts vào ảnh, và chỉ khi
+  # có dựng gói AUR (Calamares) nên chúng mới tồn tại.
+  ANIOS_FILE_PERMISSIONS+=(
+    '/usr/local/lib/anios/anios-installer-pacstrap:0:0:755'
+    '/usr/local/lib/anios/anios-installer-skel:0:0:755'
+    '/usr/local/lib/anios/anios-installer-finalize:0:0:755'
+  )
 fi
 
-for entry in \
-  '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
-  '["/etc/grub.d/99_anios_evangelion"]="0:0:755"' \
-  '["/usr/local/bin/anios-setup"]="0:0:755"' \
-  '["/usr/local/bin/anios-switch-desktop"]="0:0:755"' \
-  '["/usr/local/bin/anios-session"]="0:0:755"' \
-  '["/usr/local/bin/anios-boot-choice"]="0:0:755"' \
-  '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
-  '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
-  '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
-  '["/usr/local/bin/anios-update"]="0:0:755"' \
-  '["/usr/local/bin/anios-netcheck"]="0:0:755"' \
-  '["/usr/local/bin/anios-steam-quit"]="0:0:755"' \
-  '["/usr/local/bin/anios-persist"]="0:0:755"' \
-  '["/usr/local/bin/anios-sober"]="0:0:755"' \
-  '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
-  '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
-  grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||
-    { echo "Failed to declare file_permissions entry: $entry" >&2; exit 1; }
-done
-if (( WITH_AUR )); then
-  for entry in \
-    '["/usr/local/lib/anios/anios-installer-pacstrap"]="0:0:755"' \
-    '["/usr/local/lib/anios/anios-installer-skel"]="0:0:755"' \
-    '["/usr/local/lib/anios/anios-installer-finalize"]="0:0:755"'; do
-    grep -qF "$entry" "$BUILD_PROFILE/profiledef.sh" ||
-      { echo "Failed to declare file_permissions entry: $entry" >&2; exit 1; }
+# Tách một mục của danh sách trên thành FP_PATH (đường dẫn trong ảnh) và FP_LINE
+# (đúng dòng mkarchiso đọc bên trong mảng file_permissions). Đường dẫn trong ảnh
+# không chứa ':' nên mục hợp lệ luôn có đúng bốn trường.
+split_file_permission() {
+  local entry="$1" fields=()
+  IFS=: read -ra fields <<<"$entry"
+  if (( ${#fields[@]} != 4 )) || [[ -z ${fields[0]} || -z ${fields[1]} || -z ${fields[2]} || -z ${fields[3]} ]]; then
+    echo "Invalid file_permissions entry: $entry (expected <path>:<uid>:<gid>:<mode>)" >&2
+    exit 1
+  fi
+  FP_PATH="${fields[0]}"
+  FP_LINE="[\"${fields[0]}\"]=\"${fields[1]}:${fields[2]}:${fields[3]}\""
+}
+
+# Ghi từng mục vào mảng file_permissions của profiledef.sh, ngay sau dòng mở mảng.
+# (releng khai báo mảng đó bằng dòng `file_permissions=(` ở đầu dòng; nếu archiso
+# đổi cách viết thì sed không khớp và verify_file_permissions sẽ dừng bản dựng.)
+insert_file_permissions() {
+  local entry
+  for entry in "${ANIOS_FILE_PERMISSIONS[@]}"; do
+    split_file_permission "$entry"
+    sed -i "/^file_permissions=(/a\\  ${FP_LINE}" "$BUILD_PROFILE/profiledef.sh"
   done
-fi
+}
+
+# Đối chiếu bằng CHÍNH cách mkarchiso nạp profile (khai báo mảng kết hợp rồi
+# source profiledef.sh) thay vì chỉ grep chuỗi: grep khớp cả dòng comment nên
+# không chứng minh được mảng thật sự có mục đó, còn profiledef.sh hỏng cú pháp
+# thì mkarchiso chết giữa lượt dựng dài.
+verify_file_permissions() {
+  local declared entry missing=0
+  if ! declared="$(
+    bash -c '
+      declare -A file_permissions=()
+      . "$1" || exit 1
+      for path in "${!file_permissions[@]}"; do
+        printf "%s=%s\n" "$path" "${file_permissions["$path"]}"
+      done
+    ' _ "$BUILD_PROFILE/profiledef.sh"
+  )"; then
+    echo "profiledef.sh no longer parses after the file_permissions insertions: $BUILD_PROFILE/profiledef.sh" >&2
+    exit 1
+  fi
+  for entry in "${ANIOS_FILE_PERMISSIONS[@]}"; do
+    split_file_permission "$entry"
+    # mkarchiso chỉ CẢNH BÁO rồi bỏ qua chmod khi đường dẫn không tồn tại, nên một
+    # cái tên gõ sai sẽ âm thầm ship script không có bit thực thi: tự chặn ở đây.
+    if [[ ! -e "$BUILD_PROFILE/airootfs$FP_PATH" ]]; then
+      echo "file_permissions declares $FP_PATH but the image has no such file: $BUILD_PROFILE/airootfs$FP_PATH" >&2
+      missing=1
+      continue
+    fi
+    if ! grep -qxF -- "$FP_PATH=${entry#*:}" <<<"$declared"; then
+      echo "Failed to declare file_permissions entry: $FP_LINE" >&2
+      missing=1
+    fi
+  done
+  (( missing == 0 )) || exit 1
+}
+
+insert_file_permissions
+verify_file_permissions
 
 printf 'Building AniOS ISO\n  Profile: %s\n  Work:    %s\n  Output:  %s\n' "$BUILD_PROFILE" "$WORK_DIR" "$OUT_DIR"
 

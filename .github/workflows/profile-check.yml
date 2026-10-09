@@ -39,6 +39,18 @@ jobs:
         # build-iso.sh rồi chạy trên airootfs giả: sudoers mặc định phải sạch, còn
         # luật NOPASSWD thật (kể cả khi ai đó bỏ comment dòng ví dụ) phải bị bắt.
         run: ./scripts/selftest-build-iso-sudoers.sh
+      - name: Self-test the file_permissions declarations of the ISO build
+        # mkarchiso chép airootfs bằng `cp --no-preserve=mode`, nên bit thực thi của
+        # script trong ảnh chỉ còn nếu build-iso.sh khai báo lại trong mảng
+        # file_permissions của profiledef.sh. Bước đó từng giữ hai bản danh sách chép
+        # tay lệch nhau, và mọi lượt dựng ISO chết sau ~3 phút với "Failed to declare
+        # file_permissions entry: ["/usr/local/bin/anios-steam-quit"]="0:0:755"" dù
+        # profile lành. Bài này nạp đúng danh sách và hàm ghi/đối chiếu từ
+        # build-iso.sh rồi chạy trên một profile releng giả: đường ngay thẳng phải
+        # qua, còn thiếu khai báo, khai báo đường dẫn không có trong ảnh (mkarchiso
+        # thật chỉ cảnh báo), releng đổi dòng mở mảng, và mục sai định dạng đều phải
+        # bị chặn.
+        run: ./scripts/selftest-build-iso-permissions.sh
       - name: Self-test the live audio checker
         # scripts/check-live-audio.sh chạy trên airootfs.sfs thật trong workflow
         # dựng ISO. Bài này chạy đúng logic đó trên một ảnh live giả (unsquashfs
