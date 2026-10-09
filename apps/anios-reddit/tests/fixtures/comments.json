@@ -1,0 +1,89 @@
+[
+  {
+    "kind": "Listing",
+    "data": {
+      "after": null,
+      "children": []
+    }
+  },
+  {
+    "kind": "Listing",
+    "data": {
+      "after": null,
+      "children": [
+        {
+          "kind": "t1",
+          "data": {
+            "id": "c001",
+            "author": "linux_fan",
+            "body": "Cảm ơn bạn đã chia sẻ! Setup **rất đẹp** và gọn gàng.",
+            "score": 312,
+            "created_utc": 1785999100,
+            "is_submitter": false,
+            "replies": {
+              "kind": "Listing",
+              "data": {
+                "children": [
+                  {
+                    "kind": "t1",
+                    "data": {
+                      "id": "c002",
+                      "author": "rice_beginner",
+                      "body": "Bạn dùng theme nào vậy? Link [dotfiles](https://example.com/dotfiles) được không?",
+                      "score": 44,
+                      "created_utc": 1785999100,
+                      "is_submitter": false,
+                      "replies": {
+                        "kind": "Listing",
+                        "data": {
+                          "children": [
+                            {
+                              "kind": "t1",
+                              "data": {
+                                "id": "c003",
+                                "author": "user_1",
+                                "body": "Mình dùng dotfiles của mình, sẽ đăng lên GitHub sau.",
+                                "score": 19,
+                                "created_utc": 1785999100,
+                                "is_submitter": true,
+                                "replies": ""
+                              }
+                            }
+                          ],
+                          "after": null
+                        }
+                      }
+                    }
+                  }
+                ],
+                "after": null
+              }
+            }
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "c004",
+            "author": "archer_42",
+            "body": "Waydroid cần `binder` module, kiểm tra `lsmod | grep binder` trước nhé.",
+            "score": 77,
+            "created_utc": 1785999100,
+            "is_submitter": false,
+            "replies": ""
+          }
+        },
+        {
+          "kind": "more",
+          "data": {
+            "count": 5,
+            "children": [
+              "x1",
+              "x2"
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

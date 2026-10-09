@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Gọi khi hệ thống sắp tắt/khởi động lại (ExecStop của anios-steam-quit.service).
+#
+# Nếu Steam đang chạy mà bị SIGKILL, bootstrap của Steam ghi nhận "didn't shutdown
+# cleanly" ở lần khởi động sau và có thể xác minh lại manifest hoặc tải lại client.
+# Ở đây yêu cầu Steam tự thoát bằng `steam -shutdown` và chờ nó đóng hẳn, để
+# systemd không phải SIGKILL khi hết thời gian chờ.
+#
+# Không bao giờ làm chậm hoặc chặn việc tắt máy quá giới hạn TimeoutStopSec.
+set -u
+
+user=anios
+home="$(getent passwd "$user" | cut -d: -f6)"
+[[ -n "$home" && -d "$home" ]] || exit 0
+
+steam_pids() {
+  pgrep -u "$user" -x steam 2>/dev/null
+  pgrep -u "$user" -f 'ubuntu12_32/steam( |$)' 2>/dev/null
+}
+
+if [[ -z "$(steam_pids)" ]]; then
+  exit 0
+fi
+
+echo "anios-steam-quit: yêu cầu Steam thoát êm trước khi tắt máy"
+runuser -u "$user" -- env HOME="$home" steam -shutdown >/dev/null 2>&1 || true
+
+for _ in $(seq 1 45); do
+  [[ -z "$(steam_pids)" ]] && break
+  sleep 1
+done
+
+if [[ -n "$(steam_pids)" ]]; then
+  echo "anios-steam-quit: Steam chưa thoát sau 45 giây; systemd sẽ dừng nó" >&2
+fi
+
+# Đẩy dữ liệu của Steam xuống USB trước khi các mount bị gỡ.
+sync
+exit 0

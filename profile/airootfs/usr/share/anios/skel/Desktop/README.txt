@@ -35,9 +35,6 @@ Phần mềm cài sẵn trong ảnh (ngoài Steam, trình duyệt, Discord, VS C
                      yay -S <tên gói>     cài gói (kể cả gói ngoài kho chính thức)
                      yay -Syu             cập nhật toàn bộ, gồm cả AUR
                      hoặc gõ: update-aur
-  Seanime          server anime chạy nền ở http://127.0.0.1:43211, Firefox mở
-                   sẵn trang này mỗi lần khởi động. Kiểm tra server:
-                     seanime-status       (= systemctl status anios-seanime)
   Flatpak          cài và chạy ứng dụng từ Flathub (flatpak install <app-id>)
   AI cục bộ        Ollama backend Vulkan chạy nền (service bật sẵn):
                      ollama run <tên-model>   chat LLM trong terminal
@@ -64,7 +61,9 @@ thường cắm jack 3.5mm). Nếu vẫn không nghe thấy gì:
 Mật khẩu tài khoản live và sudo là 1111. Hãy nhập mật khẩu này khi
 mở khoá màn hình hoặc đăng nhập lại sau khi thoát phiên.
 
-Lưu ý: đây là phiên live tạm thời. File cá nhân, tài khoản Steam và game cài
-trong phiên sẽ mất khi tắt máy, trừ khi bạn dùng ổ ngoài có lưu trữ bền vững.
+Lưu ý: nếu phiên đang chạy trên ổ lưu trữ ANIOS_PERSIST của USB, file cá nhân, tài
+khoản Steam và game đã tải được giữ lại giữa các lần khởi động. Nếu màn hình báo
+"Phiên đang chạy trong RAM" thì mọi thứ sẽ mất khi tắt máy: hãy khởi động lại và
+chọn mục AniOS Live có lưu trữ (persistent).
 
 AniOS — Arch Linux based · https://github.com/yushichivnllc/AniOS

@@ -8,5 +8,4 @@ Steam báo [35m"needs to be online to update"[0m? Chạy [35manios-netcheck[
 Khi cần cứu hộ: [35mCtrl+Alt+F2[0m mở TTY, [35mCtrl+Alt+F1[0m quay lại desktop. Khoá màn hình: [35mSuper+Shift+L[0m.
 
 Dữ liệu và game được lưu trên phần trống của USB (xem [35manios-persist[0m); mật khẩu live và sudo là [35m1111[0m, đừng để dữ liệu nhạy cảm.
-Seanime chạy nền ở [35mhttp://127.0.0.1:43211[0m (Firefox mở sẵn trang này) · Kiểm tra: [35mseanime-status[0m (= systemctl status anios-seanime).
 Dự án: [38;2;234;244;253mhttps://github.com/yushichivnllc/AniOS[0m
