@@ -2,9 +2,10 @@
 
 Trình đọc Reddit cho Linux, viết bằng PySide6 (Qt Quick) với giao diện Material Design.
 
-Chỉ đọc: xem subreddit, sắp xếp (Nổi bật / Mới / Top / Đang lên / Gây tranh cãi), tìm kiếm, đọc
-bài viết tự và xem ảnh xem trước, đọc bình luận có thụt lề theo độ sâu. Chưa hỗ trợ bỏ phiếu,
-bình luận hay đăng nhập tài khoản.
+Ứng dụng chỉ hiển thị một trang: [r/unixporn](https://www.reddit.com/r/unixporn/). Chỉ đọc:
+sắp xếp (Nổi bật / Mới / Top / Đang lên / Gây tranh cãi), khoảng thời gian cho Top, tải thêm bài,
+xem ảnh xem trước, đọc bài viết tự và bình luận có thụt lề theo độ sâu. Không có tìm kiếm toàn Reddit,
+danh sách subreddit hay đăng nhập; chưa hỗ trợ bỏ phiếu hoặc bình luận.
 
 ## Vì sao cần client ID
 
@@ -49,9 +50,9 @@ mẫu, không phải nội dung Reddit thật). Test QML nạp giao diện thậ
 ## Cấu trúc
 
 - `anios_reddit/api.py` — client Reddit (OAuth, phân tích listing/bình luận, định dạng số và thời gian). Không phụ thuộc Qt.
-- `anios_reddit/backend.py` — cầu nối Python ↔ QML; tải dữ liệu ở luồng nền, bỏ qua kết quả cũ khi người dùng đổi trang.
+- `anios_reddit/backend.py` — cầu nối Python ↔ QML; tải r/unixporn ở luồng nền, bỏ qua kết quả cũ khi người dùng đổi sắp xếp.
 - `anios_reddit/models.py` — model danh sách cho QML.
-- `anios_reddit/settings.py` — cấu hình người dùng.
+- `anios_reddit/settings.py` — cấu hình người dùng (client ID, chế độ sáng/tối, sắp xếp đã chọn).
 - `anios_reddit/qml/` — giao diện: `Main.qml`, `FeedPage.qml`, `PostCard.qml`, `PostPage.qml`, `CommentItem.qml`, `SetupPage.qml`.
 - `data/anios-reddit.desktop` — mục menu ứng dụng.
 

@@ -23,7 +23,7 @@ def gui(tmp_path, monkeypatch):
     monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Material")
     app = QGuiApplication.instance() or QGuiApplication([])
     fake = make_fake()
-    settings = Settings(client_id="abcdef1234", last_subreddit="linux", last_sort="hot")
+    settings = Settings(client_id="abcdef1234", last_sort="hot")
     engine = QQmlApplicationEngine()
     backend = Backend(settings, client_factory=lambda s: RedditClient(s.client_id, transport=fake), parent=engine)
     engine.rootContext().setContextProperty("backend", backend)
@@ -89,7 +89,7 @@ def test_pages_instantiate_without_errors(gui, page):
     from PySide6.QtQml import QQmlComponent, QQmlContext
 
     app, engine, backend, fake, messages = gui
-    backend.loadSubreddit("linux", "hot")
+    backend.refresh()
     assert _pump(app, lambda: backend.postModel.rowCount() == 4)
     backend.openPost(1)
     assert _pump(app, lambda: backend.commentModel.rowCount() == 4)

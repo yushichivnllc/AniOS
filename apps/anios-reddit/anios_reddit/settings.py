@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
-
-DEFAULT_SUBREDDITS = ["all", "popular", "linux", "archlinux", "unixporn", "linux_gaming", "programming"]
 
 
 def default_config_path() -> Path:
@@ -23,8 +21,6 @@ class Settings:
     client_id: str = ""
     contact: str = ""  # tên Reddit để đưa vào User-Agent (không bắt buộc)
     theme: str = "dark"  # "dark" hoặc "light"
-    subreddits: list = field(default_factory=lambda: list(DEFAULT_SUBREDDITS))
-    last_subreddit: str = "all"
     last_sort: str = "hot"
 
     @classmethod
@@ -38,8 +34,6 @@ class Settings:
         settings = cls(**known)
         if settings.theme not in ("dark", "light"):
             settings.theme = "dark"
-        if not settings.subreddits:
-            settings.subreddits = list(DEFAULT_SUBREDDITS)
         return settings
 
     def save(self, path: Optional[Path] = None) -> Path:

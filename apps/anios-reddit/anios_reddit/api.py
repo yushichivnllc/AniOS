@@ -26,8 +26,10 @@ INSTALLED_CLIENT_GRANT = "https://oauth.reddit.com/grants/installed_client"
 APP_ID = "com.anios.reddit"
 APP_VERSION = "0.1.0"
 
+# Ứng dụng chỉ hiển thị một subreddit duy nhất.
+FEED_SUBREDDIT = "unixporn"
+
 SORTS = ("hot", "new", "top", "rising", "controversial")
-SEARCH_SORTS = ("relevance", "hot", "top", "new", "comments")
 TIME_RANGES = ("hour", "day", "week", "month", "year", "all")
 COMMENT_SORTS = ("confidence", "top", "new", "controversial", "old", "qa")
 
@@ -236,7 +238,7 @@ class RedditClient:
             raise RedditError("Reddit đang giới hạn số yêu cầu." + wait, status)
         return _json_or_error(status, text, "tải dữ liệu từ Reddit")
 
-    def listing(self, subreddit: str = "all", sort: str = "hot", after: Optional[str] = None,
+    def listing(self, subreddit: str = FEED_SUBREDDIT, sort: str = "hot", after: Optional[str] = None,
                 time_range: str = "day") -> Page:
         if sort not in SORTS:
             raise RedditError(f"Kiểu sắp xếp không hợp lệ: {sort}")
@@ -245,14 +247,6 @@ class RedditClient:
         if sort == "top" or sort == "controversial":
             params["t"] = time_range if time_range in TIME_RANGES else "day"
         return parse_listing(self._get(f"/r/{name}/{sort}", params))
-
-    def search(self, query: str, sort: str = "relevance", after: Optional[str] = None) -> Page:
-        q = query.strip()
-        if not q:
-            raise RedditError("Nhập từ khoá để tìm kiếm.")
-        if sort not in SEARCH_SORTS:
-            sort = "relevance"
-        return parse_listing(self._get("/search", {"q": q, "sort": sort, "limit": 25, "after": after}))
 
     def comments(self, post_id: str, sort: str = "confidence") -> list:
         if sort not in COMMENT_SORTS:

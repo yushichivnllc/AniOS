@@ -32,7 +32,7 @@ class FakeReddit:
             if not self.token_ok:
                 return 401, "{}", {}
             return 200, json.dumps({"access_token": "tok-test", "expires_in": 3600, "token_type": "bearer"}), {}
-        if "after=" in url and "/r/linux/" in url:
+        if "after=" in url and "/r/unixporn/" in url:
             return 200, json.dumps(load_fixture("listing_next.json")), {}
         for needle, payload in self.routes.items():
             if needle in url:
@@ -46,10 +46,7 @@ class FakeReddit:
 def make_fake():
     fake = FakeReddit()
     fake.routes = {
-        "/r/linux/": lambda: load_fixture("listing_hot.json"),
-        "/r/all/": lambda: load_fixture("listing_hot.json"),
-        "/r/archlinux/": lambda: load_fixture("listing_next.json"),
-        "/search": lambda: load_fixture("listing_next.json"),
+        "/r/unixporn/": lambda: load_fixture("listing_hot.json"),
         "/comments/": lambda: load_fixture("comments.json"),
     }
     return fake

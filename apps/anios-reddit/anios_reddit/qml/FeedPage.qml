@@ -34,7 +34,7 @@ Page {
                 TabButton {
                     required property string modelData
                     text: page.sortLabel(modelData)
-                    onClicked: backend.loadSubreddit(backend.subreddit, modelData)
+                    onClicked: backend.setSort(modelData)
                 }
             }
         }

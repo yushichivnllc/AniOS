@@ -6,7 +6,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
-from .api import RedditClient, RedditError, SORTS, TIME_RANGES
+from .api import FEED_SUBREDDIT, SORTS, TIME_RANGES, RedditClient, RedditError
 from .models import COMMENT_ROLES, POST_ROLES, DictListModel
 from .settings import Settings
 
@@ -23,7 +23,7 @@ class Backend(QObject):
     feedChanged = Signal()
     currentPostChanged = Signal()
     settingsChanged = Signal()
-    _resultReady = Signal(object)  # (kind, request_id, result, error) — gửi từ luồng nền
+    _resultReady = Signal(object)  # (kind, request_id, append, result, error) — gửi từ luồng nền
 
     def __init__(self, settings: Settings, client_factory: ClientFactory = _default_factory, parent=None):
         super().__init__(parent)
@@ -32,10 +32,8 @@ class Backend(QObject):
         self._client: Optional[RedditClient] = None
         self._posts = DictListModel(POST_ROLES, self)
         self._comments = DictListModel(COMMENT_ROLES, self)
-        self._subreddit = settings.last_subreddit if settings.last_subreddit else "all"
         self._sort = settings.last_sort if settings.last_sort in SORTS else "hot"
         self._time_range = "day"
-        self._query = ""  # khác rỗng khi đang ở chế độ tìm kiếm
         self._after: Optional[str] = None
         self._busy = False
         self._status = ""
@@ -53,9 +51,9 @@ class Backend(QObject):
     def status(self) -> str:
         return self._status
 
-    @Property(str, notify=feedChanged)
+    @Property(str, constant=True)
     def subreddit(self) -> str:
-        return self._subreddit
+        return FEED_SUBREDDIT
 
     @Property(str, notify=feedChanged)
     def sort(self) -> str:
@@ -76,10 +74,6 @@ class Backend(QObject):
     @Property(bool, notify=settingsChanged)
     def darkTheme(self) -> bool:  # noqa: N802
         return self._settings.theme == "dark"
-
-    @Property("QVariantList", notify=settingsChanged)
-    def subreddits(self) -> list:
-        return list(self._settings.subreddits)
 
     @Property(QObject, constant=True)
     def postModel(self) -> QObject:  # noqa: N802
@@ -102,19 +96,18 @@ class Backend(QObject):
         return list(TIME_RANGES)
 
     # ------------------------------------------------------------ slots: feed
-    @Slot(str, str)
-    def loadSubreddit(self, name: str, sort: str):  # noqa: N802
-        name = name.strip().removeprefix("r/").strip("/") or "all"
-        self._subreddit = name
-        self._sort = sort if sort in SORTS else "hot"
-        self._query = ""
-        self._settings.last_subreddit = name
-        self._settings.last_sort = self._sort
-        self._save_settings()
-        self._reload()
-
     @Slot()
     def refresh(self):
+        self._reload()
+
+    @Slot(str)
+    def setSort(self, value: str):  # noqa: N802
+        if value not in SORTS:
+            value = "hot"
+        if value != self._sort:
+            self._sort = value
+            self._settings.last_sort = value
+            self._save_settings()
         self._reload()
 
     @Slot(str)
@@ -122,11 +115,6 @@ class Backend(QObject):
         if value in TIME_RANGES and value != self._time_range:
             self._time_range = value
             self._reload()
-
-    @Slot(str)
-    def search(self, query: str):
-        self._query = query.strip()
-        self._reload()
 
     @Slot()
     def loadMore(self):  # noqa: N802
@@ -171,20 +159,6 @@ class Backend(QObject):
             self._save_settings()
             self.settingsChanged.emit()
 
-    @Slot(str)
-    def addSubreddit(self, name: str):  # noqa: N802
-        name = name.strip().removeprefix("r/").strip("/")
-        if name and name.lower() not in [s.lower() for s in self._settings.subreddits]:
-            self._settings.subreddits.append(name)
-            self._save_settings()
-            self.settingsChanged.emit()
-
-    @Slot(str)
-    def removeSubreddit(self, name: str):  # noqa: N802
-        self._settings.subreddits = [s for s in self._settings.subreddits if s != name]
-        self._save_settings()
-        self.settingsChanged.emit()
-
     # ------------------------------------------------------------ internals
     def _save_settings(self):
         try:
@@ -218,17 +192,12 @@ class Backend(QObject):
         client = self._client_or_none()
         if client is None:
             self._set_status("Cần client ID của Reddit trước khi tải bài viết.")
-            self.settingsChanged.emit()
             return
         req = self._feed_req
         self._set_busy(True)
         self._set_status("")
-        sub, sort, tr, query = self._subreddit, self._sort, self._time_range, self._query
-        if query:
-            fn = lambda c: c.search(query, after=after)  # noqa: E731
-        else:
-            fn = lambda c: c.listing(sub, sort, after=after, time_range=tr)  # noqa: E731
-        self._run("feed", req, fn, append)
+        sort, tr = self._sort, self._time_range
+        self._run("feed", req, lambda c: c.listing(FEED_SUBREDDIT, sort, after=after, time_range=tr), append)
 
     def _run(self, kind: str, req: int, fn: Callable, append: bool = False):
         client = self._client_or_none()
