@@ -280,6 +280,13 @@ AniOS **không** chạy theo kiểu "live trong RAM, tắt máy là mất hết"
 - Mục "chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu" (`anios_persist=off`) boot không dùng phân vùng, dùng khi phân vùng gặp sự cố; mục này cũng không tạo phân vùng mới.
 - `anios-persist` xem trạng thái; `anios-persist setup` tạo phân vùng thủ công (cũng có shortcut trên desktop).
 
+**Dữ liệu nào được giữ lại** (khi phiên chạy trên ổ lưu trữ `ANIOS_PERSIST`, không phải RAM): mọi thay đổi trên hệ thống live, gồm thư mục home (`/home/anios`: file tải về, tài liệu, Desktop, cấu hình ứng dụng, phiên đăng nhập lưu trong file như Steam, Seanime, trình duyệt), game Steam đã tải, gói cài thêm bằng `yay`/`pacman` và model AI đã tải. Mỗi lần khởi động AniOS chỉ bổ sung các file mặc định còn thiếu, không ghi đè những gì bạn đã sửa.
+
+**Dữ liệu nào không được giữ**:
+- Mọi thứ trong phiên khi đang chạy trong **RAM** (chế độ dự phòng, hoặc khi chọn nhầm mục `anios_persist=off`). Phiên RAM sẽ hiện cảnh báo đỏ trên màn hình ngay khi đăng nhập; nếu thấy cảnh báo này, khởi động lại và chọn mục AniOS Live có lưu trữ.
+- Các thứ tạm thời theo thiết kế của Linux: `/run`, `/tmp` và socket của phiên.
+- Dữ liệu đã mã hoá bằng keyring (mật khẩu, token của Discord/trình duyệt) có thể phải đăng nhập lại nếu keyring không được mở khoá tự động khi boot.
+
 Lưu ý: USB phải luôn cắm khi dùng. Dữ liệu lưu theo từng bản ISO (thư mục `persistent_<UUID ISO>` trên phân vùng), nên ghi ISO mới sẽ bắt đầu lại từ trạng thái sạch; dữ liệu cũ vẫn nằm trên phân vùng. Chọn thủ công mục có `cow_label` khi chưa có phân vùng sẽ khiến initramfs rơi vào shell.
 
 ### Khi Hyprland báo lỗi cấu hình Lua

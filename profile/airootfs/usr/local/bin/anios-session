@@ -20,6 +20,22 @@ else
   unset ANIOS_LIVE
 fi
 
+# Thông báo cho người dùng biết dữ liệu đang nằm trong RAM hay trên USB. Chạy nền và
+# chờ Hyprland mở socket, rồi thoát; không chặn phiên và không chạy ngoài phiên live.
+if [[ "${ANIOS_LIVE:-}" == 1 ]] && command -v anios-persist >/dev/null 2>&1; then
+  (
+    runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    for _ in $(seq 1 120); do
+      sig="$(find "$runtime/hypr" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1 || true)"
+      if [[ -n "$sig" ]] && HYPRLAND_INSTANCE_SIGNATURE="${sig##*/}" hyprctl version >/dev/null 2>&1; then
+        HYPRLAND_INSTANCE_SIGNATURE="${sig##*/}" anios-persist notify
+        exit 0
+      fi
+      sleep 1
+    done
+  ) >/dev/null 2>&1 &
+fi
+
 mode="${1:-}"
 if [[ "$mode" == "--imi" || "$mode" == "imi" || "$mode" == "immaterial-impulse" ]]; then
   export ANIOS_DESKTOP="imi"

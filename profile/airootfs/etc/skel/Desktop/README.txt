@@ -64,7 +64,9 @@ thường cắm jack 3.5mm). Nếu vẫn không nghe thấy gì:
 Mật khẩu tài khoản live và sudo là 1111. Hãy nhập mật khẩu này khi
 mở khoá màn hình hoặc đăng nhập lại sau khi thoát phiên.
 
-Lưu ý: đây là phiên live tạm thời. File cá nhân, tài khoản Steam và game cài
-trong phiên sẽ mất khi tắt máy, trừ khi bạn dùng ổ ngoài có lưu trữ bền vững.
+Lưu ý: nếu phiên đang chạy trên ổ lưu trữ ANIOS_PERSIST của USB, file cá nhân, tài
+khoản Steam và game đã tải được giữ lại giữa các lần khởi động. Nếu màn hình báo
+"Phiên đang chạy trong RAM" thì mọi thứ sẽ mất khi tắt máy: hãy khởi động lại và
+chọn mục AniOS Live có lưu trữ (persistent).
 
 AniOS — Arch Linux based · https://github.com/yushichivnllc/AniOS

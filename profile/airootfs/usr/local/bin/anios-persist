@@ -244,10 +244,32 @@ do_auto() {
   fi
 }
 
+# Hiện thông báo Hyprland về nơi dữ liệu phiên live đang được lưu: cảnh báo mạnh nếu
+# đang chạy trong RAM (file, đăng nhập và game sẽ mất khi tắt máy), xác nhận nếu đã
+# lưu trên USB. Được anios-session gọi ở nền sau khi Hyprland sẵn sàng; ngoài phiên live
+# thì im lặng.
+notify_status() {
+  local fstype icon msg
+  [[ -d /run/archiso ]] || return 0
+  command -v hyprctl >/dev/null 2>&1 || return 0
+  fstype="$(findmnt -rno FSTYPE /run/archiso/cowspace 2>/dev/null || true)"
+  case "$fstype" in
+    '') return 0 ;;
+    tmpfs)
+      icon=3
+      msg='Phiên đang chạy trong RAM: file, đăng nhập và game sẽ MẤT khi tắt máy. Khởi động lại và chọn mục AniOS Live có lưu trữ (persistent) trong menu.' ;;
+    *)
+      icon=1
+      msg="Dữ liệu của bạn đang được lưu trên USB ($fstype). Giữ USB cắm đến khi tắt máy." ;;
+  esac
+  hyprctl notify "$icon" 15000 'rgb(f9e2af)' "$msg" >/dev/null 2>&1 || true
+}
+
 case "${1:-status}" in
   status|-s|--status) show_status ;;
   setup|create)       shift; do_setup "$@" ;;
   auto)               do_auto ;;
+  notify)             notify_status ;;
   -h|--help|help)     sed -n '2,/^set -E/{/^set -E/!p}' "$0" | sed 's/^# \{0,1\}//' ;;
   *)                  die "lệnh không hợp lệ: $1 (dùng: status | setup [-y])" ;;
 esac
