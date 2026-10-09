@@ -73,23 +73,58 @@ expected="$(printf '%s\n' \
 [[ "$rebranded" == "$expected" ]] || fail "boot-menu rebranding does not produce AniOS labels"
 
 # mkarchiso chép airootfs bằng `cp --no-preserve=mode`: bit thực thi chỉ sống
-# sót nếu build script khai báo lại trong file_permissions.
-for declaration in \
-  '["/etc/sudoers.d/10-anios-live"]="0:0:440"' \
-  '["/usr/local/bin/anios-session"]="0:0:755"' \
-  '["/usr/local/bin/anios-boot-choice"]="0:0:755"' \
-  '["/usr/local/bin/anios-setup"]="0:0:755"' \
-  '["/usr/local/bin/anios-switch-desktop"]="0:0:755"' \
-  '["/usr/local/bin/anios-switch-im"]="0:0:755"' \
-  '["/usr/local/bin/anios-audio-setup"]="0:0:755"' \
-  '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
-  '["/usr/local/bin/anios-persist"]="0:0:755"' \
-  '["/usr/local/bin/anios-netcheck"]="0:0:755"' \
-  '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
-  '["/usr/local/lib/anios/live-home-setup"]="0:0:755"'; do
-  grep -qF "$declaration" "$ROOT_DIR/scripts/build-iso.sh" ||
-    fail "build script does not declare file permission $declaration"
-done
+# sót nếu build script khai báo lại trong file_permissions. Danh sách khai báo
+# (ANIOS_FILE_PERMISSIONS trong scripts/build-iso.sh) được đọc thẳng ở đây rồi
+# đối chiếu với cây airootfs theo CẢ HAI chiều, vì cả hai chiều đều đã từng hỏng:
+#
+#   * ship script mà quên khai báo   -> systemd/SDDM gọi tệp không có bit thực thi;
+#   * khai báo tên gõ sai            -> mkarchiso chỉ CẢNH BÁO rồi bỏ qua chmod;
+#   * hai bản danh sách chép tay lệch nhau -> bản dựng chết với
+#     "Failed to declare file_permissions entry" (đã xảy ra với
+#     /usr/local/bin/anios-steam-quit) dù ảnh hoàn toàn lành.
+anios_permission_declarations() {
+  awk '
+    /^[[:space:]]*ANIOS_FILE_PERMISSIONS\+?=\(/ { in_list = 1; next }
+    in_list && /^[[:space:]]*\)/ { in_list = 0; next }
+    in_list {
+      gsub(/^[[:space:]]*['\''"]|['\''"][[:space:]]*(#.*)?$/, "")
+      if (length($0)) print
+    }
+  ' "$ROOT_DIR/scripts/build-iso.sh"
+}
+PERMISSION_DECLARATIONS="$(anios_permission_declarations)"
+[[ -n "$PERMISSION_DECLARATIONS" ]] ||
+  fail "build-iso.sh no longer lists ANIOS_FILE_PERMISSIONS (needed to keep the executable bit inside the image)"
+
+# Chiều 1: mọi tệp thực thi ship trong ảnh phải được khai báo 0:0:755.
+while IFS= read -r -d '' shipped; do
+  shipped_path="/${shipped#"$AIROOTFS"/}"
+  grep -qxF -- "$shipped_path:0:0:755" <<<"$PERMISSION_DECLARATIONS" ||
+    fail "build-iso.sh must declare file_permissions for $shipped_path: mkarchiso copies airootfs with --no-preserve=mode, so the executable bit is lost in the image"
+done < <(find "$AIROOTFS/usr/local" "$AIROOTFS/etc/grub.d" -type f -perm -u+x -print0 2>/dev/null)
+
+# Chiều 2: mọi đường dẫn được khai báo phải có thật. Ba helper của installer là
+# ngoại lệ hợp lệ: build-iso.sh chép chúng từ profile/installer/scripts vào ảnh
+# khi dựng kèm gói AUR (Calamares).
+while IFS= read -r declaration; do
+  declared_path="${declaration%%:*}"
+  [[ -e "$AIROOTFS$declared_path" ]] && continue
+  [[ -s "$ROOT_DIR/profile/installer/scripts/${declared_path##*/}" ]] && continue
+  fail "build-iso.sh declares file_permissions for $declared_path, but neither profile/airootfs nor profile/installer/scripts provides that file"
+done <<<"$PERMISSION_DECLARATIONS"
+
+# Chính sách sudo của phiên live không có bit thực thi nên chiều 1 không phủ nó.
+grep -qxF -- '/etc/sudoers.d/10-anios-live:0:0:440' <<<"$PERMISSION_DECLARATIONS" ||
+  fail 'build script does not declare file permission ["/etc/sudoers.d/10-anios-live"]="0:0:440"'
+
+# Bài tự kiểm tra nạp đúng danh sách và hàm ghi/đối chiếu của build-iso.sh rồi
+# chạy chúng trên một profile releng giả, nên lỗi kiểu trên bị bắt trong vài giây
+# thay vì sau khi CI đã tải archiso và gói dựng.
+PERMISSIONS_SELFTEST="$ROOT_DIR/scripts/selftest-build-iso-permissions.sh"
+[[ -x "$PERMISSIONS_SELFTEST" ]] ||
+  fail "missing or not executable: scripts/selftest-build-iso-permissions.sh"
+grep -qF 'selftest-build-iso-permissions.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-build-iso-permissions.sh"
 
 SUDOERS="$AIROOTFS/etc/sudoers.d/10-anios-live"
 [[ -s "$SUDOERS" ]] || fail "live sudoers policy is missing"
@@ -557,7 +592,7 @@ grep -qF 'FallbackDNS=1.1.1.1 8.8.8.8' "$AIROOTFS/etc/systemd/resolved.conf.d/10
 NETCHECK="$AIROOTFS/usr/local/bin/anios-netcheck"
 [[ -x "$NETCHECK" ]] || fail "usr/local/bin/anios-netcheck must be executable"
 bash -n "$NETCHECK" || fail "shell syntax error: usr/local/bin/anios-netcheck"
-grep -qF '["/usr/local/bin/anios-netcheck"]="0:0:755"' "$ROOT_DIR/scripts/build-iso.sh" ||
+grep -qxF -- '/usr/local/bin/anios-netcheck:0:0:755' <<<"$PERMISSION_DECLARATIONS" ||
   fail "build-iso.sh must declare file_permissions for /usr/local/bin/anios-netcheck"
 NETCHECK_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-netcheck.service"
 [[ -s "$NETCHECK_UNIT" ]] || fail "anios-netcheck.service is missing"

@@ -303,21 +303,35 @@ jobs:
 
           # mkarchiso chép airootfs bằng cp --no-preserve=mode, nên nếu quên
           # khai báo trong file_permissions thì script mất bit thực thi và
-          # SDDM không khởi chạy được phiên AniOS.
+          # SDDM không khởi chạy được phiên AniOS (còn anios-steam-quit mất
+          # bit thực thi thì Steam không thoát êm lúc tắt máy).
           #
-          # Trích đúng bốn tệp ra đĩa rồi hỏi `stat` cho chắc: định dạng của
+          # Danh sách kiểm tra lấy THẲNG từ ANIOS_FILE_PERMISSIONS mà
+          # scripts/build-iso.sh khai báo với mkarchiso, thay vì giữ thêm một bản
+          # chép tay: hai bản chép tay lệch nhau chính là thứ từng làm hỏng lượt
+          # dựng với "Failed to declare file_permissions entry:
+          # ["/usr/local/bin/anios-steam-quit"]="0:0:755"". CI luôn dựng kèm gói
+          # AUR nên ba helper của installer cũng có mặt trong ảnh.
+          #
+          # Trích từng tệp ra đĩa rồi hỏi `stat` cho chắc: định dạng của
           # `unsquashfs -ll` không phải là API ổn định, còn quyền tệp thì có.
+          mapfile -t perm_entries < <(
+            sed -nE '/^[[:space:]]*ANIOS_FILE_PERMISSIONS\+?=\(/,/^[[:space:]]*\)/p' \
+              scripts/build-iso.sh | grep -E "^[[:space:]]*['\"]/" | tr -d "'\" "
+          )
+          if (( ${#perm_entries[@]} == 0 )); then
+            echo "::error::Không đọc được ANIOS_FILE_PERMISSIONS từ scripts/build-iso.sh"
+            exit 1
+          fi
+          perm_paths=()
+          for entry in "${perm_entries[@]}"; do
+            perm_paths+=("${entry%%:*}")
+          done
+
           perm_dump=out/anios-permissions
           rm -rf "$perm_dump"
           unsquashfs -q -no-progress -d "$perm_dump" "$squashfs" \
-            usr/local/bin/anios-session \
-            usr/local/bin/anios-setup \
-            usr/local/bin/anios-persist \
-            usr/local/bin/anios-sober \
-            usr/local/bin/anios-switch-desktop \
-            usr/local/bin/anios-switch-im \
-            usr/local/lib/anios/live-home-setup \
-            etc/sudoers.d/10-anios-live ||
+            "${perm_paths[@]#/}" ||
             { echo "::error::Không trích được các tệp cần kiểm tra quyền"; exit 1; }
 
           check_mode() {
@@ -329,14 +343,9 @@ jobs:
             fi
             echo "  OK $path $mode"
           }
-          check_mode usr/local/bin/anios-session 755
-          check_mode usr/local/bin/anios-setup 755
-          check_mode usr/local/bin/anios-persist 755
-          check_mode usr/local/bin/anios-sober 755
-          check_mode usr/local/bin/anios-switch-desktop 755
-          check_mode usr/local/bin/anios-switch-im 755
-          check_mode usr/local/lib/anios/live-home-setup 755
-          check_mode etc/sudoers.d/10-anios-live 440
+          for entry in "${perm_entries[@]}"; do
+            check_mode "${entry%%:*}" "${entry##*:}"
+          done
 
           sddm_conf="$(unsquashfs -cat "$squashfs" etc/sddm.conf.d/10-anios-autologin.conf)"
           grep -qxF 'Current=wuwa' <<<"$sddm_conf"
