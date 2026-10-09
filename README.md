@@ -281,6 +281,8 @@ AniOS **không** chạy theo kiểu "live trong RAM, tắt máy là mất hết"
 
 **Dữ liệu nào được giữ lại** (khi phiên chạy trên ổ lưu trữ `ANIOS_PERSIST`, không phải RAM): mọi thay đổi trên hệ thống live, gồm thư mục home (`/home/anios`: file tải về, tài liệu, Desktop, cấu hình ứng dụng, phiên đăng nhập lưu trong file như Steam, trình duyệt), game Steam đã tải, gói cài thêm bằng `yay`/`pacman` và model AI đã tải. Mỗi lần khởi động AniOS chỉ bổ sung các file mặc định còn thiếu, không ghi đè những gì bạn đã sửa.
 
+**Tắt máy khi Steam đang chạy:** khi bạn tắt hoặc khởi động lại, AniOS yêu cầu Steam tự thoát (`anios-steam-quit`) và chờ tối đa 45 giây trước khi hệ thống dừng tiến trình. Nếu Steam bị dừng cưỡng bức (SIGKILL) khi đang tải hoặc cập nhật, lần khởi động sau Steam có thể báo `didn't shutdown cleanly` hoặc tải lại client. Khi đang tải game, vẫn nên chọn **Steam → Exit** và chờ tải xong rồi mới tắt máy.
+
 **Dữ liệu nào không được giữ**:
 - Mọi thứ trong phiên khi đang chạy trong **RAM** (chế độ dự phòng, hoặc khi chọn nhầm mục `anios_persist=off`). Phiên RAM sẽ hiện cảnh báo đỏ trên màn hình ngay khi đăng nhập; nếu thấy cảnh báo này, khởi động lại và chọn mục AniOS Live có lưu trữ.
 - Các thứ tạm thời theo thiết kế của Linux: `/run`, `/tmp` và socket của phiên.

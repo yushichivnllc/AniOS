@@ -97,6 +97,25 @@ grep -qxF 'anios ALL=(ALL:ALL) PASSWD: ALL' "$SUDOERS" ||
   fail "sudo must require the live user's password"
 ! grep -qF 'NOPASSWD' "$SUDOERS" || fail "live sudoers policy must not bypass password authentication"
 
+# Steam phải thoát êm khi tắt máy, nếu không bootstrap của Steam sẽ báo
+# "didn't shutdown cleanly" và có thể tải lại client ở lần khởi động sau.
+STEAM_QUIT_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-steam-quit.service"
+[[ -s "$STEAM_QUIT_UNIT" ]] || fail "anios-steam-quit.service is missing"
+grep -qxF 'DefaultDependencies=no' "$STEAM_QUIT_UNIT" || fail "anios-steam-quit must set DefaultDependencies=no"
+grep -qxF 'Conflicts=shutdown.target' "$STEAM_QUIT_UNIT" || fail "anios-steam-quit must conflict with shutdown.target"
+grep -qxF 'ExecStop=/usr/local/bin/anios-steam-quit' "$STEAM_QUIT_UNIT" ||
+  fail "anios-steam-quit must run anios-steam-quit on stop"
+grep -qxF 'TimeoutStopSec=70s' "$STEAM_QUIT_UNIT" || fail "anios-steam-quit must allow 70s to stop"
+[[ -x "$AIROOTFS/usr/local/bin/anios-steam-quit" ]] || fail "anios-steam-quit must be executable"
+bash -n "$AIROOTFS/usr/local/bin/anios-steam-quit" || fail "anios-steam-quit has a syntax error"
+[[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-steam-quit.service" ]] ||
+  fail "anios-steam-quit.service is not enabled"
+
+LIVE_HOME_UNIT_CHECK="$AIROOTFS/usr/lib/systemd/system/anios-live-home.service"
+grep -qxF 'TimeoutStartSec=600' "$LIVE_HOME_UNIT_CHECK" || fail "anios-live-home.service must allow 600s to start"
+! grep -qE '^[^#]*chown -R' "$AIROOTFS/usr/local/lib/anios/live-home-setup" ||
+  fail "live-home-setup must not run chown -R over the whole home on every boot"
+
 # Ensure each additional package is a single, uncommented package name.
 if grep -nEv '^[[:space:]]*($|#|[a-zA-Z0-9@._+-]+$)' "$ROOT_DIR/profile/packages.x86_64"; then
   fail "invalid line in package manifest"

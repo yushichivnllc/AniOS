@@ -807,6 +807,7 @@ for entry in \
   '["/usr/local/bin/anios-audio-check"]="0:0:755"' \
   '["/usr/local/bin/anios-update"]="0:0:755"' \
   '["/usr/local/bin/anios-netcheck"]="0:0:755"' \
+  '["/usr/local/bin/anios-steam-quit"]="0:0:755"' \
   '["/usr/local/bin/anios-persist"]="0:0:755"' \
   '["/usr/local/bin/anios-sober"]="0:0:755"' \
   '["/usr/local/lib/anios/create-live-user"]="0:0:755"' \
