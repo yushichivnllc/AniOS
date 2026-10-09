@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anios-reddit"
+version = "0.1.0"
+description = "Trình đọc Reddit cho Linux theo phong cách Material Design (AniOS)"
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.6"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+anios-reddit = "anios_reddit.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["anios_reddit*"]
+
+[tool.setuptools.package-data]
+anios_reddit = ["qml/*.qml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]

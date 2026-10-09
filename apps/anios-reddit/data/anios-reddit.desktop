@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AniOS Reddit
+GenericName=Trình đọc Reddit
+Comment=Đọc Reddit theo phong cách Material Design
+Exec=anios-reddit
+Icon=internet-chat
+Terminal=false
+Categories=Network;News;
+Keywords=reddit;subreddit;tin tức;

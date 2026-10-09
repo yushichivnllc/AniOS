@@ -1,0 +1,32 @@
+{
+  "kind": "Listing",
+  "data": {
+    "after": null,
+    "before": null,
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "abc005",
+          "name": "t3_abc005",
+          "title": "Mẹo nhỏ: dùng systemd-analyze để xem thời gian khởi động",
+          "author": "user_5",
+          "subreddit": "archlinux",
+          "score": 540,
+          "num_comments": 18,
+          "created_utc": 1782544000,
+          "permalink": "/r/archlinux/comments/abc005/slug_5/",
+          "url": "https://www.reddit.com/r/archlinux/comments/abc005/slug_5/",
+          "domain": "self.archlinux",
+          "is_self": true,
+          "selftext": "systemd-analyze blame và critical-chain.",
+          "link_flair_text": null,
+          "over_18": false,
+          "stickied": false,
+          "is_video": false,
+          "thumbnail": "default"
+        }
+      }
+    ]
+  }
+}
