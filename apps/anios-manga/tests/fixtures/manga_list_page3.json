@@ -1,0 +1,23 @@
+{
+  "result": "ok",
+  "data": [
+    {
+      "id": "f6f6f6f6-6666-4666-8666-666666666666",
+      "type": "manga",
+      "attributes": {
+        "title": { "en": "20th Century Boys" },
+        "description": { "en": "Kenji." },
+        "status": "completed",
+        "year": 1999,
+        "contentRating": "safe",
+        "tags": []
+      },
+      "relationships": [
+        { "type": "cover_art", "attributes": { "fileName": "20th.jpg" } }
+      ]
+    }
+  ],
+  "limit": 24,
+  "offset": 48,
+  "total": 40
+}

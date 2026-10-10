@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Biểu tượng AniOS Manga: quyển truyện mở trên nền gradient, vẽ tay bằng SVG
+     để không phụ thuộc bộ icon nào của hệ thống. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7C4DFF"/>
+      <stop offset="1" stop-color="#3F2B96"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+  <path d="M64 36c-9-7-21-9-33-7v58c12-2 24 0 33 7 9-7 21-9 33-7V29c-12-2-24 0-33 7z"
+        fill="#FFFFFF" fill-opacity="0.95"/>
+  <path d="M64 36v58" stroke="#7C4DFF" stroke-width="4" stroke-linecap="round"/>
+  <g stroke="#7C4DFF" stroke-width="3" stroke-linecap="round" opacity="0.75">
+    <path d="M42 50h12"/>
+    <path d="M42 62h12"/>
+    <path d="M74 50h12"/>
+    <path d="M74 62h12"/>
+  </g>
+</svg>

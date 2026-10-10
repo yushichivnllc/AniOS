@@ -1,0 +1,56 @@
+{
+  "result": "ok",
+  "data": [
+    {
+      "id": "a1a1a1a1-1111-4111-8111-111111111111",
+      "type": "manga",
+      "attributes": {
+        "title": { "en": "One Piece", "vi": "Đảo Hải Tặc" },
+        "altTitles": [{ "vi": "Vua Hải Tặc" }],
+        "description": { "en": "Monkey D. Luffy sets out to sea to find the [One Piece](https://example.org)." },
+        "status": "ongoing",
+        "year": 1997,
+        "contentRating": "safe",
+        "tags": [
+          { "id": "t1", "attributes": { "name": { "en": "Adventure" }, "group": "genre" } },
+          { "id": "t2", "attributes": { "name": { "en": "Action" }, "group": "genre" } }
+        ]
+      },
+      "relationships": [
+        { "type": "cover_art", "attributes": { "fileName": "onepiece.jpg" } },
+        { "type": "author", "attributes": { "name": "Eiichiro Oda" } }
+      ]
+    },
+    {
+      "id": "b2b2b2b2-2222-4222-8222-222222222222",
+      "type": "manga",
+      "attributes": {
+        "title": { "en": "Berserk" },
+        "description": { "en": "Guts walks a road of vengeance." },
+        "status": "hiatus",
+        "year": 1989,
+        "contentRating": "suggestive",
+        "tags": []
+      },
+      "relationships": [
+        { "type": "cover_art", "attributes": { "fileName": "berserk.jpg" } },
+        { "type": "artist", "attributes": { "name": "Kentaro Miura" } }
+      ]
+    },
+    {
+      "id": "c3c3c3c3-3333-4333-8333-333333333333",
+      "type": "manga",
+      "attributes": {
+        "title": { "vi": "Thần Ấn Vương Toạ" },
+        "description": { "en": "" },
+        "status": "completed",
+        "contentRating": "erotica",
+        "tags": []
+      },
+      "relationships": []
+    }
+  ],
+  "limit": 24,
+  "offset": 0,
+  "total": 40
+}

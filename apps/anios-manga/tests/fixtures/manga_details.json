@@ -1,0 +1,22 @@
+{
+  "result": "ok",
+  "data": {
+    "id": "a1a1a1a1-1111-4111-8111-111111111111",
+    "type": "manga",
+    "attributes": {
+      "title": { "en": "One Piece", "vi": "Đảo Hải Tặc" },
+      "altTitles": [{ "ja": "ワンピース" }],
+      "description": { "en": "Luffy goes sailing.\r\nSecond line." },
+      "status": "ongoing",
+      "year": 1997,
+      "contentRating": "safe",
+      "tags": [
+        { "id": "t1", "attributes": { "name": { "en": "Adventure" }, "group": "genre" } }
+      ]
+    },
+    "relationships": [
+      { "type": "cover_art", "attributes": { "fileName": "onepiece.jpg" } },
+      { "type": "author", "attributes": { "name": "Eiichiro Oda" } }
+    ]
+  }
+}

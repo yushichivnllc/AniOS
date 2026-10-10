@@ -1,0 +1,70 @@
+{
+  "result": "ok",
+  "data": [
+    {
+      "id": "ch-010",
+      "attributes": {
+        "volume": "1",
+        "chapter": "10",
+        "title": "Cuộc chiến",
+        "translatedLanguage": "vi",
+        "pages": 18,
+        "publishAt": "2024-03-01T10:00:00+00:00"
+      },
+      "relationships": [
+        { "type": "scanlation_group", "attributes": { "name": "Nhóm dịch ABC" } }
+      ]
+    },
+    {
+      "id": "ch-010-en",
+      "attributes": {
+        "volume": "1",
+        "chapter": "10",
+        "title": "The battle",
+        "translatedLanguage": "en",
+        "pages": 18,
+        "publishAt": "2024-03-01T09:00:00+00:00"
+      },
+      "relationships": []
+    },
+    {
+      "id": "ch-009",
+      "attributes": {
+        "volume": "1",
+        "chapter": "9",
+        "title": "",
+        "translatedLanguage": "vi",
+        "pages": 17,
+        "publishAt": "2024-02-20T10:00:00+00:00"
+      },
+      "relationships": []
+    },
+    {
+      "id": "ch-0055",
+      "attributes": {
+        "volume": null,
+        "chapter": "5.5",
+        "title": "Ngoại truyện",
+        "translatedLanguage": "vi",
+        "pages": 9,
+        "publishAt": "2024-01-05T10:00:00+00:00"
+      },
+      "relationships": []
+    },
+    {
+      "id": "ch-oneshot",
+      "attributes": {
+        "volume": null,
+        "chapter": null,
+        "title": " oneshot ",
+        "translatedLanguage": "vi",
+        "pages": 4,
+        "publishAt": "2023-12-01T10:00:00+00:00"
+      },
+      "relationships": []
+    }
+  ],
+  "limit": 500,
+  "offset": 0,
+  "total": 5
+}
