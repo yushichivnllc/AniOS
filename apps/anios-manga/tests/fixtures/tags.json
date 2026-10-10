@@ -1,0 +1,9 @@
+{
+  "result": "ok",
+  "data": [
+    { "id": "tag-action", "attributes": { "name": { "en": "Action" }, "group": "genre" } },
+    { "id": "tag-adventure", "attributes": { "name": { "en": "Adventure" }, "group": "genre" } },
+    { "id": "tag-romance", "attributes": { "name": { "en": "Romance" }, "group": "theme" } },
+    { "id": "tag-longstrip", "attributes": { "name": { "en": "Long Strip" }, "group": "format" } }
+  ]
+}

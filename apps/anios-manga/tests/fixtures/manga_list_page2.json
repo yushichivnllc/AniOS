@@ -1,0 +1,38 @@
+{
+  "result": "ok",
+  "data": [
+    {
+      "id": "d4d4d4d4-4444-4444-8444-444444444444",
+      "type": "manga",
+      "attributes": {
+        "title": { "en": "Vagabond" },
+        "description": { "en": "Musashi." },
+        "status": "completed",
+        "year": 1998,
+        "contentRating": "safe",
+        "tags": []
+      },
+      "relationships": [
+        { "type": "cover_art", "attributes": { "fileName": "vagabond.jpg" } }
+      ]
+    },
+    {
+      "id": "e5e5e5e5-5555-4555-8555-555555555555",
+      "type": "manga",
+      "attributes": {
+        "title": { "en": "Monster" },
+        "description": { "en": "Dr. Tenma." },
+        "status": "completed",
+        "year": 1994,
+        "contentRating": "safe",
+        "tags": []
+      },
+      "relationships": [
+        { "type": "cover_art", "attributes": { "fileName": "monster.jpg" } }
+      ]
+    }
+  ],
+  "limit": 24,
+  "offset": 24,
+  "total": 40
+}
