@@ -935,6 +935,39 @@ sudoers_nopasswd_rules() {
   return "$status"
 }
 
+# Liệt kê entry trong pacman DB của airootfs: mỗi thư mục con của
+# var/lib/pacman/local có tên dạng <tên gói>-<pkgver>-<pkgrel>. libalpm tách tên
+# gói bằng hai dấu '-' cuối (be_local.c, _alpm_splitname); pkgver và pkgrel không
+# được chứa '-' nên cách tách này luôn đúng.
+anios_airootfs_db_entries() {
+  local root="${1%/}" entry
+  [[ -d "$root/var/lib/pacman/local" ]] || return 0
+  for entry in "$root"/var/lib/pacman/local/*; do
+    [[ -d "$entry" ]] || continue
+    printf '%s\n' "${entry##*/}"
+  done
+}
+
+# In một dòng "AUR package baked into the image: <tên> <pkgver>-<pkgrel>" cho mỗi
+# gói AUR tìm thấy trong pacman DB của airootfs, và điền AUR_MISSING_PACKAGES bằng
+# những gói không có. Trả về 1 nếu thiếu ít nhất một gói.
+anios_report_aur_packages() {
+  local root="${1%/}"
+  shift
+  local aur_pkg db_entry entries
+  entries="$(anios_airootfs_db_entries "$root")"
+  for aur_pkg in "$@"; do
+    db_entry="$(grep -E "^${aur_pkg//./\\.}-[^-]+-[^-]+$" <<<"$entries" | sed -n '1p')"
+    if [[ -n "$db_entry" ]]; then
+      # "calamares-3.4.2-2" -> "calamares 3.4.2-2" cho dễ đọc.
+      echo "AUR package baked into the image: ${db_entry/"$aur_pkg-"/$aur_pkg }"
+    else
+      AUR_MISSING_PACKAGES+=("$aur_pkg")
+    fi
+  done
+  (( ${#AUR_MISSING_PACKAGES[@]} == 0 ))
+}
+
 # --- Kiểm tra gói AUR có thật trong ảnh vừa dựng --------------------------
 # Hook customize_airootfs.sh là chỗ duy nhất AniOS dựng được gói AUR, và nó bị
 # archiso đánh dấu deprecated. Nếu hook không chạy (archiso đổi, airootfs được
@@ -950,22 +983,20 @@ if (( WITH_AUR )); then
     exit 1
   fi
 
-  installed_packages="$(pacman -Qq --sysroot "$airootfs_dir")"
-  missing_aur=()
-  for aur_pkg in ${AUR_PKGNAMES[@]+"${AUR_PKGNAMES[@]}"}; do
-    if grep -qxF "$aur_pkg" <<<"$installed_packages"; then
-      echo "AUR package baked into the image: $(
-        pacman -Q --sysroot "$airootfs_dir" "$aur_pkg"
-      )"
-    else
-      missing_aur+=("$aur_pkg")
-    fi
-  done
-  if (( ${#missing_aur[@]} > 0 )); then
+  # Đọc thẳng pacman DB (var/lib/pacman/local/<tên>-<pkgver>-<pkgrel>) thay vì
+  # gọi `pacman -Q --sysroot`: với --sysroot pacman nạp thêm sync DB của sysroot
+  # nên in ra hàng chục dòng "database file for 'core' does not exist (use '-Sy'
+  # to download)" cho mỗi gói, dù truy vấn -Q không cần sync DB. Cách đọc trực
+  # tiếp cũng là cách scripts/check-live-aur.sh đang dùng cho ảnh live.
+  # Hàm này không chạy trong $(...) được: AUR_MISSING_PACKAGES phải còn trong
+  # shell hiện tại để thông báo lỗi liệt kê được gói còn thiếu.
+  AUR_MISSING_PACKAGES=()
+  anios_report_aur_packages "$airootfs_dir" ${AUR_PKGNAMES[@]+"${AUR_PKGNAMES[@]}"} || true
+  if (( ${#AUR_MISSING_PACKAGES[@]} > 0 )); then
     cat >&2 <<EOF
 
 The ISO was produced but these AUR packages are NOT installed in it:
-  ${missing_aur[*]}
+  ${AUR_MISSING_PACKAGES[*]}
 
 That means airootfs/root/customize_airootfs.sh did not run, or
 scripts/anios-aur-build.sh failed without stopping the build. Look for the

@@ -720,10 +720,21 @@ grep -qF 'packages.aur.x86_64' "$BUILD_ISO" ||
   fail "build-iso.sh must stage the AUR manifest into the temporary build profile"
 grep -qF 'anios-aur-build.sh' "$BUILD_ISO" ||
   fail "build-iso.sh must stage scripts/anios-aur-build.sh into the temporary build profile"
-grep -qF -- '--sysroot' "$BUILD_ISO" ||
+# Cách đối chiếu là đọc thẳng var/lib/pacman/local của airootfs (không gọi
+# `pacman -Q --sysroot`, pacman sẽ in cả chục cảnh báo sync DB vô nghĩa).
+grep -qF 'anios_airootfs_db_entries' "$BUILD_ISO" ||
+  fail "build-iso.sh must read the AUR packages from the airootfs pacman database (var/lib/pacman/local) after the build"
+grep -qF 'var/lib/pacman/local' "$BUILD_ISO" ||
   fail "build-iso.sh must verify the AUR packages against the airootfs pacman database after the build"
 grep -qF 'aniosbuild' "$BUILD_ISO" ||
   fail "build-iso.sh must refuse an image that still contains the temporary AUR build account"
+# Bài tự kiểm tra của bước đối chiếu gói AUR phải có và phải được CI chạy: bước
+# đó từng in hàng chục cảnh báo sync DB vô nghĩa vì gọi pacman --sysroot.
+AUR_VERIFY_SELFTEST="$ROOT_DIR/scripts/selftest-iso-aur-verify.sh"
+[[ -x "$AUR_VERIFY_SELFTEST" ]] ||
+  fail "missing or not executable: scripts/selftest-iso-aur-verify.sh"
+grep -qF 'selftest-iso-aur-verify.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-iso-aur-verify.sh"
 
 # Hook và thư mục dựng gói chỉ được sinh ra lúc build. Nếu nằm sẵn trong
 # profile/airootfs thì mkarchiso chép chúng vào ảnh TRƯỚC pacstrap và chúng ở lại

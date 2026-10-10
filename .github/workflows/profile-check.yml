@@ -65,6 +65,15 @@ jobs:
         # Valve, IPv6 "nửa sống", captive portal trả HTML, các bước --fix/--fix-dns
         # và chế độ --quiet dùng cho unit lúc boot đều phải hoạt động.
         run: ./scripts/selftest-anios-netcheck.sh
+      - name: Self-test the AUR package verification of the ISO build
+        # Bước cuối của build-iso.sh đối chiếu gói AUR với pacman DB của airootfs.
+        # Trước đây nó gọi `pacman -Q --sysroot`, khiến mỗi gói in ra cảnh báo
+        # "database file for 'core' does not exist (use '-Sy' to download)" dù
+        # truy vấn -Q không cần sync DB. Bài này nạp đúng hàm đọc
+        # var/lib/pacman/local rồi chạy trên cây airootfs giả: đủ gói, thiếu gói,
+        # tên trùng tiền tố (yay vs yay-bin), pkgver kiểu epoch, file lạ và cả
+        # trường hợp không có pacman DB — không cần Arch, không cần dựng ISO.
+        run: ./scripts/selftest-iso-aur-verify.sh
       - name: Self-test Calamares installer helpers
         # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
         # trên cây hệ thống giả; không cài gì lên runner.
