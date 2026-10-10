@@ -859,11 +859,13 @@ Singleton {
                     }
                 }
                 property JsonObject cursor: JsonObject {
-                    // Defaults mirror the values execs.lua used to hardcode
-                    // (hyprctl setcursor Bibata-Modern-Classic 24) and the
-                    // compositor's own cursor defaults, so exposing them in
-                    // settings cannot change how the pointer looks on first open.
-                    property string theme: "Bibata-Modern-Classic"
+                    // Adwaita is the theme the adwaita-cursors package installs and
+                    // the one every other AniOS default names (gtk settings.ini,
+                    // ~/.icons/default/index.theme, XCURSOR_THEME of the Minimal
+                    // session). A default that is not installed makes Hyprland load
+                    // no cursor shapes at all, and the pointer blinks between the
+                    // compositor's empty cursor and each client's own surface.
+                    property string theme: "Adwaita"
                     property int size: 24
                     property real zoomFactor: 1.0
                     property int inactiveTimeout: 0

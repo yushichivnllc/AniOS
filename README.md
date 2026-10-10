@@ -52,6 +52,7 @@ Trên ISO dựng mặc định (có AUR), AniOS tự đăng nhập vào desktop 
 
 Trong Calamares, người dùng có thể chọn:
 
+- **Ngôn ngữ và múi giờ**: trang Region & Time mở sẵn ở **Asia/Ho_Chi_Minh** (UTC+7) nhờ `profile/installer/calamares/modules/locale.conf`, và GeoIP bị tắt để vị trí suy ra từ IP của mạng phòng net không ghi đè mặc định đó. Vẫn đổi được bằng bản đồ nếu cài ở nước khác.
 - **GRUB**: giao diện **Grubphemous** từ [pvtoari/grubphemous-theme](https://github.com/pvtoari/grubphemous-theme), được giới thiệu trong [Jacksaur/Gorgeous-GRUB](https://github.com/Jacksaur/Gorgeous-GRUB), hoặc GRUB mặc định. Theme và preview được tải từ upstream ở commit đã pin lúc dựng ISO.
 - **SDDM**: theme AniOS hoặc **Qylock / Wuthering Waves** từ [Darkkal44/qylock](https://github.com/Darkkal44/qylock).
 - **Dotfiles Hyprland**: **Immaterial Impulse** (được đóng gói sẵn, dùng offline) hoặc [end-4/dots-hyprland](https://github.com/end-4/dots-hyprland). Nếu chọn end-4, ở lần đăng nhập đầu tiên ứng dụng sẽ hỏi xác nhận trước khi tải revision đã pin và chạy trình cài đặt upstream dưới tài khoản người dùng; cần Internet, `sudo` và tải thêm gói.
@@ -268,6 +269,29 @@ anios-netcheck --pause         # đợi Enter trước khi thoát (khi mở từ
 
 Vài thứ công cụ không tự sửa được, phải làm tay: đăng nhập captive portal (mở trình duyệt), tắt proxy trong **Steam → Settings → Downloads**, và xoá thư mục cài dở `~/.local/share/Steam` nếu lần cập nhật trước bị đứt giữa đường. Nếu mạng của quán chặn hẳn HTTPS tới `steampowered.com`/`steamstatic.com` thì máy không thể tự cập nhật Steam — đổi mạng hoặc dùng VPN ở tầng router.
 
+### Đồng hồ sai giờ (múi giờ Việt Nam)
+
+Ảnh live dựng từ archiso mặc định chạy **giờ UTC** (không có `/etc/localtime`), nên đồng hồ trên desktop lệch 7 tiếng so với giờ Việt Nam, ngày giờ của file và nhật ký sai; còn bộ cài Calamares thì lấy mặc định gốc **America/New_York** nên máy cài xong vẫn sai giờ nếu không đổi tay. Bản này đặt sẵn giờ Việt Nam ở cả ba chỗ:
+
+- **Phiên live**: `profile/airootfs/etc/localtime` là symlink **tương đối** tới `../usr/share/zoneinfo/Asia/Ho_Chi_Minh` (UTC+7, không có giờ mùa hè). Dạng tương đối để symlink đọc được cả trong `work/` lúc dựng lẫn trong ảnh đã đóng; `scripts/build-iso.sh` ghi lại cho đúng nếu releng đổi và dừng bản dựng khi ảnh không mang múi giờ này.
+- **Đồng bộ giờ qua mạng**: ảnh bật sẵn `systemd-timesyncd` (`etc/systemd/system/multi-user.target.wants/`) và ghim máy chủ NTP về cụm châu Á trong `etc/systemd/timesyncd.conf.d/10-anios-ntp.conf`, kèm `FallbackNTP` là cụm của Arch để không mất đường đồng bộ. Việc này quan trọng không kém múi giờ: máy quán net hay chạy song song Windows nên RTC có thể lệch, mà đồng hồ sai thì **mọi bắt tay TLS thất bại** — Steam báo `needs to be online to update`, trình duyệt báo lỗi chứng chỉ. Đó là bước 1/6 của `anios-netcheck`.
+- **Hệ thống cài đặt**: `profile/installer/calamares/modules/locale.conf` đặt `region: Asia`, `zone: Ho_Chi_Minh` và tắt GeoIP (`style: "none"`). Thiếu file này thì Calamares dùng mặc định `America/New_York` của gói; còn bật GeoIP thì múi giờ suy ra từ IP — trạm net ra Internet qua NAT/proxy của nhà mạng nên IP thường bị định vị sang nước khác, và kết quả đó ghi đè luôn mặc định. Người dùng vẫn đổi được múi giờ trên bản đồ của bộ cài; module `locale` trong sequence là bước ghi `/etc/localtime` và `/etc/locale.conf` vào hệ thống đích, `hwclock` ghi `/etc/adjtime`.
+
+Đồng hồ phần cứng (RTC) vẫn theo chuẩn Linux là **UTC**; AniOS không đổi `/etc/adjtime` của phiên live. Kiểm tra nhanh: `timedatectl` — dòng `Time zone` phải là `Asia/Ho_Chi_Minh (+07)`, và `System clock synchronized: yes` sau vài giây có mạng.
+
+### Con trỏ chuột nhấp nháy hoặc đổi hình liên tục
+
+Con trỏ chỉ ổn định khi **tên theme mà compositor nhận được là một theme có thật trong ảnh**. Lỗi từng xảy ra: ảnh live không khai báo gói theme con trỏ nào, trong khi mặc định của shell Immaterial Impulse là `Bibata-Modern-Classic` (chỉ có trên AUR), còn phiên Minimal và GTK lại nói `Adwaita`. `hyprctl setcursor` với một theme không tồn tại không phải lệnh vô hại: Hyprland đưa tên đó cho libXcursor, không thư mục theme nào khớp nên `XCursorManager::loadTheme()` báo `XCursor failed finding any shapes in theme` rồi giữ danh sách shape rỗng — compositor mất con trỏ của chính nó và cứ đổi qua lại với surface từng ứng dụng tự đặt, nên con trỏ nhấp nháy/đổi hình khi rê giữa các cửa sổ.
+
+Bản này dùng **một theme duy nhất là Adwaita** ở mọi tầng:
+
+- Gói `adwaita-cursors` (kho chính thức; `adwaita-cursor-theme` là tên gói của Fedora/RHEL) nằm trong cả `profile/packages.x86_64` lẫn manifest cài đặt `profile/install/packages.x86_64`, nên `/usr/share/icons/Adwaita/cursors` luôn có sẵn chứ không trông vào phụ thuộc bắc cầu của `adwaita-icon-theme`.
+- `~/.icons/default/index.theme` với `Inherits=Adwaita`: đây là chỗ libXcursor — và Hyprland khi chưa ai gọi `setcursor` — phân giải theme tên `default`. Thiếu nó thì app X11 qua XWayland và compositor mỗi nơi một con trỏ.
+- `apply_saved_cursor.sh` (chạy lúc vào phiên Immaterial Impulse) kiểm tra theme trong cấu hình có được cài không **trước khi** gọi `hyprctl setcursor`, và rơi về Adwaita nếu không; nếu ảnh không có theme nào thì giữ nguyên con trỏ mặc định của compositor chứ không xoá shape của nó. Shell cũng tự đối chiếu theme đang lưu với danh sách theme quét được (`CursorThemes.qml`) để **Settings → Cursor** đánh dấu đúng con trỏ compositor đang dùng.
+- Mặc định của Settings → Cursor (`Config.qml`) là Adwaita 24, khớp `gtk-cursor-theme-name` trong `gtk-3.0/settings.ini` và `XCURSOR_THEME` của phiên Minimal.
+
+Đổi theme/cỡ con trỏ ở **Settings → Cursor**: mỗi lựa chọn áp cùng lúc cho Hyprland (`hyprctl setcursor`), GTK 3/4, `~/.icons/default/index.theme` và gsettings, và chỉ được lưu vào cấu hình khi áp thành công. `scripts/selftest-apply-saved-cursor.sh` chạy đúng script khởi động đó với `hyprctl` giả trên cây icon giả để khoá lại hành vi trên (không cần Arch Linux, không cần phiên đồ hoạ).
+
 ### Lưu trữ trên USB (không chạy trong RAM kiểu Tails)
 
 AniOS **không** chạy theo kiểu "live trong RAM, tắt máy là mất hết" như Tails. Ghi ISO ra USB (Rufus chế độ DD, `dd`, balenaEtcher) chỉ dùng phần đầu đĩa, chỉ đọc; phần còn lại của USB để trống. AniOS dùng chính phần đó làm lớp ghi của hệ thống, nên USB 64 GB cho gần 64 GB chỗ trống chứ không phải vài GB phụ thuộc RAM:
@@ -297,7 +321,9 @@ Với API Lua của Hyprland 0.56, gradient phải là bảng
 `{ colors = { "rgba(2f6be8ff)", "rgba(4ea6eaff)" }, angle = 45 }`, không phải
 chuỗi hyprlang `"rgba(...) rgba(...) 45deg"`. Theme/cỡ con trỏ đặt bằng
 `hl.env("XCURSOR_THEME", "Adwaita")`, `XCURSOR_SIZE` và các biến `HYPRCURSOR_*`,
-không dùng option `cursor.name`/`cursor.size`. `decoration.shadow.render_power`
+không dùng option `cursor.name`/`cursor.size` — và theme đó phải do gói
+`adwaita-cursors` cài ra, xem [mục con trỏ nhấp nháy](#con-trỏ-chuột-nhấp-nháy-hoặc-đổi-hình-liên-tục).
+`decoration.shadow.render_power`
 chỉ nhận số nguyên từ 1 đến 4. Sau khi sửa, chạy `hyprctl reload` rồi kiểm tra lại
 `hyprctl configerrors` (áp dụng cả Minimal và Immaterial Impulse).
 
@@ -375,15 +401,15 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 
 ## Cấu trúc repository
 
-- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf` hỗ trợ song song Minimal và Immaterial Impulse), Quickshell, Waybar, Matugen, dotfile cài sẵn, ibus & fcitx5, công cụ chuyển đổi giao diện (`usr/local/bin/anios-switch-desktop`), dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng **chỉ do NetworkManager quản lý** (mặt nạ `systemd-networkd*` + `iwd`, drop-in `dns=systemd-resolved` cùng `FallbackDNS` của resolved, `usr/local/bin/anios-netcheck` và unit chạy nó), kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
+- `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf` hỗ trợ song song Minimal và Immaterial Impulse), Quickshell, Waybar, Matugen, dotfile cài sẵn, ibus & fcitx5, công cụ chuyển đổi giao diện (`usr/local/bin/anios-switch-desktop`), dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng **chỉ do NetworkManager quản lý** (mặt nạ `systemd-networkd*` + `iwd`, drop-in `dns=systemd-resolved` cùng `FallbackDNS` của resolved, `usr/local/bin/anios-netcheck` và unit chạy nó), đồng hồ/múi giờ Việt Nam (`etc/localtime` → `Asia/Ho_Chi_Minh`, bật sẵn `systemd-timesyncd`, drop-in NTP cụm châu Á) và theme con trỏ Adwaita dùng chung cho Hyprland/GTK/XWayland (`~/.icons/default/index.theme`), kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
 - `profile/airootfs/usr/share/sddm/themes/wuwa/` — theme Qylock Wuthering Waves, mã nguồn giấy phép GPL-3.0; thông tin upstream và commit nguồn ở `UPSTREAM`.
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
 - `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).
-- `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey, Cốc Cốc/Wine/Python/Node.js/Java và tiện ích bổ sung vào Archiso `releng`.
+- `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey, theme con trỏ `adwaita-cursors`, Cốc Cốc/Wine/Python/Node.js/Java và tiện ích bổ sung vào Archiso `releng`.
 - `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
-- `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
+- `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR, dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
-- `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer, định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
+- `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
 - `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; cần Lua 5.4 trở lên, không cần GPU.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
@@ -394,8 +420,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
 - `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.
 - `scripts/selftest-anios-netcheck.sh` — tự kiểm tra `anios-netcheck` bằng `getent`/`curl`/`nmcli`/`resolvectl` giả trên cây `/etc` giả: DNS chết hẳn, DNS chỉ sai với tên Valve, IPv6 "nửa sống", captive portal, các bước `--fix`/`--fix-dns` và chế độ `--quiet` dùng cho unit.
+- `scripts/selftest-apply-saved-cursor.sh` — tự kiểm tra `apply_saved_cursor.sh` (script áp theme con trỏ lúc Hyprland khởi động) với `hyprctl` giả trên cây icon giả: theme đã lưu được giữ, theme không được cài rơi về Adwaita, JSON hỏng/size sai không làm chết phiên, theme hyprcursor vẫn được nhận, và khi ảnh không có theme nào thì không gọi `hyprctl` để compositor giữ con trỏ mặc định.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
-- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, installer, quyền tệp trong ảnh).
+- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh).
 
 ## Kiểm tra nhanh
 
@@ -404,6 +431,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/check-hyprland.sh              # kiểm tra Lua bắt buộc (Arch: lua; Ubuntu: lua5.4)
 ./scripts/selftest-check-live-audio.sh    # logic đọc ảnh live (cần bash, không cần Arch)
 ./scripts/selftest-anios-netcheck.sh     # chẩn đoán/tự sửa mạng của phiên live trên /etc giả
+./scripts/selftest-apply-saved-cursor.sh # theme con trỏ lúc vào phiên (hyprctl giả, không nhấp nháy vì theme thiếu)
 ./scripts/selftest-anios-aur-build.sh     # bước dựng gói AUR trong chroot giả
 ./scripts/selftest-check-live-aur.sh      # bước kiểm tra Calamares/gói AUR/python/nodejs/wine trong ảnh giả
 ./scripts/selftest-installer.sh           # mô phỏng chọn Live/Install và các bước cài hệ thống

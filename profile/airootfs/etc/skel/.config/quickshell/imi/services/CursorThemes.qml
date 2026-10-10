@@ -16,9 +16,10 @@ Singleton {
     property bool loading: false
     readonly property bool available: themes.length > 0
 
-    // The config default matches the theme the dots have always shipped and
-    // set at startup (execs.lua), so no live probe is needed to mark the
-    // active theme before the user first picks one here.
+    // Marks the active card in Settings > Cursor. The config default is Adwaita,
+    // the theme the adwaita-cursors package installs, so no live probe is needed
+    // on a fresh image. A config carried over from a machine that had another
+    // theme is reconciled against the scan instead (see reconcileActiveTheme).
     readonly property string activeId: Config.options.hyprland.cursor.theme
 
     signal refreshed()
@@ -48,6 +49,21 @@ Singleton {
         applyProcess.running = true;
     }
 
+    // A persisted theme that is not installed any more (a config carried over
+    // from a machine that had another theme) would be marked active here while
+    // apply_saved_cursor.sh fell back to Adwaita at startup. Adopt the same
+    // fallback once the scan says what is really installed, so Settings shows
+    // the pointer the compositor actually has rather than one that cannot load.
+    function reconcileActiveTheme() {
+        if (root.themes.length === 0)
+            return;
+        const current = Config.options.hyprland.cursor.theme;
+        if (root.themes.some(theme => theme.id === current))
+            return;
+        Config.options.hyprland.cursor.theme =
+            root.themes.some(theme => theme.id === "Adwaita") ? "Adwaita" : root.themes[0].id;
+    }
+
     Process {
         id: scanProcess
         stdout: StdioCollector {
@@ -62,6 +78,7 @@ Singleton {
         }
         onExited: exitCode => {
             root.loading = false;
+            root.reconcileActiveTheme();
             root.refreshed();
         }
     }
