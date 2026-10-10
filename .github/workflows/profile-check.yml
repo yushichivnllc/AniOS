@@ -65,6 +65,18 @@ jobs:
         # Valve, IPv6 "nửa sống", captive portal trả HTML, các bước --fix/--fix-dns
         # và chế độ --quiet dùng cho unit lúc boot đều phải hoạt động.
         run: ./scripts/selftest-anios-netcheck.sh
+      - name: Self-test the startup cursor theme script
+        # scripts/.../apply_saved_cursor.sh chạy lúc Hyprland khởi động để áp theme
+        # con trỏ người dùng chọn. Ảnh live từng không cài theme nào trong khi mặc
+        # định của shell là Bibata-Modern-Classic (chỉ có trên AUR), nên script gọi
+        # `hyprctl setcursor` với một theme không tồn tại: Hyprland không nạp được
+        # shape con trỏ nào ("XCursor failed finding any shapes in theme") và con trỏ
+        # nhấp nháy giữa con trỏ rỗng của compositor với surface từng ứng dụng. Bài
+        # này thay hyprctl bằng bản giả có ghi nhật ký rồi chạy đúng script thật trên
+        # cây icon giả: theme đã lưu phải được giữ, theme không được cài phải rơi về
+        # Adwaita, JSON hỏng/size sai không được làm chết phiên, và khi ảnh không có
+        # theme nào thì KHÔNG được gọi hyprctl.
+        run: ./scripts/selftest-apply-saved-cursor.sh
       - name: Self-test the AUR package verification of the ISO build
         # Bước cuối của build-iso.sh đối chiếu gói AUR với pacman DB của airootfs.
         # Trước đây nó gọi `pacman -Q --sysroot`, khiến mỗi gói in ra cảnh báo
@@ -165,6 +177,15 @@ jobs:
           assert ("imi", "end4") == tuple(
               item["id"] for item in yaml.safe_load(
                   (calamares_root / "modules/packagechooser-dotfiles.conf").read_text())["items"])
+
+          # Múi giờ của hệ thống được cài: không có modules/locale.conf thì Calamares
+          # dùng mặc định America/New_York của gói, máy cài xong chạy giờ New York.
+          locale_conf = yaml.safe_load((calamares_root / "modules/locale.conf").read_text())
+          assert (locale_conf["region"], locale_conf["zone"]) == ("Asia", "Ho_Chi_Minh"), \
+              "the installer must default to Vietnam time (the packaged default is America/New_York)"
+          assert locale_conf["geoip"]["style"] == "none", \
+              "GeoIP must stay off: a net-cafe IP lookup would override the Vietnam default"
+          assert "locale" in execution, "the install sequence must run the locale module"
 
           print("JSON, SDDM theme, Calamares YAML, install sequence, and AniOS identity parse successfully")
           PY

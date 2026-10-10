@@ -147,6 +147,14 @@ kdialog
 syntax-highlighting
 ttf-jetbrains-mono-nerd
 adw-gtk-theme
+# Theme con trỏ chuột Adwaita (định dạng Xcursor). BẮT BUỘC: mọi chỗ trong
+# profile đều trỏ con trỏ về theme "Adwaita" (gtk-3.0/settings.ini,
+# .icons/default/index.theme, XCURSOR_THEME của phiên Minimal, mặc định của
+# Settings > Cursor). Không có gói này thì theme không tồn tại, Hyprland gọi
+# XcursorLibraryLoadImages cho một theme rỗng và không nạp được shape nào —
+# con trỏ thành ra nhấp nháy/đổi hình liên tục khi rê giữa các cửa sổ.
+# (Tên gói trên Arch là adwaita-cursors; adwaita-cursor-theme là tên của Fedora.)
+adwaita-cursors
 upower
 libqalculate
 cava

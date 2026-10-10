@@ -211,6 +211,12 @@ if mode == "minimal" then
 else
     assert(environment.qsConfig == "imi", "Immaterial Impulse variables missing")
     assert(commands["QSG_RENDER_LOOP=threaded qs -c $qsConfig"], "Quickshell startup missing")
+    -- Con trỏ phải được áp lúc vào phiên: script đọc theme/cỡ từ cấu hình shell và
+    -- chỉ gọi hyprctl setcursor khi theme đó thực sự được cài (Adwaita của gói
+    -- adwaita-cursors). setcursor với theme thiếu làm Hyprland không nạp được shape
+    -- con trỏ nào, và người dùng thấy con trỏ nhấp nháy.
+    assert(commands["$HOME/.config/hypr/hyprland/scripts/apply_saved_cursor.sh"],
+        "Immaterial Impulse must apply the saved cursor theme at startup")
     assert(binds["SUPER_L"] and binds["SUPER_R"], "missing Super press/release binds")
     assert(binds["SUPER + SUPER_L"] and binds["SUPER + SUPER_R"], "missing Super release launcher binds")
     assert(binds["SUPER + Slash"], "missing cheatsheet keybind")

@@ -119,6 +119,9 @@ kdialog
 syntax-highlighting
 ttf-jetbrains-mono-nerd
 adw-gtk-theme
+# Theme con trỏ Adwaita (Xcursor): dotfile cài vào máy người dùng cũng trỏ con trỏ
+# về "Adwaita", thiếu gói này thì con trỏ nhấp nháy y như trên bản Live.
+adwaita-cursors
 upower
 libqalculate
 cava

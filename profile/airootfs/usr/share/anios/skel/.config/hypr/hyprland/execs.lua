@@ -27,7 +27,11 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("wl-paste --type text --watch cliphist store")
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
 
-    -- Cursor: theme/size come from the shell config (Settings > Cursor); the
-    -- script's fallbacks match the values that used to be hardcoded here.
+    -- Cursor: theme/size come from the shell config (Settings > Cursor). The
+    -- script checks the theme is actually installed and falls back to Adwaita
+    -- (shipped by adwaita-cursors) when the config still names a theme this
+    -- image does not have: `hyprctl setcursor` with a missing theme leaves
+    -- Hyprland with no cursor shapes loaded, and the pointer then blinks
+    -- between the compositor's empty cursor and each client's own surface.
     hl.exec_cmd("$HOME/.config/hypr/hyprland/scripts/apply_saved_cursor.sh")
 end)

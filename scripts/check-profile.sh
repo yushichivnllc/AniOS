@@ -416,6 +416,59 @@ else
   echo "WARN: skipping Hyprland Lua checks; install Lua or set LUA=/path/to/lua" >&2
 fi
 
+# --- Con trỏ chuột: một theme duy nhất, và theme đó phải được cài ------------
+# Ảnh live từng không cài theme con trỏ nào trong khi mọi chỗ đều trỏ về một cái
+# tên: phiên Minimal đặt XCURSOR_THEME=Adwaita, gtk-3.0/settings.ini ghi Adwaita,
+# còn phiên Immaterial Impulse gọi `hyprctl setcursor Bibata-Modern-Classic 24`
+# (mặc định cũ của upstream, chỉ có trên AUR). `setcursor` với theme không tồn tại
+# KHÔNG vô hại: Hyprland đưa tên đó cho libXcursor, không thư mục theme nào khớp
+# nên XCursorManager::loadTheme() báo "XCursor failed finding any shapes in theme"
+# và giữ danh sách shape rỗng — compositor mất con trỏ của chính nó và cứ đổi qua
+# lại với surface từng ứng dụng tự đặt, tức con trỏ nhấp nháy khi rê chuột.
+# Nhóm kiểm tra dưới đây khoá lại: theme mặc định phải là theme gói adwaita-cursors
+# cài ra, và không được còn chỗ nào trỏ về một theme ảnh không có.
+CURSOR_THEME_PACKAGE=adwaita-cursors
+for cursor_manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
+  grep -qxF "$CURSOR_THEME_PACKAGE" "$cursor_manifest" ||
+    fail "the $CURSOR_THEME_PACKAGE package (Adwaita cursor theme) is missing from ${cursor_manifest#"$ROOT_DIR/"}: every AniOS default names the Adwaita pointer, so without it the cursor blinks"
+done
+# Tên gói trên Fedora/RHEL là adwaita-cursor-theme; trên Arch gói đó không tồn tại
+# nên pacstrap sẽ chết giữa lượt dựng ISO.
+for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
+  ! grep -qxF 'adwaita-cursor-theme' "$manifest" ||
+    fail "adwaita-cursor-theme is the Fedora name; the Arch package that ships /usr/share/icons/Adwaita/cursors is adwaita-cursors (${manifest#"$ROOT_DIR/"})"
+done
+# Bibata-Modern-Classic chỉ có trên AUR và không được nướng vào ảnh: không nơi nào
+# được lấy nó làm mặc định nữa.
+if grep -rn 'Bibata-Modern-Classic' "$AIROOTFS" "$ROOT_DIR/profile/packages.x86_64" \
+  "$ROOT_DIR/profile/install/packages.x86_64" 2>/dev/null; then
+  fail "Bibata-Modern-Classic is not installed in the image; the cursor defaults must name Adwaita (adwaita-cursors)"
+fi
+for skel in "$AIROOTFS/etc/skel" "$AIROOTFS/usr/share/anios/skel"; do
+  cursor_default="$skel/.icons/default/index.theme"
+  [[ -s "$cursor_default" ]] ||
+    fail "missing ${cursor_default#"$AIROOTFS/"}: libXcursor and Hyprland resolve the theme name 'default' through its Inherits=, and without it the compositor loads no cursor shape"
+  grep -qxF 'Inherits=Adwaita' "$cursor_default" ||
+    fail "${cursor_default#"$AIROOTFS/"} must inherit Adwaita so 'default' resolves to an installed theme"
+  apply_cursor="$skel/.config/hypr/hyprland/scripts/apply_saved_cursor.sh"
+  [[ -x "$apply_cursor" ]] || fail "missing or not executable: ${apply_cursor#"$AIROOTFS/"}"
+  bash -n "$apply_cursor" || fail "shell syntax error: ${apply_cursor#"$AIROOTFS/"}"
+  grep -qxF 'theme="Adwaita"' "$apply_cursor" ||
+    fail "${apply_cursor#"$AIROOTFS/"} must fall back to the installed Adwaita theme"
+  grep -qF 'theme_installed' "$apply_cursor" ||
+    fail "${apply_cursor#"$AIROOTFS/"} must verify the theme is installed before calling hyprctl setcursor (a missing theme wipes the compositor's cursor shapes)"
+  grep -qF 'gtk-cursor-theme-name=Adwaita' "$skel/.config/gtk-3.0/settings.ini" ||
+    fail "GTK must use the same Adwaita pointer as the compositor: ${skel#"$AIROOTFS/"}/.config/gtk-3.0/settings.ini"
+  grep -qF 'property string theme: "Adwaita"' \
+    "$skel/.config/quickshell/imi/modules/common/Config.qml" ||
+    fail "Settings > Cursor must default to the installed Adwaita theme (${skel#"$AIROOTFS/"})"
+done
+CURSOR_SELFCHECK="$ROOT_DIR/scripts/selftest-apply-saved-cursor.sh"
+[[ -x "$CURSOR_SELFCHECK" ]] || fail "missing or not executable: scripts/selftest-apply-saved-cursor.sh"
+bash -n "$CURSOR_SELFCHECK" || fail "shell syntax error: scripts/selftest-apply-saved-cursor.sh"
+grep -qF 'selftest-apply-saved-cursor.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-apply-saved-cursor.sh"
+
 # --- Âm thanh của phiên live ---------------------------------------------
 # Ảnh live không tự có dàn âm thanh chạy sẵn: unit người dùng của PipeWire chỉ
 # được bật nhờ scriptlet `systemctl --global enable` của gói, mà scriptlet đó
@@ -611,6 +664,56 @@ NETCHECK_SELFTEST="$ROOT_DIR/scripts/selftest-anios-netcheck.sh"
   fail "missing or not executable: scripts/selftest-anios-netcheck.sh"
 grep -qF 'selftest-anios-netcheck.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
   fail "the profile workflow must run scripts/selftest-anios-netcheck.sh"
+
+# --- Múi giờ và đồng hồ của phiên live --------------------------------------
+# releng của archiso không đặt /etc/localtime nên ảnh live chạy giờ UTC: đồng hồ
+# desktop lệch 7 tiếng so với giờ Việt Nam, ngày của file/nhật ký sai, và khi RTC
+# của máy cũng lệch thì mọi bắt tay TLS thất bại (Steam báo "needs to be online to
+# update", đúng thứ anios-netcheck kiểm tra ở bước 1/6). Bộ cài Calamares cũng vậy:
+# không có modules/locale.conf thì nó dùng mặc định America/New_York của gói.
+ANIOS_TIMEZONE='Asia/Ho_Chi_Minh'
+LOCALTIME_LINK="$AIROOTFS/etc/localtime"
+[[ -L "$LOCALTIME_LINK" ]] ||
+  fail "etc/localtime must be a symlink to the AniOS timezone ($ANIOS_TIMEZONE); without it the live session runs UTC"
+[[ "$(readlink "$LOCALTIME_LINK")" == "../usr/share/zoneinfo/$ANIOS_TIMEZONE" ]] ||
+  fail "etc/localtime points at $(readlink "$LOCALTIME_LINK") instead of ../usr/share/zoneinfo/$ANIOS_TIMEZONE (relative, so it also resolves inside work/ during the build)"
+TIMESYNCD_WANTS="$AIROOTFS/etc/systemd/system/multi-user.target.wants/systemd-timesyncd.service"
+[[ -L "$TIMESYNCD_WANTS" ]] ||
+  fail "systemd-timesyncd.service is not enabled in the live image: the clock stays wrong until the user fixes it by hand"
+[[ "$(readlink "$TIMESYNCD_WANTS")" == "/usr/lib/systemd/system/systemd-timesyncd.service" ]] ||
+  fail "the systemd-timesyncd enablement points at $(readlink "$TIMESYNCD_WANTS")"
+NTP_DROPIN="$AIROOTFS/etc/systemd/timesyncd.conf.d/10-anios-ntp.conf"
+[[ -s "$NTP_DROPIN" ]] || fail "the AniOS NTP drop-in is missing: etc/systemd/timesyncd.conf.d/10-anios-ntp.conf"
+grep -qE '^NTP=[^#]*asia\.pool\.ntp\.org' "$NTP_DROPIN" ||
+  fail "the NTP drop-in must pin the Asian NTP pool (default arch.pool.ntp.org is far away and sometimes unresolvable on net-cafe networks)"
+grep -qE '^FallbackNTP=' "$NTP_DROPIN" ||
+  fail "the NTP drop-in must keep a FallbackNTP= list in case the Asian pool does not resolve"
+# build-iso.sh phải ghim lại hai thứ đó trên ảnh đã dựng, giống cách nó ghim
+# /etc/resolv.conf, để một thay đổi của releng không âm thầm đưa ảnh về giờ UTC.
+grep -qF "$ANIOS_TIMEZONE" "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must enforce the $ANIOS_TIMEZONE timezone of the built image"
+grep -qF 'multi-user.target.wants/systemd-timesyncd.service' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must verify systemd-timesyncd stays enabled in the built image"
+
+# Bộ cài: module locale là bước ghi /etc/localtime + /etc/locale.conf vào hệ thống
+# đích, nên mặc định của nó phải là giờ Việt Nam và không được để geoip ghi đè
+# (trạm net ra Internet qua NAT của nhà mạng nên IP hay bị định vị sang nước khác).
+LOCALE_MODULE="$ROOT_DIR/profile/installer/calamares/modules/locale.conf"
+[[ -s "$LOCALE_MODULE" ]] ||
+  fail "the Calamares locale module override is missing: profile/installer/calamares/modules/locale.conf (the packaged default is America/New_York)"
+grep -qxF 'region: "Asia"' "$LOCALE_MODULE" || fail "the installer must default to the Asia region"
+grep -qxF 'zone: "Ho_Chi_Minh"' "$LOCALE_MODULE" || fail "the installer must default to the Ho_Chi_Minh zone"
+grep -qE '^[[:space:]]*style:[[:space:]]*"none"' "$LOCALE_MODULE" ||
+  fail "the installer must disable GeoIP (style: \"none\"); an IP lookup on a net-cafe connection overrides the Vietnam default"
+INSTALLER_SETTINGS="$ROOT_DIR/profile/installer/calamares/settings.conf"
+for locale_step in locale hwclock; do
+  grep -qE "^[[:space:]]*-[[:space:]]+${locale_step}[[:space:]]*$" "$INSTALLER_SETTINGS" ||
+    fail "the Calamares install sequence must run $locale_step (it writes the target's timezone and /etc/adjtime)"
+done
+# anios-netcheck vẫn phải chẩn đoán đồng hồ: giờ sai là nguyên nhân đầu tiên của
+# lỗi TLS mà người dùng nhìn thấy.
+grep -qF 'NTPSynchronized' "$AIROOTFS/usr/local/bin/anios-netcheck" ||
+  fail "anios-netcheck must report the clock and its NTP state"
 
 # --- Quyền của script dựng ISO -------------------------------------------
 [[ -x "$ROOT_DIR/scripts/build-iso.sh" ]] || fail "build script is not executable"

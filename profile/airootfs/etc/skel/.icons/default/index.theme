@@ -1,0 +1,15 @@
+# Theme con trỏ mặc định của AniOS.
+#
+# libXcursor (và Hyprland, khi chưa ai gọi `hyprctl setcursor`) tìm theme tên
+# "default" bằng cách đọc Inherits của tệp này trong ~/.icons và /usr/share/icons.
+# Không có tệp thì tên "default" không trỏ tới đâu: Hyprland không nạp được shape
+# con trỏ nào ("XCursor failed finding any shapes in theme") và con trỏ nhấp nháy
+# giữa con trỏ rỗng của compositor với con trỏ từng ứng dụng tự đặt, còn app X11 qua
+# XWayland mỗi cái hiện một kiểu. Trỏ về Adwaita — theme do gói adwaita-cursors cài,
+# đúng theme mà gtk-3.0/settings.ini, XCURSOR_THEME của phiên Minimal và mặc định
+# của Settings > Cursor cùng dùng.
+#
+# scripts/cursor/apply-cursor-theme.sh ghi lại Inherits ở đây khi người dùng đổi
+# theme con trỏ trong Settings > Cursor.
+[Icon Theme]
+Inherits=Adwaita

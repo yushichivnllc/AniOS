@@ -24,11 +24,16 @@ hl.monitor({
     scale    = 1,
 })
 
--- Con trỏ chuột: theme Adwaita (đi kèm adwaita-icon-theme), cỡ 24 cho dễ nhìn
--- trên màn hình phòng net; giữ đồng nhất giữa các app GTK/Qt.
+-- Con trỏ chuột: theme Adwaita cỡ 24, dễ nhìn trên màn hình phòng net. Gói
+-- adwaita-cursors cài theme này, và ~/.icons/default/index.theme cũng trỏ về nó
+-- để Hyprland (lúc chưa ai gọi setcursor) lẫn app X11 qua XWayland dùng chung
+-- một con trỏ. Theme không tồn tại thì Hyprland không nạp được shape nào và
+-- con trỏ nhấp nháy giữa con trỏ rỗng của compositor với con trỏ từng app.
+-- Hyprland không có option cursor:name/cursor:size: nó đọc theme từ môi trường
+-- lúc khởi động rồi truyền lại cho mọi app con.
 hl.env("XCURSOR_THEME", "Adwaita")
 hl.env("XCURSOR_SIZE", "24")
--- Hyprland không có cursor:name/cursor:size; đặt theme qua môi trường.
+-- Biến cùng cặp, dành cho theme định dạng hyprcursor.
 hl.env("HYPRCURSOR_THEME", "Adwaita")
 hl.env("HYPRCURSOR_SIZE", "24")
 

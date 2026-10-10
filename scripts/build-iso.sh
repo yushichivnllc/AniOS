@@ -354,6 +354,46 @@ done
 (( network_fail == 0 )) ||
   { echo "AniOS: refusing to continue with an ambiguous network stack (see above)" >&2; exit 1; }
 
+# --- Múi giờ và đồng hồ của phiên live ------------------------------------
+# releng của archiso không đặt /etc/localtime, nên phiên live chạy giờ UTC: đồng
+# hồ trên desktop lệch 7 tiếng so với giờ Việt Nam, ngày giờ của file và nhật ký
+# sai, và nếu RTC của máy quán net cũng lệch (máy chạy song song Windows) thì mọi
+# bắt tay TLS thất bại — đúng thứ anios-netcheck kiểm tra ở bước 1/6 và Steam báo
+# "needs to be online to update".
+#
+# profile/airootfs ship symlink etc/localtime (dạng TƯƠNG ĐỐI để đọc được cả trong
+# work dir lẫn trong ảnh), bật systemd-timesyncd và ghim máy chủ NTP về cụm châu Á
+# (etc/systemd/timesyncd.conf.d/10-anios-ntp.conf). Khối dưới đây ghi lại cho đúng
+# nếu releng đổi, rồi dừng bản dựng khi ảnh vẫn không mang giờ Việt Nam — giống
+# cách khối mạng ở trên xử lý /etc/resolv.conf.
+anios_timezone='Asia/Ho_Chi_Minh'
+localtime_link="$BUILD_PROFILE/airootfs/etc/localtime"
+if [[ "$(readlink -- "$localtime_link" 2>/dev/null || true)" != "../usr/share/zoneinfo/$anios_timezone" ]]; then
+  echo "AniOS: /etc/localtime không trỏ tới $anios_timezone; ghi lại cho đúng"
+  rm -rf -- "$localtime_link"
+  install -d -m 0755 -- "$(dirname -- "$localtime_link")"
+  ln -s -- "../usr/share/zoneinfo/$anios_timezone" "$localtime_link"
+fi
+
+timesyncd_wants='etc/systemd/system/multi-user.target.wants/systemd-timesyncd.service'
+if [[ ! -L "$BUILD_PROFILE/airootfs/$timesyncd_wants" ]]; then
+  install -d -m 0755 -- "$(dirname -- "$BUILD_PROFILE/airootfs/$timesyncd_wants")"
+  ln -s -- '/usr/lib/systemd/system/systemd-timesyncd.service' \
+    "$BUILD_PROFILE/airootfs/$timesyncd_wants"
+fi
+
+clock_fail=0
+if [[ ! -L "$localtime_link" || "$(readlink -- "$localtime_link")" != "../usr/share/zoneinfo/$anios_timezone" ]]; then
+  echo "AniOS: the image does not carry the $anios_timezone timezone in /etc/localtime" >&2
+  clock_fail=1
+fi
+[[ -L "$BUILD_PROFILE/airootfs/$timesyncd_wants" ]] ||
+  { echo "AniOS: not enabled in the image: $timesyncd_wants" >&2; clock_fail=1; }
+[[ -s "$BUILD_PROFILE/airootfs/etc/systemd/timesyncd.conf.d/10-anios-ntp.conf" ]] ||
+  { echo "AniOS: the NTP drop-in etc/systemd/timesyncd.conf.d/10-anios-ntp.conf is missing from the image" >&2; clock_fail=1; }
+(( clock_fail == 0 )) ||
+  { echo "AniOS: refusing to continue with an image that boots into the wrong timezone (see above)" >&2; exit 1; }
+
 # --- Calamares installer payload ------------------------------------------
 # Installer configs/assets are kept out of pacman-owned paths until the AUR hook
 # has installed Calamares; scripts/anios-aur-build.sh then copies settings into
