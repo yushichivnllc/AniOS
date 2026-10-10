@@ -51,3 +51,19 @@ def test_image_type_is_image(tmp_path):
 
     provider = MangaImageProvider(tmp_path / "cache")
     assert provider.imageType() == QQuickAsyncImageProvider.ImageType.Image
+
+
+def test_provider_reads_local_files_with_spaces_and_diacritics(tmp_path):
+    # Thư mục CBZ/ảnh trên Linux thường có khoảng trắng và dấu tiếng Việt;
+    # as_uri() mã hoá chúng thành %20, %E1%BB%87... và provider phải giải mã lại.
+    folder = tmp_path / "Truyện tranh mới"
+    folder.mkdir()
+    image = folder / "trang 01.png"
+    image.write_bytes(b"\x89PNG diacritics")
+    provider = MangaImageProvider(tmp_path / "cache")
+    from urllib.parse import quote, unquote
+
+    # Dạng QML gửi qua image://manga/ (đã mã hoá một lần) và dạng Qt đã giải mã.
+    assert provider.load(image.as_uri()) == b"\x89PNG diacritics"
+    assert provider.load(quote(image.as_uri(), safe="")) == b"\x89PNG diacritics"
+    assert provider.load(unquote(quote(image.as_uri(), safe=""))) == b"\x89PNG diacritics"

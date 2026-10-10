@@ -25,7 +25,7 @@ ApplicationWindow {
     readonly property var sections: [
         { id: "library", label: "Kệ sách", glyph: "\u25A6" },
         { id: "explore", label: "Khám phá", glyph: "\u2315" },
-        { id: "history", label: "Lịch sử", glyph: "\u23F1" },
+        { id: "history", label: "Lịch sử", glyph: "\u25F7" },
         { id: "downloads", label: "Tải xuống", glyph: "\u2913" },
         { id: "settings", label: "Cài đặt", glyph: "\u2699" }
     ]

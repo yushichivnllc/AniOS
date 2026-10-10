@@ -15,6 +15,7 @@ import hashlib
 import threading
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlsplit
 
 from PySide6.QtCore import QByteArray
 from PySide6.QtGui import QImage
@@ -55,7 +56,9 @@ class MangaImageProvider(QQuickAsyncImageProvider):
         """Trả về byte ảnh: đọc từ đĩa nếu có, không thì tải về rồi ghi cache."""
         url = image_url(image_id)
         if url.startswith("file://"):
-            return Path(url[len("file://"):]).read_bytes()
+            # URL file:// được mã hoá (%20, %E1%BB%87...): phải giải mã trước khi mở file,
+            # nếu không tên thư mục/tệp có khoảng trắng hoặc dấu tiếng Việt sẽ không tìm thấy.
+            return Path(unquote(urlsplit(url).path)).read_bytes()
         cached = self._cache_path(url)
         if cached.is_file():
             return cached.read_bytes()

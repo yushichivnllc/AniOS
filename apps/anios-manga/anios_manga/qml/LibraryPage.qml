@@ -85,29 +85,29 @@ Page {
             }
         }
 
-        // Column nằm trong ColumnLayout nên phải căn bằng Layout, không được
-        // dùng anchors (Qt cảnh báo "managed by a layout").
-        Column {
-            Layout.alignment: Qt.AlignCenter
-            spacing: 14
-            visible: grid.count === 0
-            width: Math.min(page.width - 60, 420)
+    }
 
-            Label {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                font.pixelSize: 17
-                text: "Kệ sách đang trống."
-            }
-            Label {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                font.pixelSize: 13
-                opacity: 0.65
-                text: "Mở một truyện ở trang Khám phá rồi bấm Thêm vào kệ để lưu vào đây."
-            }
+    // Thông báo rỗng nằm trên lưới (không nằm trong ColumnLayout, nên không bị ép về chiều cao 0).
+    Column {
+        anchors.centerIn: parent
+        spacing: 14
+        visible: grid.count === 0
+        width: Math.min(page.width - 60, 420)
+
+        Label {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            font.pixelSize: 17
+            text: "Kệ sách đang trống."
+        }
+        Label {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            font.pixelSize: 13
+            opacity: 0.65
+            text: "Mở một truyện ở trang Khám phá rồi bấm Thêm vào kệ để lưu vào đây."
         }
     }
 

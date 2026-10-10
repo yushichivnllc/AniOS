@@ -10,6 +10,8 @@ from .settings import Settings
 
 QML_DIR = Path(__file__).parent / "qml"
 IMAGE_PROVIDER_ID = "manga"
+DESKTOP_ID = "anios-manga"
+ICON_FILE = Path(__file__).parent.parent / "data" / "anios-manga.svg"
 
 
 def build_app(settings: Settings, transport=None):
@@ -18,7 +20,7 @@ def build_app(settings: Settings, transport=None):
     `transport` chỉ dùng cho kiểm thử: thay urllib bằng bản giả để chạy không cần mạng.
     """
     from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtGui import QGuiApplication, QIcon
     from PySide6.QtQml import QQmlApplicationEngine
 
     from .backend import Backend
@@ -30,6 +32,10 @@ def build_app(settings: Settings, transport=None):
     app = QGuiApplication.instance() or QGuiApplication(sys.argv)
     app.setApplicationName("AniOS Manga")
     app.setOrganizationName("AniOS")
+    # Trên Linux (Wayland/KDE/GNOME) cửa sổ được khớp với shortcut qua tên desktop file và
+    # icon theme; thiếu hai dòng này cửa sổ hiện icon mặc định và không gắn với mục menu.
+    app.setDesktopFileName(DESKTOP_ID)
+    app.setWindowIcon(QIcon.fromTheme(DESKTOP_ID, QIcon(str(ICON_FILE))))
     engine = QQmlApplicationEngine()
     # Backend là con của engine: C++ huỷ backend sau khi giao diện QML đã huỷ xong.
     backend = (

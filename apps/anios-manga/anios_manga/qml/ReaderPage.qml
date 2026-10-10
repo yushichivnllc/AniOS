@@ -96,6 +96,8 @@ Page {
             spacing: 4
             cacheBuffer: 900
             clip: true
+            // Không có focus thì phím mũi tên/PgUp/PgDn không cuộn được trong chế độ cuộn dọc.
+            focus: true
             ScrollIndicator.vertical: ScrollIndicator {}
             // Tiến độ = trang nằm giữa màn hình, ghi lại khi người dùng cuộn.
             onContentYChanged: {
@@ -112,8 +114,11 @@ Page {
                 sourceSize.width: scrollList.width
                 source: model.url
             }
-            Component.onCompleted: if (backend.readerIndex > 0)
-                positionViewAtIndex(backend.readerIndex, ListView.Beginning)
+            Component.onCompleted: {
+                if (backend.readerIndex > 0)
+                    positionViewAtIndex(backend.readerIndex, ListView.Beginning)
+                forceActiveFocus()
+            }
         }
 
         // ---- chế độ từng trang ----

@@ -1,10 +1,14 @@
 [Desktop Entry]
 Type=Application
+Version=1.0
 Name=AniOS Manga
 GenericName=Trình đọc truyện tranh
 Comment=Đọc truyện online (MangaDex) và CBZ/ZIP offline, phong cách Material Design
 Exec=anios-manga
+TryExec=anios-manga
 Icon=anios-manga
 Terminal=false
+StartupNotify=true
+StartupWMClass=anios-manga
 Categories=Graphics;Viewer;
 Keywords=manga;truyện;comic;reader;đọc truyện;

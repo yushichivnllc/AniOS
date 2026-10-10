@@ -39,6 +39,14 @@ anios-manga                 # hoặc: python -m anios_manga
 anios-manga --config /duong/dan/config.json
 ```
 
+Shortcut trong menu ứng dụng (không cần root; cần `anios-manga` đã có trong PATH):
+
+```sh
+./install-desktop.sh              # mục menu + icon
+./install-desktop.sh --desktop    # thêm biểu tượng trên Desktop
+./install-desktop.sh --uninstall  # gỡ shortcut
+```
+
 Trên Arch Linux: `sudo pacman -S pyside6` rồi `python -m anios_manga` trong thư mục này.
 
 ## Kiểm thử
@@ -72,7 +80,7 @@ lỗi kiểu "tên thuộc tính/slot không tồn tại" và "anchors trên ite
 - `anios_manga/qml/` — giao diện: `Main.qml`, `LibraryPage.qml`, `ExplorePage.qml`, `DetailsPage.qml`,
   `ReaderPage.qml`, `HistoryPage.qml`, `DownloadsPage.qml`, `SettingsPage.qml`, `MangaCard.qml`,
   `ChapterItem.qml`.
-- `data/anios-manga.desktop`, `data/anios-manga.svg` — mục menu ứng dụng và icon.
+- `data/anios-manga.desktop`, `data/anios-manga.svg` — mục menu ứng dụng và icon; `install-desktop.sh` cài chúng vào thư mục người dùng.
 
 ## Chưa làm
 
