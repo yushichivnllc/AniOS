@@ -90,6 +90,10 @@ jobs:
         # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
         # trên cây hệ thống giả; không cài gì lên runner.
         run: ./scripts/selftest-installer.sh
+      - name: Self-test SDDM desktop session selection
+        # Dùng dbus-run-session giả để xác nhận lựa chọn Minimal/Immaterial ghi
+        # đúng vào XDG_CONFIG_HOME trước khi Hyprland đọc cấu hình.
+        run: ./scripts/selftest-anios-session.sh
       - name: Validate JSON, SDDM theme, and session configuration
         run: |
           python3 - <<'PY'

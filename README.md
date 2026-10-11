@@ -1,6 +1,6 @@
 # AniOS
 
-AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland với kernel `linux-zen`, cài sẵn Steam, driver đồ họa mã nguồn mở phổ biến cho Intel/AMD, trình duyệt Cốc Cốc, Wine, Python, Node.js, Java, trợ lý AUR `yay` để cài thêm gói ngay trong phiên live, cùng **stack AI cục bộ** (Ollama bản Vulkan, llama-cpp, whisper-cpp, OpenVINO và hai ứng dụng GUI Jan AI / LM Studio). Hệ thống cài sẵn toàn bộ dotfile của desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) (XephyLon) hoàn toàn offline, hỗ trợ song song 2 chế độ giao diện: **AniOS Minimal (Waybar)** và **Immaterial Impulse (Quickshell)**.
+AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland với kernel `linux-zen`, cài sẵn Steam, Mesa cho Intel/AMD và stack NVIDIA Turing+ (kernel module mã nguồn mở, thư viện user-space chính chủ), trình duyệt Cốc Cốc, Wine, Python, Node.js, Java, trợ lý AUR `yay` để cài thêm gói ngay trong phiên live, cùng **stack AI cục bộ** (Ollama bản Vulkan, llama-cpp, whisper-cpp, OpenVINO và hai ứng dụng GUI Jan AI / LM Studio). Hệ thống cài sẵn toàn bộ dotfile của desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) (XephyLon) hoàn toàn offline, hỗ trợ song song 2 chế độ giao diện: **AniOS Minimal (Waybar)** và **Immaterial Impulse (Quickshell)**.
 
 > Repository này chứa **Archiso profile và script tạo ISO**. File ISO được dựng tự động bằng [GitHub Actions](#dựng-iso-tự-động-bằng-github-actions), hoặc dựng tay trên máy Arch Linux.
 
@@ -31,7 +31,7 @@ ISO được đặt trong `out/`, file tạm ở `work/`. Có thể chọn đư�
 sudo ./scripts/build-iso.sh --output /duong-dan/iso --work /duong-dan/work
 ```
 
-Script dùng profile `releng` của Archiso đang cài trên máy, đổi kernel sang `linux-zen` trong mọi mục menu (Syslinux, GRUB, systemd-boot, loopback), dán ảnh thương hiệu AniOS vào `syslinux/splash.png` và `usr/share/anios/wallpaper.png`, bật kho `multilib` chính thức để cài Steam, rồi thêm cấu hình AniOS. Cần Internet để tải các gói Arch (và cả gói AUR, xem [bên dưới](#gói-aur-cài-sẵn-trong-ảnh)). ISO hoàn chỉnh nặng khoảng **4–4,5 GB**; nên dùng USB ít nhất **16 GB**, chừa khoảng **25 GiB** đĩa trống cho `work/` (phần lớn là thư mục dựng gói AUR và cache pacman, đều bị dọn trước khi đóng ảnh), và kiểm tra ISO trước khi phát hành.
+Script dùng profile `releng` của Archiso đang cài trên máy, đổi kernel sang `linux-zen` trong mọi mục menu (Syslinux, GRUB, systemd-boot, loopback), dán ảnh thương hiệu AniOS vào `syslinux/splash.png` và `usr/share/anios/wallpaper.png`, bật kho `multilib` chính thức để cài Steam, rồi thêm cấu hình AniOS. Cần Internet để tải các gói Arch (và cả gói AUR, xem [bên dưới](#gói-aur-cài-sẵn-trong-ảnh)). ISO hoàn chỉnh nặng khoảng **4,5–5,5 GB** (thay đổi theo phiên bản Mesa/NVIDIA và các gói được kéo vào); nên dùng USB ít nhất **16 GB**, chừa khoảng **25 GiB** đĩa trống cho `work/` (phần lớn là thư mục dựng gói AUR và cache pacman, đều bị dọn trước khi đóng ảnh), và kiểm tra ISO trên đúng GPU trước khi phát hành.
 
 Tuỳ chọn hữu ích:
 
@@ -241,7 +241,7 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
 - **Phần mềm Windows**: `wine` + `winetricks` cài sẵn (kho `multilib` được bật từ lúc dựng nên phần 32-bit đầy đủ). Chạy `wine <file.exe>`; lần đầu Wine có thể đề nghị tải thêm Gecko/Mono. Game Windows nên ưu tiên qua Steam/Proton.
 - **Lập trình**: `python` + `pip`, `nodejs` + `npm` và Java (`jre-openjdk`) có sẵn; `base-devel` + `git` cũng nằm trong ảnh để `yay` tự dựng được gói AUR ngay trong phiên.
 - **Minecraft**: `legacy-launcher` (bản classic của llaun.ch) cài sẵn, mở từ launcher; cần Java (đã có) và tài khoản Minecraft hợp lệ.
-- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Nếu Steam báo `Steam needs to be online to update` hoặc `DownloadManifest - exhausted list of download hosts` dù máy đã có mạng, xem [mục riêng bên dưới](#steam-báo-steam-needs-to-be-online-to-update). Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải được ghi vào ổ lưu trữ trên USB nên dung lượng trống bằng phần còn lại của USB (xem [bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)). Nếu phiên đang ở chế độ RAM dự phòng thì hãy copy file cần giữ ra ổ ngoài trước khi tắt máy.
+- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Nếu Steam báo `Steam needs to be online to update` hoặc `DownloadManifest - exhausted list of download hosts` dù máy đã có mạng, xem [mục riêng bên dưới](#steam-báo-steam-needs-to-be-online-to-update). Để GameMode nâng governor/độ ưu tiên khi chơi, thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của từng game; laptop hybrid Intel/AMD + NVIDIA có thể dùng `prime-run gamemoderun %command%` để chọn GPU rời. Muốn xem số liệu, thử `mangohud %command%` (HUD bật/tắt bằng `Shift_R+F12`). Steam và mọi thứ bạn tải được ghi vào ổ lưu trữ trên USB nên dung lượng trống bằng phần còn lại của USB (xem [bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)). Nếu phiên đang ở chế độ RAM dự phòng thì hãy copy file cần giữ ra ổ ngoài trước khi tắt máy.
 - Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+A` mở công cụ kiểm tra âm thanh; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
 - **Màn hình khoá dùng mật khẩu**, không phải cơ chế bảo mật mạnh: nhập `1111` để mở khoá. Tài khoản live và `sudo` dùng cùng mật khẩu; mật khẩu này được tạo sẵn trong ảnh từ lúc build (pacman hook `anios-live-user.hook` viết hash vào `/etc/shadow`) và được `anios-live-home.service` đặt lại ở mỗi lần khởi động như dự phòng. Vì vậy đừng để dữ liệu quan trọng trong phiên live.
 - Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện theme **Wuthering Waves** của Qylock; chọn phiên **AniOS (Hyprland)** rồi nhập `1111` để vào lại. Theme hiện khung nền tĩnh ngay, rồi mới khởi tạo video sau 1,2 giây; nếu thiếu codec video thì khung tĩnh vẫn giữ cho màn hình đăng nhập dùng được. Các lỗi không vào được SDDM đã được xử lý triệt để: tắt tiến trình agetty autologin tty1 của releng để tránh tranh chấp VT, chuẩn hoá UID 1000 và nhóm quyền phần cứng (wheel, video, audio, input, seat) cho tài khoản `anios`, sửa liên kết dịch vụ chuẩn bị thư mục người dùng (`anios-live-home.service`), cấu hình `MinimumUid=500` cho SDDM, bổ sung fallback tài khoản tự động trong theme, và "nướng" mật khẩu `1111` vào `/etc/shadow` từ lúc build bằng pacman hook để đăng nhập thủ công SDDM (stack PAM `sddm` → `pam_unix`) không phụ thuộc vào việc service lúc khởi động có chạy thành công hay không — autologin thì luôn qua được vì dùng stack `sddm-autologin` (kết thúc bằng `pam_permit`).
@@ -348,8 +348,10 @@ Bản Minimal giữ triết lý "nhẹ nhưng chỉn chu": cùng một ngôn ng�
 Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đã được **cài sẵn trong ảnh ISO** (offline 100%, không cần kết nối mạng hay build gói). Người dùng có 2 cách trải nghiệm:
 
 1. **Chọn phiên tại màn hình đăng nhập SDDM**:
-   - `AniOS (Hyprland - Minimal)`: Phiên bản nhẹ mặc định với Waybar + Mako + Fuzzel, tiết kiệm tài nguyên cho GPU yếu hoặc máy quán net đời cũ.
+   - `AniOS (Hyprland - Minimal)`: Phiên bản nhẹ với Waybar + Mako + Fuzzel, tiết kiệm tài nguyên cho GPU yếu hoặc máy quán net đời cũ.
    - `AniOS (Immaterial Impulse)`: Phiên bản đầy đủ tính năng với Quickshell, widget Material 3, Matugen tự đổi màu theo hình nền và phím tắt thông minh.
+
+   Lựa chọn ở SDDM được lưu làm giao diện ưu tiên; phiên `AniOS (Hyprland)` mặc định sẽ mở giao diện đã lưu.
 
 2. **Chuyển đổi giao diện trực tiếp trong desktop (không cần khởi động lại máy)**:
    - Sử dụng lệnh:
@@ -364,8 +366,9 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 
 ## Phần cứng và hiệu năng
 
-- AniOS nhắm đến máy **x86_64**. Không hệ điều hành nào có thể bảo đảm game tương thích hoặc chạy nhanh trên mọi cấu hình; hiệu năng tùy thuộc CPU, GPU, RAM, tản nhiệt, trò chơi và driver. `linux-zen` được chọn để ưu tiên độ phản hồi, **không bảo đảm FPS cao hơn**.
-- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Driver NVIDIA proprietary không được cài sẵn; các card NVIDIA đời cũ có thể cần driver và cấu hình kernel riêng. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
+- AniOS nhắm đến máy **x86_64**. Không hệ điều hành nào có thể bảo đảm game tương thích hoặc chạy nhanh trên mọi cấu hình; hiệu năng tùy thuộc CPU, GPU, RAM, tản nhiệt, trò chơi, độ phân giải và driver. `linux-zen` được chọn để ưu tiên độ phản hồi, **không bảo đảm FPS cao hơn**.
+- ISO có Mesa/OpenGL/Vulkan cho Intel/AMD và driver NVIDIA cho GPU **Turing trở lên** (GeForce GTX 16-series, RTX 20-series và mới hơn): `nvidia-open-dkms` được dựng cho `linux-zen`, kèm `nvidia-utils`, `lib32-nvidia-utils` cho Steam/Proton, `nvidia-prime` (`prime-run`) và `nvidia-settings`. DRM KMS được bật và các module NVIDIA nạp trước SDDM để Hyprland dùng Wayland ổn định. GPU NVIDIA đời cũ hơn Turing không được bảo đảm bởi driver này; cần dùng đúng nhánh driver legacy và thử boot trên model thật. Secure Boot có thể chặn module DKMS chưa được ký. Sau khi boot, dùng `nvidia-smi` và `vulkaninfo --summary` để xác nhận driver/Vulkan nhận đúng GPU.
+- Trong Immaterial Impulse, cấu hình gaming tự giảm hiệu ứng compositor và chuyển sang power profile `performance` khi phần cứng hỗ trợ; AniOS Minimal nhẹ hơn cho máy cần giảm tải desktop. Cả hai cấu hình chỉ cho phép tearing ở các cửa sổ game có luật `immediate` để giảm độ trễ (có thể thấy xé hình). Để GameMode áp dụng khi game chạy, thêm `gamemoderun %command%` vào Steam; trên máy hybrid dùng `prime-run gamemoderun %command%`. Hãy đo bằng MangoHud và tự cân bằng FPS/độ trễ/chất lượng hình — không nên dùng ép xung hay giới hạn nhiệt không rõ nguồn gốc.
 - Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
 - Hệ thống Live đọc ảnh nén trực tiếp từ USB (`copytoram=n`, không chép vào RAM; zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
@@ -385,7 +388,7 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 
 Ảnh live kèm sẵn một stack AI chạy offline (model tải một lần rồi dùng lại không cần mạng):
 
-- **Ollama (bản Vulkan)** — server LLM dùng backend Vulkan nên chạy được trên iGPU Intel lẫn AMD có trong máy phòng net; máy quá cũ không có Vulkan thì tự fallback về CPU. Service `ollama` được bật sẵn trong phiên live:
+- **Ollama (bản Vulkan)** — server LLM dùng backend Vulkan, chạy được trên iGPU Intel/AMD và GPU NVIDIA Turing+ (đã có Vulkan ICD trong ảnh); máy không có Vulkan thì tự fallback về CPU. Service `ollama` được bật sẵn trong phiên live:
   ```bash
   ollama run llama3.2        # tải model lần đầu (cần mạng) rồi chat trong terminal
   ollama list                # xem model đã có
@@ -415,6 +418,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
 - `scripts/selftest-installer.sh` — mô phỏng giao diện Material Live/Install (và nhánh dự phòng KDialog), rồi kiểm tra pacstrap, staging dotfiles, lựa chọn GRUB/SDDM và finalizer trong sandbox.
+- `scripts/selftest-anios-session.sh` — dùng `dbus-run-session` giả để xác nhận lựa chọn SDDM ghi đúng desktop mode vào `XDG_CONFIG_HOME` và không ghim biến môi trường qua lần reload Hyprland.
 - `scripts/selftest-build-iso-sudoers.sh` — tự kiểm tra bước "không có luật sudo `NOPASSWD` nào lọt vào ảnh" ở cuối `build-iso.sh` trên airootfs giả: `/etc/sudoers` mặc định của gói `sudo` phải sạch, luật thật phải bị bắt kèm `file:dòng`; không cần Arch Linux.
 - `scripts/selftest-build-iso-permissions.sh` — tự kiểm tra bước khai báo `file_permissions` của `build-iso.sh` (mảng `ANIOS_FILE_PERMISSIONS`, hàm ghi và hàm đối chiếu) trên một profile `releng` giả: mọi mục phải nằm trong mảng mà `mkarchiso` thật sự nạp, còn thiếu khai báo, khai báo đường dẫn không có trong ảnh, `releng` đổi dòng mở mảng và mục sai định dạng đều phải bị chặn; không cần Arch Linux.
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
@@ -422,7 +426,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-anios-netcheck.sh` — tự kiểm tra `anios-netcheck` bằng `getent`/`curl`/`nmcli`/`resolvectl` giả trên cây `/etc` giả: DNS chết hẳn, DNS chỉ sai với tên Valve, IPv6 "nửa sống", captive portal, các bước `--fix`/`--fix-dns` và chế độ `--quiet` dùng cho unit.
 - `scripts/selftest-apply-saved-cursor.sh` — tự kiểm tra `apply_saved_cursor.sh` (script áp theme con trỏ lúc Hyprland khởi động) với `hyprctl` giả trên cây icon giả: theme đã lưu được giữ, theme không được cài rơi về Adwaita, JSON hỏng/size sai không làm chết phiên, theme hyprcursor vẫn được nhận, và khi ảnh không có theme nào thì không gọi `hyprctl` để compositor giữ con trỏ mặc định.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
-- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh).
+- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, lựa chọn phiên SDDM, quyền tệp trong ảnh).
 
 ## Kiểm tra nhanh
 

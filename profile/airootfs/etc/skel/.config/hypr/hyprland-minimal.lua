@@ -72,7 +72,8 @@ hl.config({
         gaps_out         = 8,
         border_size      = 2,
         layout           = "dwindle",
-        allow_tearing    = false,
+        -- Game windows using `immediate` can tear to reduce display latency.
+        allow_tearing    = true,
         resize_on_border = true,
 
         col = {

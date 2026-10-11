@@ -114,6 +114,12 @@ vulkan-radeon
 lib32-vulkan-radeon
 vulkan-nouveau
 lib32-vulkan-nouveau
+# NVIDIA Turing+ proprietary user-space with open DKMS kernel modules for linux-zen.
+nvidia-open-dkms
+nvidia-utils
+lib32-nvidia-utils
+nvidia-prime
+nvidia-settings
 libva-intel-driver
 intel-media-driver
 
@@ -156,6 +162,8 @@ adw-gtk-theme
 # (Tên gói trên Arch là adwaita-cursors; adwaita-cursor-theme là tên của Fedora.)
 adwaita-cursors
 upower
+# Quickshell can switch supported systems to a performance power profile during games.
+power-profiles-daemon
 libqalculate
 cava
 wtype
@@ -229,10 +237,9 @@ vulkan-tools
 libva-utils
 
 # --- Stack AI cục bộ: chạy LLM/ASR ngay trong phiên live, không cần Internet ---
-# ollama-vulkan: server Ollama biên dịch với backend Vulkan — chạy được trên
-# iGPU Intel lẫn AMD (vulkan-intel/vulkan-radeon đã có ở trên); máy quá cũ
-# không có Vulkan thì tự fallback về CPU. Không dùng bản CUDA/ROCm vì ảnh
-# nhắm driver mã nguồn mở Intel/AMD.
+# ollama-vulkan: server Ollama dùng chung backend Vulkan trên iGPU Intel/AMD
+# và GPU NVIDIA Turing+ (Vulkan ICD của nvidia-utils); máy không có Vulkan thì
+# fallback CPU. Không đóng gói CUDA/ROCm để giữ một backend GPU gọn, thống nhất.
 ollama-vulkan
 # llama-cpp + whisper-cpp: suy luận LLM và nhận dạng tiếng nói dạng CLI,
 # nhẹ và tối ưu ggml cho CPU/GPU phổ thông.

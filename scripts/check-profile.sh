@@ -20,6 +20,7 @@ for package in \
   udisks2 thunar-volman gvfs rsync fastfetch \
   xorg-xwayland ttf-nerd-fonts-symbols firefox ffmpeg mpv gnome-disk-utility flatpak curl wget unzip \
   pipewire pipewire-audio pipewire-alsa pipewire-pulse wireplumber alsa-utils libpulse rtkit \
+  nvidia-open-dkms nvidia-utils lib32-nvidia-utils nvidia-prime nvidia-settings power-profiles-daemon \
   quickshell matugen kirigami syntax-highlighting qt6-positioning qt6-virtualkeyboard \
   qt6-imageformats kimageformats libavif qt6-quicktimeline qt6-sensors qt6-tools qt6-translations \
   kdialog ttf-jetbrains-mono-nerd adw-gtk-theme upower libqalculate hyprpicker hyprsunset cava wtype ripgrep eza gnome-keyring \
@@ -145,6 +146,23 @@ grep -qxF 'TimeoutStopSec=70s' "$STEAM_QUIT_UNIT" || fail "anios-steam-quit must
 bash -n "$AIROOTFS/usr/local/bin/anios-steam-quit" || fail "anios-steam-quit has a syntax error"
 [[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-steam-quit.service" ]] ||
   fail "anios-steam-quit.service is not enabled"
+
+# Quickshell's automatic gaming power profile needs the daemon available in Live.
+POWER_PROFILE_WANTS="$AIROOTFS/etc/systemd/system/multi-user.target.wants/power-profiles-daemon.service"
+[[ -L "$POWER_PROFILE_WANTS" ]] || fail "power-profiles-daemon.service is not enabled in the Live image"
+[[ "$(readlink "$POWER_PROFILE_WANTS")" == "/usr/lib/systemd/system/power-profiles-daemon.service" ]] ||
+  fail "power-profiles-daemon.service enablement points at $(readlink "$POWER_PROFILE_WANTS")"
+
+# Keep NVIDIA KMS and early module loading explicit for the linux-zen DKMS driver.
+NVIDIA_MODPROBE="$AIROOTFS/etc/modprobe.d/10-anios-nvidia.conf"
+NVIDIA_MODULES="$AIROOTFS/etc/modules-load.d/10-anios-nvidia.conf"
+[[ -s "$NVIDIA_MODPROBE" ]] || fail "NVIDIA DRM KMS modprobe config is missing"
+grep -qxF 'options nvidia_drm modeset=1' "$NVIDIA_MODPROBE" ||
+  fail "NVIDIA DRM KMS must be enabled for Hyprland/Wayland"
+[[ -s "$NVIDIA_MODULES" ]] || fail "NVIDIA modules-load config is missing"
+for module in nvidia nvidia_modeset nvidia_uvm nvidia_drm; do
+  grep -qxF "$module" "$NVIDIA_MODULES" || fail "NVIDIA module load list is missing $module"
+done
 
 LIVE_HOME_UNIT_CHECK="$AIROOTFS/usr/lib/systemd/system/anios-live-home.service"
 grep -qxF 'TimeoutStartSec=600' "$LIVE_HOME_UNIT_CHECK" || fail "anios-live-home.service must allow 600s to start"
@@ -557,6 +575,10 @@ grep -qxF 'Name=unikey' "$FCITX_PROFILE" || fail "the Unikey input method is not
 # greeter SDDM chạy dưới tài khoản riêng và không nên nạp module fcitx5.
 SESSION_WRAPPER="$AIROOTFS/usr/local/bin/anios-session"
 grep -qF 'dbus-run-session' "$SESSION_WRAPPER" || fail "the session must run inside dbus-run-session"
+grep -qF 'XDG_CONFIG_HOME' "$SESSION_WRAPPER" || fail "explicit SDDM modes must use XDG_CONFIG_HOME"
+grep -qF 'desktop-mode' "$SESSION_WRAPPER" || fail "explicit SDDM modes must persist the selected desktop mode"
+grep -qF 'unset ANIOS_DESKTOP' "$SESSION_WRAPPER" ||
+  fail "explicit SDDM modes must not pin ANIOS_DESKTOP across Hyprland reloads"
 for assignment in \
   'export GTK_IM_MODULE=fcitx' \
   'export QT_IM_MODULE=fcitx' \
@@ -564,12 +586,20 @@ for assignment in \
   'export SDL_IM_MODULE=fcitx'; do
   grep -qxF "$assignment" "$SESSION_WRAPPER" || fail "anios-session is missing: $assignment"
 done
+SESSION_SELFTEST="$ROOT_DIR/scripts/selftest-anios-session.sh"
+[[ -x "$SESSION_SELFTEST" ]] || fail "session selection self-test is missing or not executable"
+grep -qF 'selftest-anios-session.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-anios-session.sh"
 [[ ! -e "$AIROOTFS/etc/environment" ]] ||
   fail "input-method variables must not leak into the SDDM greeter via /etc/environment"
 
 [[ -s "$AIROOTFS/usr/share/applications/anios-setup.desktop" ]] || fail "the Immaterial Impulse shortcut is missing"
 [[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-imi.desktop" ]] || fail "the Immaterial Impulse Wayland session is missing"
 [[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-minimal.desktop" ]] || fail "the Minimal Wayland session is missing"
+grep -qxF 'Exec=/usr/local/bin/anios-session --imi' "$AIROOTFS/usr/share/wayland-sessions/anios-imi.desktop" ||
+  fail "the Immaterial Impulse SDDM session must pass --imi"
+grep -qxF 'Exec=/usr/local/bin/anios-session --minimal' "$AIROOTFS/usr/share/wayland-sessions/anios-minimal.desktop" ||
+  fail "the Minimal SDDM session must pass --minimal"
 [[ -s "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
 
 # --- Overlay không được đè lên file do gói pacman sở hữu ------------------
@@ -929,10 +959,16 @@ grep -qF 'ANIOS_LIVE' "$AIROOTFS/usr/local/bin/anios-session" ||
   fail "anios-session must gate the welcome chooser to the Live ISO only"
 grep -qxF 'calamares' "$AUR_MANIFEST" || fail "Calamares must be built into the Live ISO"
 [[ -s "$TARGET_MANIFEST" ]] || fail "the curated target package manifest is missing"
-for target_package in base linux-zen grub sddm networkmanager lib32-mesa; do
+for target_package in base linux-zen grub sddm networkmanager lib32-mesa \
+  nvidia-open-dkms nvidia-utils lib32-nvidia-utils nvidia-prime nvidia-settings power-profiles-daemon; do
   grep -qxF "$target_package" "$TARGET_MANIFEST" ||
     fail "the target installer manifest is missing $target_package"
 done
+SERVICES_MODULE="$INSTALLER_ROOT/calamares/modules/services-systemd.conf"
+grep -qF 'name: "power-profiles-daemon.service"' "$SERVICES_MODULE" ||
+  fail "the installed system must enable power-profiles-daemon for supported gaming power profiles"
+grep -qF '10-anios-nvidia.conf' "$INSTALLER_ROOT/scripts/anios-installer-finalize" ||
+  fail "the installer finalizer must copy NVIDIA KMS/module-load configuration into the target system"
 for installer_file in \
   "$INSTALLER_ROOT/calamares/settings.conf" \
   "$INSTALLER_ROOT/calamares/modules/packagechooser-grub.conf" \
