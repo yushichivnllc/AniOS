@@ -58,7 +58,6 @@ WAIT_SECONDS=15
 # Kết quả từng bước; các hàm check_* điền vào hai biến này.
 PROBLEMS=()      # mô tả lỗi phát hiện được, kèm cách sửa ngay trong chuỗi
 DNS_BROKEN=0     # 1 khi KHÔNG tên Valve nào phân giải được
-DNS_PARTIAL=0    # 1 khi một phần tên Valve không phân giải được
 IPV6_BROKEN=0    # 1 khi có IPv6 toàn cục nhưng không ra được Internet
 IPV4_OK=0
 STEAM_TLS_OK=0
@@ -108,7 +107,14 @@ if ((DO_FIX)) && [[ $EUID -ne 0 && -z "$PREFIX" ]]; then
 fi
 
 say() { ((QUIET)) || printf '%s\n' "$*"; }
-step() { ((QUIET)) || printf '\n[%s] %s\n' "$*"; }
+step() {
+  ((QUIET)) && return 0
+  if (($# > 1)); then
+    printf '\n[%s] %s\n' "$1" "$2"
+  else
+    printf '\n[%s]\n' "$1"
+  fi
+}
 ok() { ((QUIET)) || printf '      OK   %s\n' "$*"; }
 note() { ((QUIET)) || printf '      --   %s\n' "$*"; }
 problem() {
@@ -172,7 +178,7 @@ dns_servers_in_use() {
 # 1. Đồng hồ hệ thống — lệch giờ làm mọi bắt tay TLS thất bại
 # ---------------------------------------------------------------------------
 check_time() {
-  step "1/6 Đồng hồ hệ thống"
+  step "1/6" "Đồng hồ hệ thống"
   local now sync=unknown
   now="$(date '+%Y-%m-%d %H:%M:%S %z')"
   if have timedatectl; then
@@ -193,7 +199,7 @@ check_time() {
 # 2. Liên kết mạng và DNS đang được dùng
 # ---------------------------------------------------------------------------
 check_link() {
-  step "2/6 Liên kết mạng"
+  step "2/6" "Liên kết mạng"
   local link dns
   link="$(active_link)"
   if [[ -n "$link" ]]; then
@@ -237,7 +243,7 @@ probe_dns() {
 }
 
 check_dns() {
-  step "3/6 Phân giải tên máy chủ Steam/Valve (qua glibc, giống Steam)"
+  step "3/6" "Phân giải tên máy chủ Steam/Valve (qua glibc, giống Steam)"
   local host counts v4 v6 resolved=0 failed=0
   local any_v6=0
   for host in "${STEAM_HOSTS[@]}"; do
@@ -255,8 +261,6 @@ check_dns() {
   done
   if ((failed > 0 && resolved == 0)); then
     DNS_BROKEN=1
-  elif ((failed > 0)); then
-    DNS_PARTIAL=1
   fi
   # Một tên bất kỳ của Valve không phân giải được cũng đủ làm Steam chết, nên
   # đây là lỗi chứ không phải cảnh báo.
@@ -289,7 +293,7 @@ global_ipv6_address() {
 }
 
 check_families() {
-  step "4/6 Ra Internet bằng IPv4 và IPv6"
+  step "4/6" "Ra Internet bằng IPv4 và IPv6"
   local code
   if ! have curl; then
     problem "Thiếu curl — không kiểm tra được kết nối. Cài: sudo pacman -S curl"
@@ -331,7 +335,7 @@ fetch_manifest() {
 }
 
 check_steam_download() {
-  step "5/6 Tải manifest client của Steam"
+  step "5/6" "Tải manifest client của Steam"
   if ! have curl; then
     note "Bỏ qua: thiếu curl"
     return 0
@@ -378,7 +382,8 @@ backup_once() {
   local file="$1"
   [[ -e "$file" ]] || return 0
   install -d -m 0755 "$STATE_DIR"
-  local backup="$STATE_DIR/$(basename "$file").bak"
+  local backup
+  backup="$STATE_DIR/$(basename "$file").bak"
   [[ -e "$backup" ]] || cp -a -- "$file" "$backup"
   note "Đã sao lưu $file → $backup"
 }
@@ -413,7 +418,8 @@ EOF
 
 prefer_ipv4() {
   local gai="$1"
-  if [[ -e "$gai" ]] && grep -qF '^precedence ::ffff:0:0/96  100' "$gai"; then
+  if [[ -e "$gai" ]] &&
+    grep -Eq '^[[:space:]]*precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100([[:space:]]*(#.*)?)?$' "$gai"; then
     note "$gai đã ưu tiên IPv4 từ trước"
     return 0
   fi
@@ -467,7 +473,7 @@ apply_fixes() {
 # 6. Kết luận
 # ---------------------------------------------------------------------------
 print_verdict() {
-  step "6/6 Kết luận"
+  step "6/6" "Kết luận"
   if ((${#PROBLEMS[@]} == 0)); then
     say "      Mạng đáp ứng được yêu cầu của Steam."
     say "      Nếu Steam vẫn báo 'needs to be online', hãy xoá thư mục cài đặt dở"

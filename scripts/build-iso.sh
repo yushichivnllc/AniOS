@@ -618,7 +618,7 @@ cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
 
 # --- Gói AUR được nướng sẵn vào ảnh live ----------------------------------
 # pacman không cài được AUR, nên các gói trong profile/packages.aur.x86_64
-# (calamares, yay, coccoc-browser-stable, legacy-launcher) phải được makepkg dựng ngay bên trong
+# (Calamares, yay, Cốc Cốc, Legacy Launcher, Jan AI, LM Studio) phải được makepkg dựng ngay bên trong
 # chroot airootfs. mkarchiso mở đúng một chỗ cho việc đó: hook
 # <airootfs>/root/customize_airootfs.sh, được chạy bằng arch-chroot SAU khi
 # pacstrap cài xong packages.x86_64 và TRƯỚC khi sinh pkglist (hàm
@@ -643,7 +643,7 @@ if (( WITH_AUR )); then
 
   # Hook này bị archiso đánh dấu deprecated nhưng vẫn còn trong mkarchiso. Nếu
   # một bản archiso tương lai bỏ hẳn nó thì gói AUR sẽ âm thầm biến mất khỏi ảnh,
-  # nên kiểm tra ngay lúc dựng thay vì phát hành ISO thiếu Calamares/yay/Cốc Cốc.
+  # nên kiểm tra ngay lúc dựng thay vì phát hành ISO thiếu các gói AUR đã chọn.
   MKARCHISO_BIN="$(command -v mkarchiso)"
   if ! grep -q 'customize_airootfs.sh' "$MKARCHISO_BIN"; then
     cat >&2 <<'EOF'
@@ -651,7 +651,7 @@ mkarchiso on this machine no longer runs airootfs/root/customize_airootfs.sh,
 which is the only hook AniOS can use to build AUR packages inside the image.
 
 The AUR packages in profile/packages.aur.x86_64 (Calamares, yay,
-coccoc-browser-stable, legacy-launcher) would silently be missing from the ISO, so the build stops
+Coc Coc, Legacy Launcher, Jan AI, LM Studio) would silently be missing from the ISO, so the build stops
 here. Either build with an archiso version that still supports the hook, or run
 `sudo ./scripts/build-iso.sh --no-aur` for an ISO without the AUR packages.
 EOF
@@ -710,7 +710,7 @@ fi
 HOOK_BODY
   chmod 0755 -- "$AUR_HOOK"
 else
-  printf 'Skipping the AUR packages (--no-aur): the ISO will have no Calamares/yay/Coc Coc/Legacy Launcher\n'
+  printf 'Skipping the AUR packages (--no-aur): the ISO will have no Calamares, yay, Coc Coc, Legacy Launcher, Jan AI, or LM Studio\n'
 fi
 
 # --- Sober (Roblox) từ Flathub, cài sẵn vào ảnh ---------------------------
@@ -846,6 +846,24 @@ if (( WITH_AUR )); then
     '/usr/local/lib/anios/anios-installer-skel:0:0:755'
     '/usr/local/lib/anios/anios-installer-finalize:0:0:755'
   )
+fi
+
+# mkarchiso bỏ bit mode khi chép airootfs. Khôi phục bit thực thi cho mọi
+# helper trong cả ba bản skeleton: cấu hình mặc định, /etc/skel, và home live.
+SKEL_PERMISSION_HELPER="$ROOT_DIR/scripts/list-skel-file-permissions.sh"
+[[ -x "$SKEL_PERMISSION_HELPER" ]] || {
+  echo "Missing executable skeleton permissions helper: $SKEL_PERMISSION_HELPER" >&2
+  exit 1
+}
+if ! SKELETON_PERMISSION_OUTPUT="$("$SKEL_PERMISSION_HELPER" "$BUILD_PROFILE/airootfs")"; then
+  echo "Failed to collect executable skeleton file permissions." >&2
+  exit 1
+fi
+if [[ -n "$SKELETON_PERMISSION_OUTPUT" ]]; then
+  mapfile -t SKELETON_FILE_PERMISSIONS <<<"$SKELETON_PERMISSION_OUTPUT"
+  for skeleton_permission in "${SKELETON_FILE_PERMISSIONS[@]}"; do
+    ANIOS_FILE_PERMISSIONS[${#ANIOS_FILE_PERMISSIONS[@]}]="$skeleton_permission"
+  done
 fi
 
 # Tách một mục của danh sách trên thành FP_PATH (đường dẫn trong ảnh) và FP_LINE
@@ -1012,7 +1030,7 @@ anios_report_aur_packages() {
 # Hook customize_airootfs.sh là chỗ duy nhất AniOS dựng được gói AUR, và nó bị
 # archiso đánh dấu deprecated. Nếu hook không chạy (archiso đổi, airootfs được
 # tái sử dụng từ lần dựng trước, script dựng gói bị bỏ qua...) thì mkarchiso vẫn
-# báo thành công và cho ra một ISO thiếu Calamares/yay/Cốc Cốc. Vì vậy phải đối chiếu với
+# báo thành công và cho ra một ISO thiếu AUR app. Vì vậy phải đối chiếu với
 # pacman DB của chính airootfs vừa dựng — đó là nguồn sự thật mà pkglist trên ISO
 # cũng được sinh ra từ đó.
 if (( WITH_AUR )); then

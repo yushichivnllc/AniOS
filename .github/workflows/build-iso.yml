@@ -235,12 +235,11 @@ jobs:
               exit 1
             }
           done
-          # Gói AUR: yay (trợ giúp AUR), coccoc-browser-stable (Cốc Cốc),
-          # legacy-launcher (launcher Minecraft). pkglist do mkarchiso sinh ra SAU
-          # bước customize_airootfs.sh nên ba gói này phải có mặt ở đây; bước
-          # "Kiểm tra gói AUR trong ảnh live" bên dưới còn đọc thẳng pacman DB
-          # trong airootfs.sfs để chắc chắn.
-          for pkg in yay coccoc-browser-stable legacy-launcher; do
+          # Gói AUR phải có trong pkglist do mkarchiso sinh ra SAU bước
+          # customize_airootfs.sh: Calamares (installer), yay, Cốc Cốc,
+          # Legacy Launcher, Jan AI và LM Studio. Bước kiểm tra bên dưới còn đọc
+          # thẳng pacman DB trong airootfs.sfs để xác nhận.
+          for pkg in calamares yay coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin; do
             grep -q "^$pkg " out/anios-pkglist.txt || {
               echo "::error::Gói AUR $pkg không được dựng vào ảnh live"
               echo "::error::Xem các dòng 'AniOS:' trong log bước 'Dựng ISO'"
@@ -451,11 +450,11 @@ jobs:
           /workspace/scripts/check-live-audio.sh "$squashfs" out/anios-pkglist.txt
           ARCH
 
-      - name: Kiểm tra gói AUR, python, nodejs, wine trong ảnh live
+      - name: Kiểm tra Calamares, gói AUR và runtime trong ảnh live
         # pkglist chỉ nói rằng gói "đã được cài"; bước này đọc thẳng airootfs.sfs
         # bằng scripts/check-live-aur.sh để xác nhận:
-        #   * yay, coccoc-browser-stable, legacy-launcher có trong pacman DB của
-        #     ảnh (var/lib/pacman/local), kèm binary thật (usr/bin/yay...),
+        #   * Calamares, yay, Cốc Cốc, Legacy Launcher, Jan AI và LM Studio có
+        #     trong pacman DB của ảnh (var/lib/pacman/local), kèm binary thật,
         #   * python/python-pip, nodejs/npm, wine/winetricks, base-devel/git,
         #     jre-openjdk, qt5-base, ttf-liberation đều có mặt,
         #   * bước dựng gói AUR không để lại rác: /root/.anios-aur, hook

@@ -222,7 +222,7 @@ sfs_cache_put() {
   [[ -e "$scratch/$rel" || -L "$scratch/$rel" ]] || return 1
   parent="$(dirname -- "$rel")"
   mkdir -p -- "$CACHE_DIR/$parent" || return 1
-  rm -rf -- "$CACHE_DIR/$rel"
+  rm -rf -- "${CACHE_DIR:?}/$rel"
   cp -a -- "$scratch/$rel" "$CACHE_DIR/$rel"
 }
 

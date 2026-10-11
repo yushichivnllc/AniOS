@@ -42,7 +42,7 @@ sudo ./scripts/build-iso.sh --clean
 # Bỏ qua bước kiểm tra profile (chỉ dùng khi đã hiểu rõ lý do)
 sudo ./scripts/build-iso.sh --skip-checks
 
-# Dựng nhanh, KHÔNG nướng gói AUR vào ảnh (ảnh sẽ không có Calamares/yay/Cốc Cốc/Legacy Launcher)
+# Dựng nhanh, KHÔNG nướng gói AUR vào ảnh (ảnh sẽ không có Calamares, yay, Cốc Cốc, Legacy Launcher, Jan AI hoặc LM Studio)
 sudo ./scripts/build-iso.sh --no-aur
 ```
 
@@ -136,6 +136,8 @@ database pacman của ảnh lẫn trong danh sách gói trên ISO.
 | `yay` | trợ lý AUR cho phiên live: tìm, cài và cập nhật cả kho chính thức lẫn AUR (`yay -Syu`) |
 | `coccoc-browser-stable` | trình duyệt Cốc Cốc tiếng Việt (Chromium, tải media tốt); phụ thuộc `qt5-base`, `ttf-liberation` |
 | `legacy-launcher` | launcher Minecraft bản classic (llaun.ch); chạy bằng Java, cần `jre-openjdk` |
+| `jan-bin` | ứng dụng Jan AI để tải và chạy mô hình LLM cục bộ |
+| `lmstudio-bin` | ứng dụng LM Studio để chạy mô hình GGUF cục bộ |
 
 Cùng đợt này, `packages.x86_64` có thêm `python`, `python-pip`, `nodejs`, `npm`, `wine`, `winetricks`,
 `flatpak`, `base-devel`, `git`, `jre-openjdk`, `qt5-base` và `ttf-liberation` — nhóm gói từ kho chính thức
@@ -409,8 +411,8 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
 - `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey, theme con trỏ `adwaita-cursors`, Cốc Cốc/Wine/Python/Node.js/Java và tiện ích bổ sung vào Archiso `releng`.
-- `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
-- `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
+- `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`, `jan-bin`, `lmstudio-bin`); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
+- `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS`, gồm cả helper được quét từ ba bản skeleton `/home/anios`, `/etc/skel`, `/usr/share/anios/skel` (`list-skel-file-permissions.sh`; mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR, dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
 - `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; cần Lua 5.4 trở lên, không cần GPU.
@@ -421,12 +423,14 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-anios-session.sh` — dùng `dbus-run-session` giả để xác nhận lựa chọn SDDM ghi đúng desktop mode vào `XDG_CONFIG_HOME` và không ghim biến môi trường qua lần reload Hyprland.
 - `scripts/selftest-build-iso-sudoers.sh` — tự kiểm tra bước "không có luật sudo `NOPASSWD` nào lọt vào ảnh" ở cuối `build-iso.sh` trên airootfs giả: `/etc/sudoers` mặc định của gói `sudo` phải sạch, luật thật phải bị bắt kèm `file:dòng`; không cần Arch Linux.
 - `scripts/selftest-build-iso-permissions.sh` — tự kiểm tra bước khai báo `file_permissions` của `build-iso.sh` (mảng `ANIOS_FILE_PERMISSIONS`, hàm ghi và hàm đối chiếu) trên một profile `releng` giả: mọi mục phải nằm trong mảng mà `mkarchiso` thật sự nạp, còn thiếu khai báo, khai báo đường dẫn không có trong ảnh, `releng` đổi dòng mở mảng và mục sai định dạng đều phải bị chặn; không cần Arch Linux.
+- `scripts/list-skel-file-permissions.sh` và `scripts/selftest-build-iso-skel-permissions.sh` — thu thập/kiểm tra mode thực thi của các helper ở `/home/anios`, `/etc/skel` và `/usr/share/anios/skel`, để mkarchiso không làm hỏng keybind sau khi bỏ executable bit.
+- `scripts/selftest-show-loaded-ollama-models.sh` — tự kiểm tra helper Ollama chọn model trong `primary-buffer-query.sh`, gồm trường hợp nhiều tiến trình model và không có model.
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
 - `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.
 - `scripts/selftest-anios-netcheck.sh` — tự kiểm tra `anios-netcheck` bằng `getent`/`curl`/`nmcli`/`resolvectl` giả trên cây `/etc` giả: DNS chết hẳn, DNS chỉ sai với tên Valve, IPv6 "nửa sống", captive portal, các bước `--fix`/`--fix-dns` và chế độ `--quiet` dùng cho unit.
 - `scripts/selftest-apply-saved-cursor.sh` — tự kiểm tra `apply_saved_cursor.sh` (script áp theme con trỏ lúc Hyprland khởi động) với `hyprctl` giả trên cây icon giả: theme đã lưu được giữ, theme không được cài rơi về Adwaita, JSON hỏng/size sai không làm chết phiên, theme hyprcursor vẫn được nhận, và khi ảnh không có theme nào thì không gọi `hyprctl` để compositor giữ con trỏ mặc định.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
-- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, lựa chọn phiên SDDM, quyền tệp trong ảnh).
+- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, lựa chọn phiên SDDM, quyền file_permissions của skeleton và bộ phát hiện model Ollama).
 
 ## Kiểm tra nhanh
 
@@ -440,7 +444,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-check-live-aur.sh      # bước kiểm tra Calamares/gói AUR/python/nodejs/wine trong ảnh giả
 ./scripts/selftest-installer.sh           # mô phỏng chọn Live/Install và các bước cài hệ thống
 ./scripts/selftest-build-iso-sudoers.sh   # bước kiểm tra NOPASSWD ở cuối build-iso.sh trên airootfs giả
-./scripts/selftest-build-iso-permissions.sh # bước khai báo file_permissions (quyền/bit thực thi) của build-iso.sh
+./scripts/selftest-build-iso-permissions.sh      # file_permissions cho các helper hệ thống
+./scripts/selftest-build-iso-skel-permissions.sh # executable bit của ba bản skeleton
+./scripts/selftest-show-loaded-ollama-models.sh # phát hiện nhiều model đang chạy
 ```
 
 Các bài kiểm tra chạy nhanh, không cần dựng ISO. Có thể đặt `LUA=lua5.4` nếu

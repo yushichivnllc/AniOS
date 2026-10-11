@@ -89,7 +89,8 @@ INSTALLED_AS_DEPS=()
 ts() { date '+%H:%M:%S'; }
 
 log() {
-  local line="[$(ts)] $*"
+  local line
+  line="[$(ts)] $*"
   printf '%s\n' "$line"
   printf '%s\n' "$line" >>"$LOG" 2>/dev/null || true
 }
@@ -333,7 +334,9 @@ enable_calamares_packagechooser() {
 # Ưu tiên git AUR; nếu host AUR lỗi TLS/Anubis thì thử mirror GitHub chính thức,
 # mỗi package nằm trên một branch riêng. Snapshot cgit là phương án cuối cùng.
 fetch_aur() {
-  local pkg="$1" dest="$SRC_DIR/src/$pkg" tmp_tar="$SRC_DIR/$pkg.tar.gz"
+  local pkg="$1"
+  local dest="$SRC_DIR/src/$pkg"
+  local tmp_tar="$SRC_DIR/$pkg.tar.gz"
   rm -rf -- "$dest" "$tmp_tar"
   if run_logged git clone --quiet --depth 1 -- "$AUR_ROOT/$pkg.git" "$dest"; then
     if [[ -s "$dest/PKGBUILD" ]]; then

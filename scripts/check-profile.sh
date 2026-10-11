@@ -37,7 +37,7 @@ done
 # packages.x86_64 được pacstrap đọc trực tiếp nên CHỈ được chứa gói của kho chính
 # thức. Gói AUR phải nằm trong profile/packages.aur.x86_64, nơi
 # scripts/anios-aur-build.sh dựng chúng bằng makepkg bên trong chroot.
-for aur_only in calamares yay yay-bin coccoc-browser-stable legacy-launcher; do
+for aur_only in calamares yay yay-bin coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin; do
   ! grep -qxF "$aur_only" "$ROOT_DIR/profile/packages.x86_64" ||
     fail "$aur_only only exists in the AUR; pacstrap cannot resolve it. Move it to profile/packages.aur.x86_64"
 done
@@ -325,16 +325,23 @@ grep -qF 'getty@tty1.service.d' "$ROOT_DIR/scripts/build-iso.sh" ||
   fail "build-iso.sh must remove releng getty autologin so SDDM can use tty1"
 
 # /home/anios nằm trên lớp ghi tạm của hệ thống live, nên tài khoản live cần một
-# unit nhỏ chạy trước SDDM để chép skel còn thiếu và chuyển quyền sở hữu.
-LIVE_HOME_UNIT="$AIROOTFS/etc/systemd/system/anios-live-home.service"
-[[ -s "$LIVE_HOME_UNIT" ]] || fail "anios-live-home.service is missing"
-[[ -s "$AIROOTFS/usr/lib/systemd/system/anios-live-home.service" ]] ||
-  fail "anios-live-home.service must exist in /usr/lib/systemd/system"
+# unit nhỏ chạy trước SDDM để chép skel còn thiếu và chuyển quyền sở hữu. Chỉ
+# giữ một bản ở /usr/lib: bản override cùng tên trong /etc sẽ được systemd ưu
+# tiên và có thể làm mất TimeoutStartSec dài cần cho home Steam lớn.
+LIVE_HOME_UNIT="$AIROOTFS/usr/lib/systemd/system/anios-live-home.service"
+[[ -s "$LIVE_HOME_UNIT" ]] || fail "anios-live-home.service is missing from /usr/lib/systemd/system"
+[[ ! -e "$AIROOTFS/etc/systemd/system/anios-live-home.service" &&
+   ! -L "$AIROOTFS/etc/systemd/system/anios-live-home.service" ]] ||
+  fail "anios-live-home.service must not be shadowed by a stale /etc unit"
 grep -qxF 'Before=sddm.service' "$LIVE_HOME_UNIT" || fail "the live home setup must run before SDDM"
 grep -qxF 'ExecStart=/usr/local/lib/anios/live-home-setup' "$LIVE_HOME_UNIT" ||
   fail "the live home service must run live-home-setup"
+grep -qxF 'TimeoutStartSec=600' "$LIVE_HOME_UNIT" ||
+  fail "the live home service must allow 600 seconds to prepare the home directory"
 [[ -L "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-live-home.service" ]] ||
   fail "anios-live-home.service is not enabled"
+[[ "$(readlink "$AIROOTFS/etc/systemd/system/multi-user.target.wants/anios-live-home.service")" == "/usr/lib/systemd/system/anios-live-home.service" ]] ||
+  fail "anios-live-home.service enablement must point at the /usr/lib unit"
 LIVE_HOME_SETUP="$AIROOTFS/usr/local/lib/anios/live-home-setup"
 grep -qF '/usr/share/anios/skel' "$LIVE_HOME_SETUP" || fail "live-home-setup must use the AniOS skeleton"
 grep -qF 'chown -R' "$LIVE_HOME_SETUP" || fail "live-home-setup must give the live user ownership of its home"
@@ -745,6 +752,38 @@ done
 grep -qF 'NTPSynchronized' "$AIROOTFS/usr/local/bin/anios-netcheck" ||
   fail "anios-netcheck must report the clock and its NTP state"
 
+# --- Phát hiện model Ollama đang chạy -------------------------------------
+# primary-buffer-query.sh dùng kết quả này để chọn model. Giữ hai bản trong
+# skeleton đồng bộ và khóa trường hợp nhiều tiến trình bị gộp thành một chuỗi.
+OLLAMA_DETECTOR="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/scripts/ai/show-loaded-ollama-models.sh"
+OLLAMA_DETECTOR_TWIN="$AIROOTFS/etc/skel/.config/hypr/hyprland/scripts/ai/show-loaded-ollama-models.sh"
+OLLAMA_DETECTOR_TEST="$ROOT_DIR/scripts/selftest-show-loaded-ollama-models.sh"
+[[ -x "$OLLAMA_DETECTOR" && -x "$OLLAMA_DETECTOR_TWIN" ]] ||
+  fail "the executable Ollama model detector must be present in both skeletons"
+cmp -s "$OLLAMA_DETECTOR" "$OLLAMA_DETECTOR_TWIN" ||
+  fail "the Ollama model detector differs between /etc/skel and /usr/share/anios/skel"
+grep -qF 'show-loaded-ollama-models.sh' \
+  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/scripts/ai/primary-buffer-query.sh" ||
+  fail "primary-buffer-query.sh must use the Ollama model detector"
+[[ -x "$OLLAMA_DETECTOR_TEST" ]] ||
+  fail "missing or not executable: scripts/selftest-show-loaded-ollama-models.sh"
+grep -qF 'selftest-show-loaded-ollama-models.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-show-loaded-ollama-models.sh"
+
+# --- Quyền thực thi của các dotfile trong ảnh live ------------------------
+# mkarchiso bỏ mode khi chép airootfs. Nhiều keybind gọi thẳng các script trong
+# home của người dùng; phục hồi quyền ở /home/anios, /etc/skel và /usr/share/anios/skel.
+SKEL_PERMISSION_HELPER="$ROOT_DIR/scripts/list-skel-file-permissions.sh"
+SKEL_PERMISSION_SELFTEST="$ROOT_DIR/scripts/selftest-build-iso-skel-permissions.sh"
+[[ -x "$SKEL_PERMISSION_HELPER" ]] ||
+  fail "missing or not executable: scripts/list-skel-file-permissions.sh"
+[[ -x "$SKEL_PERMISSION_SELFTEST" ]] ||
+  fail "missing or not executable: scripts/selftest-build-iso-skel-permissions.sh"
+grep -qF 'list-skel-file-permissions.sh' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh must collect executable modes from all AniOS skeleton copies"
+grep -qF 'selftest-build-iso-skel-permissions.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-build-iso-skel-permissions.sh"
+
 # --- Quyền của script dựng ISO -------------------------------------------
 [[ -x "$ROOT_DIR/scripts/build-iso.sh" ]] || fail "build script is not executable"
 [[ -x "$ROOT_DIR/scripts/check-profile.sh" ]] || fail "check script is not executable"
@@ -776,8 +815,8 @@ grep -qF 'selftest-check-live-audio.sh' "$ROOT_DIR/.github/workflows/profile-che
   fail "the profile workflow must run scripts/selftest-check-live-audio.sh"
 
 # --- Gói AUR được dựng và cài sẵn lúc build --------------------------------
-# pacman không cài được AUR, nên calamares, yay, coccoc-browser-stable và legacy-launcher
-# phải được makepkg dựng BÊN TRONG chroot airootfs (scripts/anios-aur-build.sh,
+# pacman không cài được AUR, nên Calamares, yay, Cốc Cốc, Legacy Launcher, Jan AI
+# và LM Studio phải được makepkg dựng BÊN TRONG chroot airootfs (scripts/anios-aur-build.sh,
 # gọi từ hook customize_airootfs.sh mà scripts/build-iso.sh sinh ra). Nhóm kiểm tra
 # dưới đây khoá lại những quyết định dễ bị phá khi sửa tay.
 AUR_MANIFEST="$ROOT_DIR/profile/packages.aur.x86_64"
@@ -788,10 +827,13 @@ LIVE_AUR_SELFCHECK="$ROOT_DIR/scripts/selftest-check-live-aur.sh"
 BUILD_ISO="$ROOT_DIR/scripts/build-iso.sh"
 
 [[ -s "$AUR_MANIFEST" ]] || fail "AUR manifest is missing: profile/packages.aur.x86_64"
-for aur_pkg in calamares yay coccoc-browser-stable legacy-launcher; do
+for aur_pkg in calamares yay coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin; do
   grep -qE "^${aur_pkg}(=[^[:space:]]+)?([[:space:]]|#|$)" "$AUR_MANIFEST" ||
     fail "the AUR manifest must bake $aur_pkg into the live image"
 done
+grep -qF 'for pkg in calamares yay coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin; do' \
+  "$ROOT_DIR/.github/workflows/build-iso.yml" ||
+  fail "the ISO build workflow must check every AUR package in the generated pkglist"
 # Mỗi dòng của manifest là một tên gói, kèm "=phiên bản" nếu muốn chốt bản đã thử.
 # scripts/anios-aur-build.sh cũng chặn dòng sai, nhưng chặn ở đây thì nhanh hơn
 # nhiều so với chờ một lượt dựng ISO.
