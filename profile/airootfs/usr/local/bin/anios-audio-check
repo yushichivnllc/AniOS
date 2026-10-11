@@ -15,7 +15,7 @@ if [[ -t 1 ]]; then
   red=$'\033[31m'
   reset=$'\033[0m'
 else
-  bold= green= yellow= red= reset=
+  bold='' green='' yellow='' red='' reset=''
 fi
 
 usage() {

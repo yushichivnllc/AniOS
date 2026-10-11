@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kiểm tra các gói cài sẵn mới của AniOS ngay bên trong airootfs.sfs vừa dựng:
-# gói AUR (Calamares, yay, coccoc-browser-stable, legacy-launcher), python, nodejs, wine và
+# gói AUR (Calamares, yay, Cốc Cốc, Legacy Launcher, Jan AI, LM Studio), python, nodejs, wine và
 # bộ công cụ để yay dựng được gói ngay trong phiên live (base-devel, git).
 #
 #   Usage: scripts/check-live-aur.sh <airootfs.sfs> [pkglist.x86_64.txt]
@@ -67,7 +67,7 @@ ERRORS=0
 # --- Những gì phải có trong ảnh live --------------------------------------
 # Gói AUR: dựng lúc build bởi scripts/anios-aur-build.sh, liệt kê trong
 # profile/packages.aur.x86_64.
-AUR_PACKAGES=(calamares yay coccoc-browser-stable legacy-launcher)
+AUR_PACKAGES=(calamares yay coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin)
 # Gói kho chính thức cài sẵn theo yêu cầu (python, nodejs, wine, flatpak) và những
 # thứ bắt buộc phải có để `yay -S <gói>` chạy được ngay trong phiên live.
 REPO_PACKAGES=(

@@ -170,6 +170,8 @@ make_fake_image() {
     yay-13.0.1-1
     coccoc-browser-stable-152.0.7977.124-1
     legacy-launcher-latest-1
+    jan-bin-0.6.0-1
+    lmstudio-bin-0.3.9-1
     python-3.13.1-1
     python-pip-24.3.1-1
     nodejs-23.6.0-1
@@ -240,6 +242,8 @@ calamares=3.4.2-2
 yay=13.0.1-1
 coccoc-browser-stable=152.0.7977.124-1
 legacy-launcher=latest-1
+jan-bin=0.6.0-1
+lmstudio-bin=0.3.9-1
 REPORT
 
   # pkglist.x86_64.txt như mkarchiso sinh ra (tên gói + phiên bản).
@@ -255,6 +259,8 @@ calamares 3.4.2-2
 yay 13.0.1-1
 coccoc-browser-stable 152.0.7977.124-1
 legacy-launcher latest-1
+jan-bin 0.6.0-1
+lmstudio-bin 0.3.9-1
 python 3.13.1-1
 python-pip 24.3.1-1
 nodejs 23.6.0-1
@@ -286,7 +292,7 @@ status=0
 run_checker "$IMG" "$out" || status=$?
 (( status == 0 )) || { cat "$out" >&2; fail "ảnh tốt mà script trả exit $status"; }
 grep -qF 'THIẾU' "$out" && { cat "$out" >&2; fail "ảnh tốt mà vẫn báo THIẾU"; }
-for pkg in calamares yay coccoc-browser-stable legacy-launcher python nodejs wine flatpak; do
+for pkg in calamares yay coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin python nodejs wine flatpak; do
   grep -qE "OK    $pkg\b" "$out" || { cat "$out" >&2; fail "ảnh tốt mà không xác nhận gói $pkg"; }
 done
 grep -qF 'OK    usr/bin/calamares' "$out" || fail "không xác nhận binary usr/bin/calamares"
@@ -296,7 +302,9 @@ grep -qF 'OK    usr/lib/calamares/modules/*packagechooser*' "$out" ||
 grep -qF 'OK    root/.anios-aur đã được dọn' "$out" || fail "không xác nhận rác dựng gói đã dọn"
 grep -qF 'OK    không có luật sudo NOPASSWD nào' "$out" || fail "không xác nhận ảnh sạch NOPASSWD"
 grep -qE 'yay=13\.0\.1-1' "$out" || fail "không in báo cáo gói AUR có trong ảnh"
-pass "ảnh tốt: đủ Calamares, yay + gói AUR, python, nodejs, wine, không rác, exit 0"
+grep -qE 'jan-bin=0\.6\.0-1' "$out" || fail "không báo Jan AI trong pacman DB của ảnh"
+grep -qE 'lmstudio-bin=0\.3\.9-1' "$out" || fail "không báo LM Studio trong pacman DB của ảnh"
+pass "ảnh tốt: đủ Calamares, yay, Cốc Cốc, Legacy Launcher, Jan AI, LM Studio, python, nodejs, wine, không rác, exit 0"
 
 # --- 2. Thiếu binary ------------------------------------------------------
 IMG2="$SANDBOX/img-nobin"

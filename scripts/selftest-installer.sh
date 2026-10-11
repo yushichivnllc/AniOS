@@ -86,8 +86,8 @@ INSTALLER_DATA="$LIVE_ROOT/usr/share/anios/installer"
 mkdir -p -- "$FAKE_BIN" "$LIVE_ROOT/usr/share/anios" \
   "$LIVE_ROOT/usr/share/sddm/themes/anios" "$LIVE_ROOT/usr/share/sddm/themes/wuwa" \
   "$LIVE_ROOT/usr/share/wayland-sessions" "$LIVE_ROOT/usr/local/bin" \
-  "$LIVE_ROOT/etc/systemd" "$INSTALLER_DATA/upstream/grubphemous" \
-  "$INSTALLER_DATA/licenses" "$INSTALLER_DATA/scripts"
+  "$LIVE_ROOT/etc/systemd" "$LIVE_ROOT/etc/modprobe.d" "$LIVE_ROOT/etc/modules-load.d" \
+  "$INSTALLER_DATA/upstream/grubphemous" "$INSTALLER_DATA/licenses" "$INSTALLER_DATA/scripts"
 
 cat >"$FAKE_BIN/mountpoint" <<'FAKE'
 #!/usr/bin/env bash
@@ -261,6 +261,8 @@ for binary in anios-session anios-audio-setup anios-audio-check anios-switch-des
 done
 chmod 0755 "$LIVE_ROOT"/usr/local/bin/*
 printf 'zram-size = min(ram / 2, 4096)\n' >"$LIVE_ROOT/etc/systemd/zram-generator.conf"
+printf 'options nvidia_drm modeset=1\n' >"$LIVE_ROOT/etc/modprobe.d/10-anios-nvidia.conf"
+printf 'nvidia\nnvidia_modeset\nnvidia_uvm\nnvidia_drm\n' >"$LIVE_ROOT/etc/modules-load.d/10-anios-nvidia.conf"
 mkdir -p -- "$LIVE_ROOT/usr/share/anios/skel/.config/hypr" "$LIVE_ROOT/usr/share/anios/skel/Desktop"
 cat >"$LIVE_ROOT/usr/share/anios/skel/.config/hypr/hyprlock.conf" <<'HYPRLOCK'
 # Live password: 1111
@@ -394,6 +396,10 @@ grep -qF 'Blasphemous Regular 30' "$GORGEOUS_ROOT/boot/grub/themes/anios-grubphe
   fail "GRUB theme compatibility font size was not normalized"
 [[ -s "$GORGEOUS_ROOT/usr/share/licenses/anios/grubphemous/README.md" ]] ||
   fail "upstream font attribution was not installed"
+grep -qxF 'options nvidia_drm modeset=1' "$GORGEOUS_ROOT/etc/modprobe.d/10-anios-nvidia.conf" ||
+  fail "NVIDIA DRM KMS configuration was not copied into the installed system"
+grep -qxF 'nvidia_drm' "$GORGEOUS_ROOT/etc/modules-load.d/10-anios-nvidia.conf" ||
+  fail "NVIDIA kernel modules were not configured to load before the display manager"
 as_root test -x "$GORGEOUS_ROOT/usr/local/bin/anios-end4-setup" ||
   fail "end-4 setup helper was not installed for the target user"
 as_root test -f "$GORGEOUS_ROOT/home/demo/.config/anios/end4-setup-pending" ||

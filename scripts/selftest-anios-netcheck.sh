@@ -246,9 +246,32 @@ reset_root
 EXTRA_ARGS="--wait 0 --fix"
 run_checker "FAKE_DNS_STEAM=ok" "FAKE_IPV4_CODE=200" "FAKE_IPV6_CODE=000" \
   "FAKE_IPV6_ADDR=2001:ee0:4f1a:7c00:1234:5678:9abc:def0" "FAKE_STEAM_CODE=200"
-grep -qF 'precedence ::ffff:0:0/96  100' "$FAKE_ROOT/etc/gai.conf" &&
-  report_ok "--fix thêm ưu tiên IPv4 vào /etc/gai.conf" ||
+if grep -Eq '^precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100$' "$FAKE_ROOT/etc/gai.conf"; then
+  report_ok "--fix thêm ưu tiên IPv4 vào /etc/gai.conf"
+else
   report_fail "--fix không ghi /etc/gai.conf"
+fi
+
+# Dòng mặc định có dấu # không được coi là cấu hình đang bật; sau khi thêm rule,
+# chạy lại --fix phải nhận ra rule đó và không nhân đôi.
+reset_root
+printf '%s\n' '#precedence ::ffff:0:0/96  100' >"$FAKE_ROOT/etc/gai.conf"
+EXTRA_ARGS="--wait 0 --fix"
+run_checker "FAKE_DNS_STEAM=ok" "FAKE_IPV4_CODE=200" "FAKE_IPV6_CODE=000" \
+  "FAKE_IPV6_ADDR=2001:ee0:4f1a:7c00:1234:5678:9abc:def0" "FAKE_STEAM_CODE=200"
+active_precedence="$(grep -Ec '^[[:space:]]*precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100([[:space:]]|$)' \
+  "$FAKE_ROOT/etc/gai.conf" || true)"
+[[ "$active_precedence" == 1 ]] &&
+  report_ok "dòng precedence bị comment không chặn việc thêm rule đang bật" ||
+  report_fail "dòng comment bị hiểu nhầm là rule đang bật"
+
+run_checker "FAKE_DNS_STEAM=ok" "FAKE_IPV4_CODE=200" "FAKE_IPV6_CODE=000" \
+  "FAKE_IPV6_ADDR=2001:ee0:4f1a:7c00:1234:5678:9abc:def0" "FAKE_STEAM_CODE=200"
+active_precedence="$(grep -Ec '^[[:space:]]*precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100([[:space:]]|$)' \
+  "$FAKE_ROOT/etc/gai.conf" || true)"
+[[ "$active_precedence" == 1 ]] &&
+  report_ok "--fix lặp lại không nhân đôi rule ưu tiên IPv4" ||
+  report_fail "--fix lặp lại đã nhân đôi rule ưu tiên IPv4"
 
 echo "--- 5. captive portal trả HTML ---"
 reset_root

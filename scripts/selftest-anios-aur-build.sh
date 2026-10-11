@@ -50,6 +50,8 @@ mkdir -p -- "$FAKE_BIN" "$FIXTURES"
 #   coccoc-browser-stable  depends qt5-base, ttf-liberation, libx11, glibc...
 #   legacy-launcher        depends java-runtime (dep "ảo": pacman -Sp không tìm
 #                          thấy gói cùng tên, chỉ jre-openjdk thoả mãn được)
+#   jan-bin, lmstudio-bin  được dựng/cài như các gói manifest khác, không cần
+#                          hard-code tên chúng trong anios-aur-build.sh
 make_fixture() {
   local pkg="$1" srcinfo="$2"
   mkdir -p -- "$FIXTURES/$pkg"
@@ -81,6 +83,14 @@ make_fixture legacy-launcher 'pkgbase = legacy-launcher
 	pkgdesc = Stable, fast and simple Minecraft Launcher.
 	depends = java-runtime
 	pkgname = legacy-launcher'
+
+make_fixture jan-bin 'pkgbase = jan-bin
+	pkgdesc = Jan AI desktop app
+	pkgname = jan-bin'
+
+make_fixture lmstudio-bin 'pkgbase = lmstudio-bin
+	pkgdesc = LM Studio desktop app
+	pkgname = lmstudio-bin'
 
 make_fixture calamares 'pkgbase = calamares
 	pkgdesc = Distribution-independent installer framework.
@@ -517,7 +527,7 @@ run_builder() {
   return 0
 }
 
-# --- 1. Dựng thành công cả ba gói AUR --------------------------------------
+# --- 1. Dựng thành công các gói AUR ngoài Calamares ------------------------
 MANIFEST_OK="$SANDBOX/packages.aur.ok"
 cat >"$MANIFEST_OK" <<'EOF'
 # Danh sách gói AUR của bài kiểm tra (comment và dòng trống phải bị bỏ qua).
@@ -525,13 +535,15 @@ cat >"$MANIFEST_OK" <<'EOF'
 yay   # comment cuối dòng cũng phải bị bỏ qua
 coccoc-browser-stable=152.0.7977.124-1
 legacy-launcher
+jan-bin
+lmstudio-bin
 EOF
 
 status=0
 run_builder "$MANIFEST_OK" user ok || status=$?
 if (( status != 0 )); then
   cat "$SANDBOX/state.ok/stderr" >&2
-  fail "script trả exit $status dù cả ba gói đều dựng được"
+  fail "script trả exit $status dù cả năm gói đều dựng được"
 fi
 
 CALLS="$SANDBOX/state.ok/calls"
@@ -553,8 +565,8 @@ grep -q '^curl .*coccoc-browser-stable.tar.gz' "$CALLS" ||
 grep -qxF 'makepkg -f --noconfirm --nocheck' "$CALLS" ||
   fail "makepkg không được gọi với cờ dựng gói AUR của AniOS"
 
-# Cả ba gói phải có trong pacman DB của ảnh và ở trạng thái explicit.
-for pkg in yay coccoc-browser-stable legacy-launcher; do
+# Cả năm gói trong manifest kiểm tra phải có trong pacman DB của ảnh và explicit.
+for pkg in yay coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin; do
   cut -f1 "$INSTALLED" | grep -qxF "$pkg" || fail "gói AUR không được cài vào ảnh: $pkg"
   reason="$(awk -F'\t' -v n="$pkg" '$1 == n {print $3}' "$INSTALLED")"
   [[ "$reason" == explicit ]] ||
@@ -608,10 +620,10 @@ if [[ -e "$AIROOTFS_OK/var/tmp/anios-aur-build" ]]; then
 fi
 report="$AIROOTFS_OK/usr/share/anios/aur-packages.txt"
 [[ -s "$report" ]] || fail "thiếu báo cáo gói AUR: usr/share/anios/aur-packages.txt"
-for pkg in yay coccoc-browser-stable legacy-launcher; do
+for pkg in yay coccoc-browser-stable legacy-launcher jan-bin lmstudio-bin; do
   grep -qE "^$pkg=" "$report" || fail "báo cáo gói AUR thiếu $pkg"
 done
-pass "dựng và cài được yay, coccoc-browser-stable, legacy-launcher vào ảnh giả"
+pass "dựng và cài được yay, Cốc Cốc, Legacy Launcher, Jan AI và LM Studio vào ảnh giả"
 
 # --- 1b. Calamares: mirror GitHub và packagechooser -------------------------
 MANIFEST_CALAMARES="$SANDBOX/packages.aur.calamares"

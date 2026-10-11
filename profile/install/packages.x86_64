@@ -89,6 +89,12 @@ vulkan-radeon
 lib32-vulkan-radeon
 vulkan-nouveau
 lib32-vulkan-nouveau
+# NVIDIA Turing+ proprietary user-space with open DKMS kernel modules for linux-zen.
+nvidia-open-dkms
+nvidia-utils
+lib32-nvidia-utils
+nvidia-prime
+nvidia-settings
 libva-intel-driver
 intel-media-driver
 quickshell
@@ -123,6 +129,7 @@ adw-gtk-theme
 # về "Adwaita", thiếu gói này thì con trỏ nhấp nháy y như trên bản Live.
 adwaita-cursors
 upower
+power-profiles-daemon
 libqalculate
 cava
 wtype

@@ -39,6 +39,8 @@ required_source_files=(
   "$LIVE_ROOT/usr/local/bin/anios-switch-desktop"
   "$LIVE_ROOT/usr/local/bin/anios-update"
   "$LIVE_ROOT/etc/systemd/zram-generator.conf"
+  "$LIVE_ROOT/etc/modprobe.d/10-anios-nvidia.conf"
+  "$LIVE_ROOT/etc/modules-load.d/10-anios-nvidia.conf"
   "$TARGET_ROOT/usr/share/anios/skel/.config/hypr/hyprland.lua"
   "$TARGET_ROOT/etc/skel/.config/hypr/hyprland.lua"
 )
@@ -141,6 +143,11 @@ if [[ -d "$LIVE_ROOT/usr/share/fonts/anios-imi" ]]; then
 fi
 install -D -m 0644 -- "$LIVE_ROOT/etc/systemd/zram-generator.conf" \
   "$TARGET_ROOT/etc/systemd/zram-generator.conf"
+# The NVIDIA DKMS driver needs DRM KMS enabled before Hyprland starts.
+install -D -m 0644 -- "$LIVE_ROOT/etc/modprobe.d/10-anios-nvidia.conf" \
+  "$TARGET_ROOT/etc/modprobe.d/10-anios-nvidia.conf"
+install -D -m 0644 -- "$LIVE_ROOT/etc/modules-load.d/10-anios-nvidia.conf" \
+  "$TARGET_ROOT/etc/modules-load.d/10-anios-nvidia.conf"
 
 # Steam and Wine ship 32-bit packages. Keep multilib enabled after the first boot,
 # even though the Live pacman.conf used for pacstrap is a separate file.

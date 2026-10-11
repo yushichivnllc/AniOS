@@ -37,12 +37,25 @@ if [[ "${ANIOS_LIVE:-}" == 1 ]] && command -v anios-persist >/dev/null 2>&1; the
 fi
 
 mode="${1:-}"
+selected_mode=""
 if [[ "$mode" == "--imi" || "$mode" == "imi" || "$mode" == "immaterial-impulse" ]]; then
-  export ANIOS_DESKTOP="imi"
+  selected_mode="imi"
   shift || true
 elif [[ "$mode" == "--minimal" || "$mode" == "minimal" ]]; then
-  export ANIOS_DESKTOP="minimal"
+  selected_mode="minimal"
   shift || true
+fi
+
+# SDDM's named sessions must win over an older saved preference. Persist the
+# selected mode before Hyprland reads its Lua config; using only ANIOS_DESKTOP
+# would leave that environment pinned across `hyprctl reload` and break the
+# in-session switcher. The plain AniOS session has no argument and uses the
+# already-saved choice (or the default in the skeleton).
+if [[ -n "$selected_mode" ]]; then
+  config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
+  mkdir -p -- "$config_home/anios"
+  printf '%s\n' "$selected_mode" > "$config_home/anios/desktop-mode"
+  unset ANIOS_DESKTOP
 fi
 
 exec dbus-run-session -- Hyprland "$@"

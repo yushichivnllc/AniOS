@@ -4,18 +4,37 @@
 -- 2. "minimal": Giao diện nhẹ với Waybar, Mako, Swaybg
 
 local home = os.getenv("HOME") or ""
-local session_mode = os.getenv("ANIOS_DESKTOP") or "imi"
+local config_home = os.getenv("XDG_CONFIG_HOME")
+if not config_home or config_home == "" then
+    config_home = home .. "/.config"
+end
 
--- Đọc tuỳ chọn giao diện người dùng nếu có (do anios-switch-desktop ghi ra)
-local mode_file = home .. "/.config/anios/desktop-mode"
+local function normalize_session_mode(value)
+    if not value then return nil end
+    value = value:gsub("%s+", ""):lower()
+    if value == "imi" or value == "immaterial-impulse" or value == "quickshell" then
+        return "imi"
+    end
+    if value == "minimal" or value == "waybar" or value == "anios" then
+        return "minimal"
+    end
+    return nil
+end
+
+-- The saved choice is authoritative: SDDM's explicit session wrapper writes it
+-- before Hyprland starts, and anios-switch-desktop updates it before a reload.
+-- Keep ANIOS_DESKTOP only as a fallback for manual/debug launches without a file.
+local session_mode = normalize_session_mode(os.getenv("ANIOS_DESKTOP"))
+local mode_file = config_home .. "/anios/desktop-mode"
 local f = io.open(mode_file, "r")
 if f then
-    local content = f:read("*l")
+    local saved_mode = normalize_session_mode(f:read("*l"))
     f:close()
-    if content and #content > 0 then
-        session_mode = content:gsub("%s+", "")
+    if saved_mode then
+        session_mode = saved_mode
     end
 end
+session_mode = session_mode or "imi"
 
 -- The Live ISO asks once per graphical boot whether to continue Live or install.
 -- An installed user's end-4 choice is offered only at first login, never as root.
@@ -110,7 +129,8 @@ else
             gaps_out         = 8,
             border_size      = 2,
             layout           = "dwindle",
-            allow_tearing    = false,
+            -- Only game windows with an `immediate` rule may tear; this enables the low-latency path.
+            allow_tearing    = true,
             resize_on_border = true,
 
             col = {

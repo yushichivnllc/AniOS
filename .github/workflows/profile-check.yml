@@ -9,8 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Lua for Hyprland config checks
-        run: sudo apt-get update && sudo apt-get install -y lua5.4 python3-yaml
+      - name: Install tools for profile checks
+        run: sudo apt-get update && sudo apt-get install -y jq lua5.4 python3-yaml
       - name: Check shell syntax and profile structure
         env:
           LUA: lua5.4
@@ -51,6 +51,10 @@ jobs:
         # thật chỉ cảnh báo), releng đổi dòng mở mảng, và mục sai định dạng đều phải
         # bị chặn.
         run: ./scripts/selftest-build-iso-permissions.sh
+      - name: Self-test executable modes in AniOS skeletons
+        # mkarchiso cũng bỏ mode của các helper được chép vào /home/anios, /etc/skel
+        # và /usr/share/anios/skel; nếu không phục hồi, keybind gọi trực tiếp sẽ hỏng.
+        run: ./scripts/selftest-build-iso-skel-permissions.sh
       - name: Self-test the live audio checker
         # scripts/check-live-audio.sh chạy trên airootfs.sfs thật trong workflow
         # dựng ISO. Bài này chạy đúng logic đó trên một ảnh live giả (unsquashfs
@@ -90,6 +94,15 @@ jobs:
         # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
         # trên cây hệ thống giả; không cài gì lên runner.
         run: ./scripts/selftest-installer.sh
+      - name: Self-test SDDM desktop session selection
+        # Dùng dbus-run-session giả để xác nhận lựa chọn Minimal/Immaterial ghi
+        # đúng vào XDG_CONFIG_HOME trước khi Hyprland đọc cấu hình.
+        run: ./scripts/selftest-anios-session.sh
+      - name: Self-test the Ollama model detector
+        # primary-buffer-query.sh uses this helper to choose the model currently
+        # loaded by Ollama. Two simulated runner processes catch regressions where
+        # multiple --model paths collapse into one string; no local Ollama needed.
+        run: ./scripts/selftest-show-loaded-ollama-models.sh
       - name: Validate JSON, SDDM theme, and session configuration
         run: |
           python3 - <<'PY'
