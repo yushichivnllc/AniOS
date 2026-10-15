@@ -690,27 +690,38 @@ set -Eeuo pipefail
 
 HOOK_HEAD
   fi
+  # Hook chạy trong chroot: arch-chroot hiện giữ nguyên môi trường, nhưng ghi
+  # thẳng giá trị vào hook thì không phụ thuộc vào phiên bản arch-chroot/archiso
+  # (và vẫn đúng nếu ai đó dựng ISO bằng `env -i`). Nhờ vậy bước dựng gói AUR
+  # phát được annotation ::error cho GitHub Actions khi chạy trên CI.
+  printf 'anios_github_actions=%s\n' "${GITHUB_ACTIONS:+true}" >>"$AUR_HOOK"
   cat >>"$AUR_HOOK" <<'HOOK_BODY'
 # --- AniOS: dựng và cài các gói AUR cài sẵn -------------------------------
 anios_aur_dir=/root/.anios-aur
 anios_aur_status=0
+anios_github_actions="${anios_github_actions:-${GITHUB_ACTIONS:-false}}"
 if [[ ! -s "$anios_aur_dir/anios-aur-build.sh" ]]; then
   echo "AniOS: missing $anios_aur_dir/anios-aur-build.sh; cannot bake in the AUR packages" >&2
   anios_aur_status=1
 else
   # Gọi bằng `bash` để không phụ thuộc bit thực thi (mkarchiso chép airootfs
   # bằng cp --no-preserve=mode nên quyền 0755 trong repo bị mất).
-  bash "$anios_aur_dir/anios-aur-build.sh" || anios_aur_status=$?
+  GITHUB_ACTIONS="$anios_github_actions" bash "$anios_aur_dir/anios-aur-build.sh" ||
+    anios_aur_status=$?
 fi
-rm -rf -- "$anios_aur_dir"
+# Báo lỗi TRƯỚC khi dọn thư mục dựng gói: nếu bước dọn gặp trục trặc thì thông
+# báo (và annotation) về nguyên nhân thật vẫn đã ra log.
 if (( anios_aur_status != 0 )); then
   echo "AniOS: the AUR packages could not be built into the image (exit $anios_aur_status)" >&2
   # Trên GitHub Actions, annotation giúp người dựng thấy ngay bước nào hỏng mà
   # không phải mở log dài của mkarchiso (log CI có thể không truy cập được từ
   # nơi khác). Nhật ký chi tiết của từng gói nằm ở các dòng ::error:: phía trên.
-  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  if [[ "$anios_github_actions" == "true" ]]; then
     echo "::error title=AniOS AUR::Dựng gói AUR trong ảnh thất bại (exit $anios_aur_status). Xem các annotation 'AniOS AUR' khác và nhật ký bước Dựng ISO."
   fi
+fi
+rm -rf -- "$anios_aur_dir"
+if (( anios_aur_status != 0 )); then
   exit "$anios_aur_status"
 fi
 HOOK_BODY
