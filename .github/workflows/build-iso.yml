@@ -72,6 +72,7 @@ jobs:
             --volume "$GITHUB_WORKSPACE:/workspace" \
             --workdir /workspace \
             --env GITHUB_WORKSPACE=/workspace \
+            --env GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" \
             --entrypoint tail \
             archlinux:base-devel \
             -f /dev/null

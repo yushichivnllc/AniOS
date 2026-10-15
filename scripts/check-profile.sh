@@ -810,6 +810,26 @@ fi
 # xanh (đúng lý do scripts/selftest-anios-aur-build.sh tồn tại).
 grep -qF 'AUR_FAILED' "$AUR_BUILDER" ||
   fail "the AUR builder must report and fail on packages it could not build"
+# AUR là kho cộng đồng: bản dựng hàng tuần không được chết vì một lần mirror ốm
+# hay một PKGBUILD lệch sha256sums chưa kịp sửa. Script phải thử lại, phải phân
+# loại lỗi, và phải phát annotation GitHub để người dựng biết gói nào hỏng vì cái
+# gì mà không phải mở log của mkarchiso.
+grep -qE '^RETRIES="\$\{ANIOS_AUR_RETRIES:-[1-9]' "$AUR_BUILDER" ||
+  fail "the AUR builder must retry a failed package by default (ANIOS_AUR_RETRIES)"
+grep -qF 'build_failure_class' "$AUR_BUILDER" ||
+  fail "the AUR builder must classify why a package failed (checksum/download/deps/build)"
+grep -qF 'AUR_ALLOW_STALE_SUMS' "$AUR_BUILDER" ||
+  fail "the AUR builder must offer ANIOS_AUR_ALLOW_STALE_SUMS as an explicit escape hatch"
+grep -qF 'annotate_error' "$AUR_BUILDER" ||
+  fail "the AUR builder must annotate failures for GitHub Actions"
+grep -qF '::error' "$BUILD_ISO" ||
+  fail "the generated customize_airootfs.sh hook must annotate a failed AUR phase for GitHub Actions"
+# Giá trị được chốt lúc sinh hook, không phụ thuộc arch-chroot có giữ môi trường
+# hay không: bước dựng gói AUR phải biết mình đang chạy trên CI để phát annotation.
+grep -qF 'anios_github_actions' "$BUILD_ISO" ||
+  fail "build-iso.sh must bake the GitHub Actions flag into the generated hook"
+grep -qF 'GITHUB_ACTIONS' "$ROOT_DIR/.github/workflows/build-iso.yml" ||
+  fail "the ISO workflow must pass GITHUB_ACTIONS into the build container so annotations work"
 
 # build-iso.sh phải sinh hook của mkarchiso, có lối thoát --no-aur, và phải đối
 # chiếu pacman DB của airootfs SAU khi dựng: hook customize_airootfs.sh bị archiso

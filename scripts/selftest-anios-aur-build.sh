@@ -331,6 +331,32 @@ if [[ "$pkgdir" == broken-package ]]; then
   echo "==> ERROR: A failure occurred in build()." >&2
   exit 1
 fi
+# Gói có PKGBUILD lệch sha256sums (AUR chưa kịp sửa sau khi upstream đổi file):
+# makepkg thật từ chối gói với "did not pass the validity check"; chỉ khi được
+# truyền --skipchecksums (lối thoát ANIOS_AUR_ALLOW_STALE_SUMS=1) mới dựng tiếp.
+if [[ "$pkgdir" == stale-sums ]]; then
+  if printf '%s\n' "$*" | grep -q -- '--skipchecksums'; then
+    : >"$pkgdir-13.0.1-1-x86_64.pkg.tar.zst"
+    echo "==> Finished making: $pkgdir 13.0.1-1 (bỏ qua kiểm tra checksum)"
+    exit 0
+  fi
+  echo "==> Validating source files with sha256sums..." >&2
+  echo "    LM-Studio-0.4.26-4-x64.AppImage ... FAILED" >&2
+  echo "==> ERROR: One or more files did not pass the validity check!" >&2
+  exit 1
+fi
+# Gói hỏng đúng một lần (nguồn tải bị cắt cụt) rồi thành công ở lượt thử lại.
+if [[ "$pkgdir" == flaky-package ]]; then
+  if [[ -e "$FAKE_MAKEPKG_FLAKY_MARK" ]]; then
+    : >"$pkgdir-13.0.1-1-x86_64.pkg.tar.zst"
+    echo "==> Finished making: $pkgdir 13.0.1-1"
+    exit 0
+  fi
+  : >"$FAKE_MAKEPKG_FLAKY_MARK"
+  echo "==> ERROR: Failure while downloading source archive" >&2
+  echo "curl: (56) Recv failure: Connection reset by peer" >&2
+  exit 1
+fi
 : >"$pkgdir-13.0.1-1-x86_64.pkg.tar.zst"
 echo "==> Finished making: $pkgdir 13.0.1-1"
 exit 0
@@ -458,13 +484,24 @@ run_builder() {
   local -a extra_env=()
   rm -rf -- "$state" "$airootfs"
   mkdir -p -- "$state" "$airootfs/root/.anios-aur" "$airootfs/usr/share/anios" \
-    "$airootfs/var/tmp" "$airootfs/var/cache/pacman/pkg"
+    "$airootfs/var/tmp" "$airootfs/var/cache/pacman/pkg" \
+    "$state/pacman-db/sync" "$state/makepkg-marks"
+  # sync DB giả để bước kiểm tra sơ bộ của script không báo động oan trong bài
+  # kiểm tra; bài riêng bên dưới trỏ ANIOS_AUR_PACMAN_DB vào thư mục rỗng để
+  # chắc rằng cảnh báo vẫn bật khi airootfs thật sự chưa có sync DB.
+  : >"$state/pacman-db/sync/core.db"
   if [[ "$stage_calamares" == 1 ]]; then
     mkdir -p -- "$staged_calamares"
   fi
   if [[ "$fail_calamares" == 1 ]]; then
     extra_env+=("FAKE_FAIL_CALAMARES=1")
   fi
+  # Bài kiểm tra thêm biến môi trường riêng bằng cách gán EXTRA_BUILDER_ENV
+  # (mảng) trước khi gọi; biến được xoá sau mỗi lượt để không lọt sang bài sau.
+  if [[ -n "${EXTRA_BUILDER_ENV[*]:-}" ]]; then
+    extra_env+=("${EXTRA_BUILDER_ENV[@]}")
+  fi
+  EXTRA_BUILDER_ENV=()
   : >"$state/calls"
   # Ảnh live giả: những gói packages.x86_64 đã cài TRƯỚC khi hook AUR chạy.
   printf '%s\t%s\t%s\n' \
@@ -489,6 +526,7 @@ run_builder() {
     "FAKE_PACMAN_STATE=$state"
     "FAKE_CALLS=$state/calls"
     "FAKE_MAKEPKG_USER=$state/makepkg-user"
+    "FAKE_MAKEPKG_FLAKY_MARK=$state/makepkg-marks/flaky"
     "FAKE_CALAMARES_CHOOSER_ENABLED=$state/calamares-chooser-enabled"
     "FAKE_DROP_USER=$state/drop-user"
     "FAKE_DROP_USER_FILE=$state/drop-user"
@@ -500,6 +538,7 @@ run_builder() {
     "ANIOS_AUR_ROOT=https://aur.example.invalid"
     "ANIOS_AUR_GITHUB_MIRROR=https://github.com/archlinux/aur.git"
     "ANIOS_AUR_CALAMARES_STAGED_DIR=$staged_calamares"
+    "ANIOS_AUR_PACMAN_DB=$state/pacman-db"
     "ANIOS_AUR_RETRIES=0"
     "ANIOS_AUR_KEEP_TMP=${ANIOS_AUR_KEEP_TMP:-0}"
     "${extra_env[@]}"
@@ -734,5 +773,97 @@ if grep -q '^makepkg -f' "$SANDBOX/state.missing/calls"; then
   fail "vẫn chạy makepkg khi chưa đủ phụ thuộc bắt buộc"
 fi
 pass "phụ thuộc bắt buộc thiếu được báo rõ trước khi dựng"
+
+# --- 6. Gói hỏng KHÔNG được chặn các gói còn lại ---------------------------
+# Trước đây một gói thiếu phụ thuộc gọi die() ngay, nên nhật ký chỉ nói về gói
+# đầu tiên và mỗi lượt dựng chỉ sửa được một lỗi. Nay script đi hết danh sách,
+# ghi từng gói vào phần tổng kết rồi mới dừng.
+MANIFEST_PARTIAL_FAILURE="$SANDBOX/packages.aur.partial"
+cat >"$MANIFEST_PARTIAL_FAILURE" <<'EOF'
+missing-dependency
+yay
+EOF
+status=0
+run_builder "$MANIFEST_PARTIAL_FAILURE" user partial || status=$?
+(( status != 0 )) || fail "có gói AUR hỏng mà bản dựng vẫn báo thành công"
+cut -f1 "$SANDBOX/state.partial/installed" | grep -qxF yay ||
+  fail "gói sau gói hỏng không được dựng/cài (script dừng quá sớm)"
+summary="$(cat "$SANDBOX/state.partial/stderr")"
+grep -qF 'missing-dependency (dựng thất bại' <<<"$summary" ||
+  fail "phần tổng kết không nêu gói hỏng: $summary"
+grep -qF 'yay ' <<<"$summary" || fail "phần tổng kết không nêu gói dựng được"
+pass "một gói AUR hỏng vẫn để các gói còn lại dựng xong rồi mới kết luận"
+
+# --- 7. AUR lệch checksum: phân loại đúng, in hash thật, phát annotation ----
+make_fixture stale-sums 'pkgbase = stale-sums
+	depends = git
+	pkgname = stale-sums'
+mkdir -p -- "$FIXTURES/stale-sums/src"
+printf 'appimage bytes\n' >"$FIXTURES/stale-sums/src/LM-Studio-0.4.26-4-x64.AppImage"
+printf "%s\n" "sha256sums=('0000000000000000000000000000000000000000000000000000000000000000')" \
+  >>"$FIXTURES/stale-sums/PKGBUILD"
+printf '%s\n' stale-sums >"$SANDBOX/packages.aur.stale"
+EXTRA_BUILDER_ENV=("ANIOS_AUR_ANNOTATE=1")
+status=0
+run_builder "$SANDBOX/packages.aur.stale" user stale || status=$?
+(( status != 0 )) || fail "AUR lệch checksum mà bản dựng vẫn báo thành công"
+STALE_STDOUT="$SANDBOX/state.stale/stdout"
+grep -qF '[checksum]' "$STALE_STDOUT" || fail "không phân loại lỗi thành checksum"
+grep -qF 'AUR đang lệch' "$STALE_STDOUT" ||
+  fail "không đối chiếu sha256 thật của nguồn với PKGBUILD"
+grep -qF 'AUR lệch checksum' "$SANDBOX/state.stale/stderr" ||
+  fail "phần tổng kết không nói rõ AUR lệch checksum"
+grep -q '^::error ' "$STALE_STDOUT" ||
+  fail "không phát annotation ::error cho GitHub Actions"
+grep -q '^::error .*sha256sums' "$STALE_STDOUT" ||
+  fail "annotation không nêu nguyên nhân lệch checksum"
+pass "lệch checksum của AUR được phân loại, đối chiếu hash và báo bằng annotation"
+
+# --- 8. Lối thoát ANIOS_AUR_ALLOW_STALE_SUMS=1 -----------------------------
+EXTRA_BUILDER_ENV=("ANIOS_AUR_ALLOW_STALE_SUMS=1")
+status=0
+run_builder "$SANDBOX/packages.aur.stale" user stale-allowed || status=$?
+(( status == 0 )) || {
+  cat "$SANDBOX/state.stale-allowed/stderr" >&2
+  fail "ANIOS_AUR_ALLOW_STALE_SUMS=1 không dựng được gói lệch checksum"
+}
+grep -q -- '--skipchecksums' "$SANDBOX/state.stale-allowed/calls" ||
+  fail "không thử lại makepkg với --skipchecksums"
+cut -f1 "$SANDBOX/state.stale-allowed/installed" | grep -qxF stale-sums ||
+  fail "gói dựng bằng --skipchecksums không được cài vào ảnh"
+grep -qF '# CHÚ Ý: stale-sums được dựng với ANIOS_AUR_ALLOW_STALE_SUMS=1' \
+  "$SANDBOX/airootfs.stale-allowed/usr/share/anios/aur-packages.txt" ||
+  fail "báo cáo của ảnh không ghi gói được dựng khi AUR lệch checksum"
+pass "ANIOS_AUR_ALLOW_STALE_SUMS=1 dựng được gói lệch checksum và ghi rõ trong báo cáo"
+
+# --- 9. Lượt thử lại cứu được lỗi tải nguồn thoáng qua ---------------------
+make_fixture flaky-package 'pkgbase = flaky-package
+	depends = git
+	pkgname = flaky-package'
+printf '%s\n' flaky-package >"$SANDBOX/packages.aur.flaky"
+EXTRA_BUILDER_ENV=("ANIOS_AUR_RETRIES=1" "ANIOS_AUR_RETRY_DELAY=0")
+status=0
+run_builder "$SANDBOX/packages.aur.flaky" user flaky || status=$?
+(( status == 0 )) || {
+  cat "$SANDBOX/state.flaky/stderr" >&2
+  fail "gói hỏng ở lượt đầu không được thử lại (exit $status)"
+}
+grep -qF 'Thử lại flaky-package (lần 2/2' "$SANDBOX/state.flaky/stdout" ||
+  fail "không thử lại gói hỏng ở lượt đầu"
+cut -f1 "$SANDBOX/state.flaky/installed" | grep -qxF flaky-package ||
+  fail "gói thành công ở lượt thử lại không được cài vào ảnh"
+pass "gói hỏng ở lượt đầu được thử lại và cài vào ảnh"
+
+# --- 10. Kiểm tra sơ bộ: sync DB trống thì cảnh báo ngay -------------------
+EXTRA_BUILDER_ENV=("ANIOS_AUR_ANNOTATE=1" "ANIOS_AUR_PACMAN_DB=$SANDBOX/pacman-db-empty")
+mkdir -p -- "$SANDBOX/pacman-db-empty"
+status=0
+run_builder "$MANIFEST_OK" user no-sync-db || status=$?
+(( status == 0 )) || fail "cảnh báo sync DB trống lại làm hỏng bản dựng (exit $status)"
+grep -qF 'sync DB của pacman trống' "$SANDBOX/state.no-sync-db/stdout" ||
+  fail "không cảnh báo khi airootfs chưa có sync DB"
+grep -q '^::warning ' "$SANDBOX/state.no-sync-db/stdout" ||
+  fail "cảnh báo sync DB trống không được phát thành annotation"
+pass "thiếu sync DB trong airootfs được cảnh báo sớm thay vì hỏng lặng lẽ"
 
 echo "AniOS AUR build self-test passed"
