@@ -163,8 +163,19 @@ Cách bước dựng AUR hoạt động:
   giữ cho cả ảnh ở **một snapshot kho**, tránh trạng thái "partial upgrade". Chỉ khi DB sẵn có không cài
   được mới đồng bộ lại kho + keyring rồi thử lần hai.
 - Một gói AUR dựng hỏng sẽ **làm dừng bản dựng** (kèm gợi ý `--no-aur`) chứ không âm thầm bỏ qua; tên gói
-  không hợp lệ bị chặn trước khi tải; mỗi gói có thể tự thử lại (`ANIOS_AUR_RETRIES`); nhật ký đầy đủ ở
+  không hợp lệ bị chặn trước khi tải; mỗi gói có thể tự thử lại (`ANIOS_AUR_RETRIES`, mặc định 2 lần, chờ
+  `ANIOS_AUR_RETRY_DELAY` giây — mỗi lượt tải lại PKGBUILD và nguồn từ đầu); nhật ký đầy đủ ở
   `/var/tmp/anios-aur-build/anios-aur-build.log` trong lúc dựng (`ANIOS_AUR_KEEP_TMP=1` để giữ lại).
+- **Chẩn đoán lỗi AUR**: script đi hết danh sách rồi mới kết luận, nên một lượt dựng nói được *cả* gói nào
+  hỏng và *vì sao*. Lỗi được phân loại thành `checksum` (PKGBUILD trên AUR lệch `sha256sums` với file tải
+  về — upstream đổi file cùng phiên bản), `download` (nguồn/mirror không tải được), `deps` (phụ thuộc trong
+  kho chính thức không cài được: keyring cũ, mirror ốm, hết đĩa) và `build` (`makepkg` dựng hỏng). Khi lệch
+  checksum, script in ra `sha256` **thật** của từng file nguồn để đối chiếu với PKGBUILD.
+- Trên GitHub Actions, mỗi lỗi còn được phát thành **annotation** (`::error` — xem mục *Annotations* của lượt
+  dựng, hoặc tab **Checks** của PR) gồm tên gói và loại lỗi, nên biết ngay gói nào hỏng vì cái gì mà không
+  phải mở log của `mkarchiso`. Đường thoát khi AUR đang lệch: **`ANIOS_AUR_ALLOW_STALE_SUMS=1`** cho phép
+  dựng lại gói đó với `--skipchecksums` (chỉ gói đang lệch, và ảnh ghi rõ trong `aur-packages.txt` là gói
+  này không được xác thực nguồn). Mặc định tắt.
 - Ảnh cuối cùng có `/usr/share/anios/aur-packages.txt` ghi `tên_gói=phiên_bản` cho từng gói AUR đã cài, để
   đối chiếu về sau.
 - Ngay sau `mkarchiso`, `build-iso.sh` tự soi lại airootfs: gói AUR có trong pacman DB, không còn tài khoản
@@ -408,7 +419,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey, theme con trỏ `adwaita-cursors`, Cốc Cốc/Wine/Python/Node.js/Java và tiện ích bổ sung vào Archiso `releng`.
 - `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
-- `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR, dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
+- `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR (git AUR → mirror GitHub → snapshot cgit), dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, thử lại gói hỏng, phân loại nguyên nhân hỏng, phát annotation cho GitHub Actions, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
 - `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; cần Lua 5.4 trở lên, không cần GPU.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.

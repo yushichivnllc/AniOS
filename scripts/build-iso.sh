@@ -705,6 +705,12 @@ fi
 rm -rf -- "$anios_aur_dir"
 if (( anios_aur_status != 0 )); then
   echo "AniOS: the AUR packages could not be built into the image (exit $anios_aur_status)" >&2
+  # Trên GitHub Actions, annotation giúp người dựng thấy ngay bước nào hỏng mà
+  # không phải mở log dài của mkarchiso (log CI có thể không truy cập được từ
+  # nơi khác). Nhật ký chi tiết của từng gói nằm ở các dòng ::error:: phía trên.
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "::error title=AniOS AUR::Dựng gói AUR trong ảnh thất bại (exit $anios_aur_status). Xem các annotation 'AniOS AUR' khác và nhật ký bước Dựng ISO."
+  fi
   exit "$anios_aur_status"
 fi
 HOOK_BODY
