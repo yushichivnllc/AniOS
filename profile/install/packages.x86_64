@@ -71,6 +71,19 @@ rtkit
 pavucontrol
 sof-firmware
 steam
+
+# GPU NVIDIA: driver nvidia-580xx (proprietary). Các gói này được dựng từ AUR lúc
+# dựng ISO và đưa vào kho file cục bộ [anios-aur] của ảnh (xem
+# profile/packages.aur.x86_64); pacstrap của bộ cài đặt đọc kho đó nên driver được
+# cài lên ổ đích. nvidia-580xx-dkms là gói tách của PackageBase nvidia-580xx-utils
+# và biên dịch module kernel cho linux-zen (có linux-zen-headers ở trên).
+nvidia-580xx-utils
+lib32-nvidia-580xx-utils
+nvidia-580xx-settings
+nvidia-580xx-dkms
+egl-wayland
+
+# XWayland và driver màn hình cơ bản cho SDDM / fallback
 xorg-xwayland
 xf86-video-fbdev
 xf86-video-vesa

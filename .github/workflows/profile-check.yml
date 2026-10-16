@@ -65,6 +65,10 @@ jobs:
         # Valve, IPv6 "nửa sống", captive portal trả HTML, các bước --fix/--fix-dns
         # và chế độ --quiet dùng cho unit lúc boot đều phải hoạt động.
         run: ./scripts/selftest-anios-netcheck.sh
+      - name: Self-test the NVIDIA GPU environment of the session
+        # anios-session chỉ đặt biến GBM/GLX/VA-API của NVIDIA khi có card NVIDIA và
+        # nvidia-drm đang nạp. Bài này chạy gpu-env.sh trên cây sysfs giả.
+        run: ./scripts/selftest-gpu-env.sh
       - name: Self-test the startup cursor theme script
         # scripts/.../apply_saved_cursor.sh chạy lúc Hyprland khởi động để áp theme
         # con trỏ người dùng chọn. Ảnh live từng không cài theme nào trong khi mặc

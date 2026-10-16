@@ -30,6 +30,16 @@ calamares
 # Chọn bản mã nguồn thay vì `yay-bin` để không phụ thuộc binary đóng gói sẵn.
 yay
 
+# NVIDIA 580xx (driver proprietary, legacy). Chạy cho cả GPU Maxwell/Pascal/Volta
+# lẫn Turing trở lên. Thứ tự quan trọng: utils trước, lib32 và settings phụ thuộc nó.
+# PackageBase nvidia-580xx-utils là gói tách và sinh luôn nvidia-580xx-dkms
+# (module kernel) — scripts/anios-aur-build.sh cài đủ mọi file của gói tách.
+# Các gói này cũng được đưa vào kho cục bộ [anios-aur] cho bộ cài đặt
+# (TARGET_REPO_PKGBASES trong scripts/anios-aur-build.sh).
+nvidia-580xx-utils
+lib32-nvidia-580xx-utils
+nvidia-580xx-settings
+
 # Trình duyệt Cốc Cốc của Việt Nam (Chromium, đóng gói lại từ file .deb chính
 # chủ). Phụ thuộc qt5-base và ttf-liberation đã có trong packages.x86_64.
 coccoc-browser-stable

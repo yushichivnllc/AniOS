@@ -95,6 +95,14 @@ sof-firmware
 
 # Steam và hỗ trợ chơi game (kèm thư viện 32-bit của Steam)
 steam
+
+# GPU NVIDIA: driver nvidia-580xx (proprietary) được BUILD TỪ AUR và nướng vào ảnh
+# bởi profile/packages.aur.x86_64, KHÔNG nằm ở đây. Lý do: nvidia-580xx-utils xung đột
+# với stack nvidia-open/nvidia của kho chính thức, và stack 580xx là lựa chọn duy nhất
+# bao phủ cả GPU Maxwell/Pascal/Volta (GTX 9/10) lẫn Turing trở lên (RTX 20/30/40).
+# egl-wayland không xung đột và cần cho EGL trên Wayland.
+egl-wayland
+
 # XWayland và driver màn hình cơ bản cho SDDM / fallback
 xorg-xwayland
 xf86-video-fbdev

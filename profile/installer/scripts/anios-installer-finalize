@@ -142,6 +142,33 @@ fi
 install -D -m 0644 -- "$LIVE_ROOT/etc/systemd/zram-generator.conf" \
   "$TARGET_ROOT/etc/systemd/zram-generator.conf"
 
+# Driver NVIDIA proprietary (nvidia-open-dkms): cùng cấu hình modprobe với ảnh live
+# (chặn nouveau, nvidia-drm modeset=1) và helper biến môi trường mà anios-session
+# nạp. Thiếu hai file này thì card NVIDIA trên máy đã cài sẽ không vào được Hyprland.
+for gpu_file in /etc/modprobe.d/anios-nvidia.conf /usr/local/lib/anios/gpu-env.sh; do
+  [[ -s "$LIVE_ROOT$gpu_file" ]] || fail "GPU configuration is missing: $LIVE_ROOT$gpu_file"
+  install -D -m 0644 -- "$LIVE_ROOT$gpu_file" "$TARGET_ROOT$gpu_file"
+done
+
+# Kho file cục bộ [anios-aur] chỉ tồn tại trên ảnh live (nơi pacstrap lấy driver NVIDIA
+# 580xx). Máy đã cài không có thư mục gói đó, nên phải bỏ khai báo để pacman -Sy không
+# báo lỗi. Các gói đã cài vẫn nằm trong pacman DB của máy đích.
+if [[ -f "$TARGET_ROOT/etc/pacman.conf" ]] &&
+  grep -qE '^[[:space:]]*\[anios-aur\][[:space:]]*$' "$TARGET_ROOT/etc/pacman.conf"; then
+  aur_conf_tmp="$(mktemp "$TARGET_ROOT/etc/.anios-pacman.XXXXXX")"
+  awk '
+    /^[[:space:]]*\[anios-aur\][[:space:]]*$/ { skip = 1; next }
+    skip && /^[[:space:]]*\[/ { skip = 0 }
+    !skip { print }
+  ' "$TARGET_ROOT/etc/pacman.conf" >"$aur_conf_tmp"
+  if grep -qE '^[[:space:]]*\[anios-aur\]' "$aur_conf_tmp"; then
+    rm -f -- "$aur_conf_tmp"
+    fail "không gỡ được khai báo [anios-aur] khỏi pacman.conf của máy đích"
+  fi
+  install -m 0644 -- "$aur_conf_tmp" "$TARGET_ROOT/etc/pacman.conf"
+  rm -f -- "$aur_conf_tmp"
+fi
+
 # Steam and Wine ship 32-bit packages. Keep multilib enabled after the first boot,
 # even though the Live pacman.conf used for pacstrap is a separate file.
 enable_multilib() {
