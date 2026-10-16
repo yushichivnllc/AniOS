@@ -43,6 +43,18 @@ if grep -qxF 'lib32-mesa' "$MANIFEST" &&
   fail "multilib is disabled in the Live pacman.conf"
 fi
 
+# Driver NVIDIA 580xx không có trong kho chính thức: pacstrap chỉ cài được nó từ kho
+# file cục bộ [anios-aur] của ảnh. Thiếu kho thì dừng ngay với thông báo rõ ràng,
+# thay vì để pacstrap báo "target not found" giữa chừng.
+if grep -qxF 'nvidia-580xx-dkms' "$MANIFEST"; then
+  AUR_REPO_DIR="${ANIOS_LIVE_AUR_REPO:-/usr/share/anios/aur-repo}"
+  [[ -s "$AUR_REPO_DIR/anios-aur.db.tar.gz" ]] ||
+    fail "thiếu kho [anios-aur] của ảnh live ($AUR_REPO_DIR): không có driver NVIDIA 580xx để cài"
+  grep -qxF '[anios-aur]' "$PACMAN_CONF" ||
+    grep -qE '^[[:space:]]*\[anios-aur\][[:space:]]*$' "$PACMAN_CONF" ||
+    fail "pacman.conf của ảnh live không khai báo kho [anios-aur]"
+fi
+
 printf 'AniOS installer: pacstrap %s with %d curated packages\n' "$target_real" "${#packages[@]}"
 pacstrap -K -C "$PACMAN_CONF" "$target_real" "${packages[@]}"
 

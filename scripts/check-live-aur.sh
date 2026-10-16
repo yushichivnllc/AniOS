@@ -206,6 +206,18 @@ for pkg in "${AUR_PACKAGES[@]}"; do
   fi
 done
 
+# Gói tách của PackageBase nvidia-580xx-utils: module kernel nvidia-580xx-dkms không
+# có dòng riêng trong báo cáo (báo cáo ghi theo PackageBase), nên kiểm tra trực tiếp
+# trong pacman DB. Thiếu gói này thì ảnh live không có driver NVIDIA cho card Turing.
+echo "  Driver NVIDIA 580xx (gói tách, kiểm tra trong pacman DB):"
+for pkg in nvidia-580xx-dkms; do
+  if db_has_package "$pkg"; then
+    ok "$pkg ($(db_entry_of "$pkg"))"
+  else
+    missing "$pkg không có trong pacman DB của ảnh live"
+  fi
+done
+
 echo "  Gói kho chính thức cài sẵn (python, nodejs, wine, công cụ AUR):"
 for pkg in "${REPO_PACKAGES[@]}"; do
   if db_has_package "$pkg"; then
@@ -219,7 +231,7 @@ done
 if [[ -n "$PKGLIST" ]]; then
   [[ -s "$PKGLIST" ]] || fail "pkglist rỗng hoặc không đọc được: $PKGLIST"
   echo "  Đối chiếu $PKGLIST (tên gói chính xác ở cột 1):"
-  for pkg in "${AUR_PACKAGES[@]}" "${REPO_PACKAGES[@]}"; do
+  for pkg in "${AUR_PACKAGES[@]}" "${REPO_PACKAGES[@]}" nvidia-580xx-dkms; do
     if grep -qE "^${pkg//./\\.} " "$PKGLIST"; then
       ok "$pkg có trong pkglist"
     else

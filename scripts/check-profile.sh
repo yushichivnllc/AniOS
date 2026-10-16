@@ -33,12 +33,34 @@ done
 # wlogout is AUR-only, so pacstrap cannot resolve it from the official Arch
 # repositories. The Quickshell session screen already provides the logout menu.
 ! grep -qxF wlogout "$ROOT_DIR/profile/packages.x86_64" || fail "wlogout is AUR-only; use the built-in Quickshell session menu"
-# Card NVIDIA (Turing trở lên) cần driver proprietary: thiếu nhóm này thì máy chỉ có
-# NVIDIA không vào được Hyprland. Phải có trong cả ảnh live lẫn manifest cài đặt.
-for nvidia_pkg in nvidia-open-dkms nvidia-utils lib32-nvidia-utils egl-wayland libva-nvidia-driver; do
-  grep -qxF "$nvidia_pkg" "$ROOT_DIR/profile/packages.x86_64" || fail "NVIDIA driver package missing from live manifest: $nvidia_pkg"
-  grep -qxF "$nvidia_pkg" "$ROOT_DIR/profile/install/packages.x86_64" || fail "NVIDIA driver package missing from installer manifest: $nvidia_pkg"
+# Card NVIDIA dùng driver nvidia-580xx (proprietary, AUR). Stack nvidia-open/nvidia của
+# kho chính thức xung đột với nó nên KHÔNG được có trong manifest nào. Gói 580xx phải có
+# trong danh sách AUR (dựng khi build ISO) và trong manifest cài đặt (pacstrap từ kho cục bộ).
+for nvidia_aur in nvidia-580xx-utils lib32-nvidia-580xx-utils nvidia-580xx-settings; do
+  grep -qxF "$nvidia_aur" "$ROOT_DIR/profile/packages.aur.x86_64" ||
+    fail "NVIDIA 580xx package must be built from AUR: $nvidia_aur"
 done
+for nvidia_target in nvidia-580xx-dkms nvidia-580xx-utils lib32-nvidia-580xx-utils nvidia-580xx-settings; do
+  grep -qxF "$nvidia_target" "$ROOT_DIR/profile/install/packages.x86_64" ||
+    fail "NVIDIA 580xx package missing from installer manifest: $nvidia_target"
+done
+for nvidia_conflict in nvidia nvidia-utils nvidia-dkms nvidia-open nvidia-open-dkms \
+  nvidia-settings lib32-nvidia-utils libva-nvidia-driver; do
+  ! grep -qxF "$nvidia_conflict" "$ROOT_DIR/profile/packages.x86_64" ||
+    fail "$nvidia_conflict conflicts with nvidia-580xx; remove it from the live manifest"
+  ! grep -qxF "$nvidia_conflict" "$ROOT_DIR/profile/install/packages.x86_64" ||
+    fail "$nvidia_conflict conflicts with nvidia-580xx; remove it from the installer manifest"
+done
+# Kho cục bộ [anios-aur] phải nhận đúng các PackageBase NVIDIA mà bộ cài đặt cần.
+TARGET_REPO_LINE="$(grep -E '^TARGET_REPO_PKGBASES=' "$ROOT_DIR/scripts/anios-aur-build.sh" || true)"
+for nvidia_repo in nvidia-580xx-utils lib32-nvidia-580xx-utils nvidia-580xx-settings; do
+  grep -qF -- "$nvidia_repo" <<<"$TARGET_REPO_LINE" ||
+    fail "anios-aur-build.sh must publish $nvidia_repo to the local [anios-aur] repo"
+done
+grep -qF 'publish_target_repo' "$ROOT_DIR/scripts/anios-aur-build.sh" ||
+  fail "anios-aur-build.sh must create the [anios-aur] repo"
+grep -qF '[anios-aur]' "$ROOT_DIR/scripts/anios-aur-build.sh" ||
+  fail "anios-aur-build.sh must declare the [anios-aur] repository"
 grep -qxF 'blacklist nouveau' "$AIROOTFS/etc/modprobe.d/anios-nvidia.conf" ||
   fail "modprobe.d/anios-nvidia.conf must blacklist nouveau"
 grep -qxF 'options nvidia-drm modeset=1 fbdev=1' "$AIROOTFS/etc/modprobe.d/anios-nvidia.conf" ||

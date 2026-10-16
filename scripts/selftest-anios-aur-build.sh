@@ -184,7 +184,7 @@ case "$op" in
     for file in "${targets[@]}"; do
       [[ -e "$file" ]] || { echo "error: '$file' does not exist" >&2; exit 1; }
       base="$(basename -- "$file")"
-      name="${base%%-[0-9]*}"
+      name="$(sed -E 's/-[^-]+-[^-]+-[^-]+\.pkg\.tar.*$//' <<<"$base")"
       if has_flag --asexplicit "${all_args[@]}"; then
         mark "$name" 13.0.1-1 explicit
       else
@@ -327,6 +327,13 @@ if [[ "$pkgdir" == calamares ]]; then
   }
   touch "$FAKE_CALAMARES_CHOOSER_ENABLED"
 fi
+if [[ "$pkgdir" == nvidia-580xx-utils ]]; then
+  # Gói tách: một PackageBase sinh nhiều file .pkg.tar (nvidia-580xx-utils và -dkms).
+  : >"nvidia-580xx-utils-13.0.1-1-x86_64.pkg.tar.zst"
+  : >"nvidia-580xx-dkms-13.0.1-1-x86_64.pkg.tar.zst"
+  echo "==> Finished making: $pkgdir 13.0.1-1 (gói tách)"
+  exit 0
+fi
 if [[ "$pkgdir" == broken-package ]]; then
   echo "==> ERROR: A failure occurred in build()." >&2
   exit 1
@@ -386,7 +393,15 @@ fi
 case ${#args[@]} in
   0) exit 0 ;;
   1) mkdir -p -- "${args[0]}" ;;
-  *) cp -- "${args[0]}" "${args[1]}" ;;
+  2) cp -- "${args[0]}" "${args[1]}" ;;
+  *)
+    # Như GNU install: nhiều nguồn -> thư mục đích (đích phải là thư mục).
+    dest="${args[${#args[@]} - 1]}"
+    [[ -d "$dest" ]] || { echo "fake install: đích không phải thư mục: $dest" >&2; exit 1; }
+    for ((i = 0; i < ${#args[@]} - 1; i++)); do
+      cp -- "${args[i]}" "$dest/"
+    done
+    ;;
 esac
 FAKE
 chmod 0755 -- "$FAKE_BIN/install"
@@ -473,6 +488,21 @@ echo "rw,relatime"
 FAKE
 chmod 0755 -- "$FAKE_BIN/findmnt"
 
+cat >"$FAKE_BIN/repo-add" <<'FAKE'
+#!/usr/bin/env bash
+printf 'repo-add %s\n' "$*" >>"$FAKE_CALLS"
+db=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;;
+    *.db.tar.gz) db="$arg"; break ;;
+  esac
+done
+[[ -n "$db" ]] && : >"$db"
+exit 0
+FAKE
+chmod 0755 -- "$FAKE_BIN/repo-add"
+
 # --- Chạy script thật trên airootfs giả ------------------------------------
 # $1: manifest, $2: user|root, $3: nhãn (quyết định tên thư mục state/airootfs)
 run_builder() {
@@ -490,6 +520,8 @@ run_builder() {
   # kiểm tra; bài riêng bên dưới trỏ ANIOS_AUR_PACMAN_DB vào thư mục rỗng để
   # chắc rằng cảnh báo vẫn bật khi airootfs thật sự chưa có sync DB.
   : >"$state/pacman-db/sync/core.db"
+  mkdir -p -- "$airootfs/etc"
+  printf '[options]\n[core]\nInclude = /etc/pacman.d/mirrorlist\n' >"$airootfs/etc/pacman.conf"
   if [[ "$stage_calamares" == 1 ]]; then
     mkdir -p -- "$staged_calamares"
   fi
@@ -540,6 +572,8 @@ run_builder() {
     "ANIOS_AUR_CALAMARES_STAGED_DIR=$staged_calamares"
     "ANIOS_AUR_PACMAN_DB=$state/pacman-db"
     "ANIOS_AUR_RETRIES=0"
+    "ANIOS_AUR_TARGET_REPO=$airootfs/usr/share/anios/aur-repo"
+    "ANIOS_AUR_PACMAN_CONF=$airootfs/etc/pacman.conf"
     "ANIOS_AUR_KEEP_TMP=${ANIOS_AUR_KEEP_TMP:-0}"
     "${extra_env[@]}"
     bash ${ANIOS_SELFTEST_TRACE:+"-x"} "$airootfs/root/.anios-aur/anios-aur-build.sh"
@@ -865,5 +899,57 @@ grep -qF 'sync DB của pacman trống' "$SANDBOX/state.no-sync-db/stdout" ||
 grep -q '^::warning ' "$SANDBOX/state.no-sync-db/stdout" ||
   fail "cảnh báo sync DB trống không được phát thành annotation"
 pass "thiếu sync DB trong airootfs được cảnh báo sớm thay vì hỏng lặng lẽ"
+
+# --- 11. Driver NVIDIA 580xx: gói tách được cài đủ và đưa vào kho cục bộ ---
+make_fixture nvidia-580xx-utils 'pkgbase = nvidia-580xx-utils
+\tpkgdesc = NVIDIA drivers (580xx), split: nvidia-580xx-utils + nvidia-580xx-dkms
+\tdepends = libglvnd
+\tdepends = dkms
+\tpkgname = nvidia-580xx-utils
+\tpkgname = nvidia-580xx-dkms'
+make_fixture lib32-nvidia-580xx-utils 'pkgbase = lib32-nvidia-580xx-utils
+\tpkgdesc = NVIDIA 32-bit libraries (580xx)
+\tdepends = nvidia-580xx-utils
+\tdepends = lib32-libglvnd
+\tpkgname = lib32-nvidia-580xx-utils'
+make_fixture nvidia-580xx-settings 'pkgbase = nvidia-580xx-settings
+\tpkgdesc = NVIDIA settings (580xx)
+\tdepends = nvidia-580xx-utils
+\tpkgname = nvidia-580xx-settings'
+printf '%s\n' nvidia-580xx-utils lib32-nvidia-580xx-utils nvidia-580xx-settings \
+  yay >"$SANDBOX/packages.aur.nvidia"
+status=0
+run_builder "$SANDBOX/packages.aur.nvidia" user nvidia || status=$?
+(( status == 0 )) || {
+  cat "$SANDBOX/state.nvidia/stderr" >&2
+  fail "bản dựng driver NVIDIA 580xx thất bại (exit $status)"
+}
+NV_STATE="$SANDBOX/state.nvidia"
+NV_ROOT="$SANDBOX/airootfs.nvidia"
+# Cả hai file của gói tách phải được pacman -U cùng lúc, và -dkms phải được cài.
+grep -E '^pacman -U ' "$NV_STATE/calls" | grep -q 'nvidia-580xx-dkms-13.0.1-1-x86_64.pkg.tar.zst' &&
+  grep -E '^pacman -U ' "$NV_STATE/calls" | grep -q 'nvidia-580xx-utils-13.0.1-1-x86_64.pkg.tar.zst' ||
+  fail "gói tách nvidia-580xx-utils không được cài đủ mọi file (thiếu -dkms?)"
+cut -f1 "$NV_STATE/installed" | grep -qxF nvidia-580xx-dkms ||
+  fail "nvidia-580xx-dkms (module kernel) không có trong pacman DB của ảnh"
+# Kho cục bộ: các file gói được sao vào, DB được tạo, pacman.conf khai báo [anios-aur].
+for f in nvidia-580xx-utils nvidia-580xx-dkms lib32-nvidia-580xx-utils nvidia-580xx-settings; do
+  ls "$NV_ROOT/usr/share/anios/aur-repo/" | grep -q "^$f-13.0.1-1-x86_64.pkg.tar.zst\$" ||
+    fail "file gói $f không được đưa vào kho cục bộ của bộ cài đặt"
+done
+grep -qF 'repo-add' "$NV_STATE/calls" || fail "không tạo DB của kho [anios-aur]"
+grep -qxF '[anios-aur]' "$NV_ROOT/etc/pacman.conf" || fail "pacman.conf không khai báo [anios-aur]"
+grep -qxF 'SigLevel = Optional TrustAll' "$NV_ROOT/etc/pacman.conf" ||
+  fail "kho [anios-aur] không khai báo SigLevel"
+grep -qxF "Server = file://$NV_ROOT/usr/share/anios/aur-repo" "$NV_ROOT/etc/pacman.conf" ||
+  fail "kho [anios-aur] không trỏ tới thư mục gói"
+pass "driver NVIDIA 580xx: gói tách cài đủ, kho cục bộ và pacman.conf đúng"
+
+# Bản dựng không có gói kho cục bộ không được đụng vào pacman.conf của ảnh.
+grep -q '\[anios-aur\]' "$SANDBOX/airootfs.ok/etc/pacman.conf" &&
+  fail "bản dựng không có driver NVIDIA vẫn khai báo kho [anios-aur]"
+[[ ! -e "$SANDBOX/airootfs.ok/usr/share/anios/aur-repo" ]] ||
+  fail "bản dựng không có driver NVIDIA vẫn tạo thư mục kho cục bộ"
+pass "manifest không có driver NVIDIA thì không tạo kho cục bộ"
 
 echo "AniOS AUR build self-test passed"

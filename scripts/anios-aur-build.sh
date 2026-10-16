@@ -72,6 +72,14 @@ RETRY_DELAY="${ANIOS_AUR_RETRY_DELAY:-20}"
 ALLOW_STALE_SUMS="${ANIOS_AUR_ALLOW_STALE_SUMS:-0}"
 # Chỉ để bài tự kiểm tra trỏ được sang thư mục giả; người dựng không cần đổi.
 PACMAN_DB_DIR="${ANIOS_AUR_PACMAN_DB:-/var/lib/pacman}"
+# Gói AUR cần cho BỘ CÀI ĐẶT (Calamares pacstrap lên ổ đĩa) được đưa vào một kho
+# file cục bộ [anios-aur] trong ảnh. pacstrap của installer chỉ đọc kho chính thức
+# và kho này, nên driver NVIDIA 580xx cài được lên máy đích chứ không chỉ trong
+# phiên live. Mỗi PackageBase ở đây phải nằm trong profile/packages.aur.x86_64.
+TARGET_REPO_PKGBASES=(nvidia-580xx-utils lib32-nvidia-580xx-utils nvidia-580xx-settings)
+TARGET_REPO_DIR="${ANIOS_AUR_TARGET_REPO:-/usr/share/anios/aur-repo}"
+PACMAN_CONF_FILE="${ANIOS_AUR_PACMAN_CONF:-/etc/pacman.conf}"
+TARGET_REPO_PUBLISHED=0
 LOG="$SRC_DIR/anios-aur-build.log"
 
 # AUR là kho cộng đồng: một PKGBUILD sai checksum, một nguồn upstream bị gỡ hay
@@ -510,9 +518,64 @@ fetch_aur() {
   [[ -s "$dest/PKGBUILD" ]]
 }
 
+# Sao các file gói của một PackageBase thuộc TARGET_REPO_PKGBASES vào kho cục bộ.
+publish_target_packages() {
+  local pkg="$1" p in_target=0
+  shift
+  for p in "${TARGET_REPO_PKGBASES[@]}"; do
+    [[ "$p" == "$pkg" ]] && in_target=1
+  done
+  (( in_target )) || return 0
+  install -d -m 0755 -- "$TARGET_REPO_DIR"
+  install -m 0644 -- "$@" "$TARGET_REPO_DIR/"
+  TARGET_REPO_PUBLISHED=$((TARGET_REPO_PUBLISHED + 1))
+  log "$pkg: đã đưa $# file gói vào kho cục bộ $TARGET_REPO_DIR (cho bộ cài đặt)"
+}
+
+# Tạo DB của kho [anios-aur] và khai báo nó trong pacman.conf của ảnh. Chạy một lần
+# sau vòng lặp dựng. Thiếu gói nào của TARGET_REPO_PKGBASES thì dừng bản dựng: một
+# máy đích không có driver NVIDIA là lỗi âm thầm đúng kiểu cần tránh.
+publish_target_repo() {
+  local pkg missing=() wanted=0 listed spec_pkg
+  for pkg in "${TARGET_REPO_PKGBASES[@]}"; do
+    # Chỉ đòi những gói mà manifest thực sự yêu cầu dựng.
+    listed=0
+    for spec_pkg in "${AUR_PKGBASES[@]}"; do
+      [[ "$spec_pkg" == "$pkg" ]] && listed=1
+    done
+    (( listed )) || continue
+    wanted=1
+    if [[ " ${AUR_OK[*]} " != *" $pkg "* ]]; then
+      missing+=("$pkg")
+    fi
+  done
+  (( wanted )) || return 0
+  if (( ${#missing[@]} > 0 )); then
+    die "Thiếu gói cho kho cục bộ của bộ cài đặt: ${missing[*]}" \
+      "Các gói này là driver NVIDIA; không có chúng máy đích sẽ không có driver."
+  fi
+  if ! command -v repo-add >/dev/null 2>&1; then
+    die "Không có repo-add (pacman) để tạo kho cục bộ [anios-aur]"
+  fi
+  local -a files=("$TARGET_REPO_DIR"/*.pkg.tar*)
+  [[ -e "${files[0]}" ]] || die "Kho cục bộ $TARGET_REPO_DIR không có file gói nào"
+  repo-add --quiet -- "$TARGET_REPO_DIR/anios-aur.db.tar.gz" "${files[@]}" ||
+    die "repo-add không tạo được DB của kho [anios-aur]"
+  if ! grep -qE '^[[:space:]]*\[anios-aur\][[:space:]]*$' "$PACMAN_CONF_FILE"; then
+    {
+      printf '\n%s\n' '# Kho file cục bộ của AniOS: driver NVIDIA 580xx cho bộ cài đặt (pacstrap).'
+      printf '%s\n' '[anios-aur]'
+      printf '%s\n' 'SigLevel = Optional TrustAll'
+      printf 'Server = file://%s\n' "$TARGET_REPO_DIR"
+    } >>"$PACMAN_CONF_FILE"
+  fi
+  log "Kho [anios-aur] sẵn sàng: $(ls "$TARGET_REPO_DIR" | grep -c 'pkg.tar') file gói ($TARGET_REPO_PUBLISHED PackageBase)"
+}
+
 build_one() {
-  local pkg="$1" attempt total=$((RETRIES + 1)) pkgfile build_status
+  local pkg="$1" attempt total=$((RETRIES + 1)) build_status
   local log_offset attempt_class attempt_reason stale_sums_retryed=0
+  local -a pkgfiles=()
   BUILD_FAILURE_REASON=""
   BUILD_FAILURE_CLASS=""
   for ((attempt = 1; attempt <= total; attempt++)); do
@@ -600,26 +663,26 @@ build_one() {
         continue
       fi
     fi
-    pkgfile="$(find "$SRC_DIR/src/$pkg" -maxdepth 1 -name "$pkg-*.pkg.tar*" | sort | sed -n '1p')"
-    if [[ -z "$pkgfile" ]]; then
-      # Gói split: lấy file .pkg.tar đầu tiên có trong thư mục.
-      pkgfile="$(find "$SRC_DIR/src/$pkg" -maxdepth 1 -name '*.pkg.tar*' | sort | sed -n '1p')"
-    fi
-    if [[ -z "$pkgfile" ]]; then
+    # Một PackageBase có thể là gói TÁCH: makepkg sinh nhiều file (ví dụ
+    # nvidia-580xx-utils sinh cả nvidia-580xx-dkms). Phải cài TẤT CẢ file đó;
+    # chỉ lấy file đầu tiên sẽ làm thiếu module kernel mà không báo lỗi nào.
+    mapfile -t pkgfiles < <(find "$SRC_DIR/src/$pkg" -maxdepth 1 -name '*.pkg.tar*' | sort)
+    if (( ${#pkgfiles[@]} == 0 )); then
       log "makepkg xong nhưng không tìm thấy file .pkg.tar của $pkg"
       BUILD_FAILURE_CLASS=build
       BUILD_FAILURE_REASON="makepkg báo xong nhưng không sinh file gói"
       continue
     fi
-    log "$pkg: cài $(basename -- "$pkgfile") vào airootfs"
-    if run_logged pacman -U --noconfirm --asexplicit -- "$pkgfile"; then
+    log "$pkg: cài ${#pkgfiles[@]} file gói vào airootfs: $(printf '%s ' "${pkgfiles[@]##*/}")"
+    if run_logged pacman -U --noconfirm --asexplicit -- "${pkgfiles[@]}"; then
       if (( stale_sums_retryed )); then
         # Báo cáo của ảnh phải nói rõ gói này được dựng khi AUR lệch checksum.
         AUR_UNVERIFIED+=("$pkg")
       fi
+      publish_target_packages "$pkg" "${pkgfiles[@]}"
       return 0
     fi
-    log "pacman -U thất bại với $pkgfile"
+    log "pacman -U thất bại với ${pkgfiles[*]##*/}"
     BUILD_FAILURE_CLASS=deps
     BUILD_FAILURE_REASON="không cài được gói đã dựng bằng pacman -U"
   done
@@ -806,6 +869,7 @@ for index in "${!AUR_PKGBASES[@]}"; do
   fi
 done
 
+publish_target_repo
 remove_orphan_build_deps
 install_calamares_configuration
 

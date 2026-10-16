@@ -350,6 +350,36 @@ mapfile -t pacstrap_args <"$PACSTRAP_LOG"
   fail "pacstrap does not accept pacman-only --needed/--noconfirm flags"
 [[ -x "$PACSTRAP_ROOT/usr/bin/pacman" ]] || fail "fake pacstrap did not create target pacman"
 
+# Driver NVIDIA 580xx chỉ có trong kho file cục bộ [anios-aur] của ảnh live.
+NV_MANIFEST="$SANDBOX/packages.nvidia.x86_64"
+NV_EMPTY_REPO="$SANDBOX/aur-repo-empty"
+NV_REPO="$SANDBOX/aur-repo"
+NV_CONF="$SANDBOX/pacman.nvidia.conf"
+printf 'base\nnvidia-580xx-dkms\n' >"$NV_MANIFEST"
+mkdir -p -- "$NV_EMPTY_REPO" "$NV_REPO"
+printf "fake-db\\n" >"$NV_REPO/anios-aur.db.tar.gz"
+printf '[options]\n[core]\nInclude = /etc/pacman.d/mirrorlist\n[anios-aur]\nSigLevel = Optional TrustAll\nServer = file://%s\n' \
+  "$NV_REPO" >"$NV_CONF"
+if as_root env \
+  ANIOS_TARGET_MANIFEST="$NV_MANIFEST" \
+  ANIOS_LIVE_PACMAN_CONF="$NV_CONF" \
+  ANIOS_LIVE_AUR_REPO="$NV_EMPTY_REPO" \
+  ANIOS_TEST_PACSTRAP_LOG="$SANDBOX/pacstrap-nvidia-missing" \
+  "$PACSTRAP_HELPER" "$PACSTRAP_ROOT" 2>"$SANDBOX/pacstrap-nvidia-missing.err"; then
+  fail "pacstrap cài driver NVIDIA 580xx dù kho [anios-aur] không có"
+fi
+grep -qF 'thiếu kho [anios-aur]' "$SANDBOX/pacstrap-nvidia-missing.err" ||
+  fail "thiếu kho [anios-aur] không được báo rõ ràng"
+[[ ! -e "$SANDBOX/pacstrap-nvidia-missing" ]] ||
+  fail "pacstrap được gọi dù thiếu kho [anios-aur]"
+as_root env \
+  ANIOS_TARGET_MANIFEST="$NV_MANIFEST" \
+  ANIOS_LIVE_PACMAN_CONF="$NV_CONF" \
+  ANIOS_LIVE_AUR_REPO="$NV_REPO" \
+  ANIOS_TEST_PACSTRAP_LOG="$SANDBOX/pacstrap-nvidia-ok" \
+  "$PACSTRAP_HELPER" "$PACSTRAP_ROOT" >/dev/null ||
+  fail "pacstrap không chạy dù kho [anios-aur] đã có"
+
 make_target() {
   local root="$1"
   mkdir -p -- "$root/etc/default" "$root/etc/skel/.config/hypr" \
@@ -404,9 +434,21 @@ as_root test -f "$GORGEOUS_ROOT/home/demo/.config/anios/end4-setup-pending" ||
 
 DEFAULT_ROOT="$SANDBOX/default-target"
 make_target "$DEFAULT_ROOT"
+# Máy đích nhận pacman.conf của ảnh live (có [anios-aur]); finalize phải gỡ khai báo đó.
+printf '[options]\n[core]\nInclude = /etc/pacman.d/mirrorlist\n\n[anios-aur]\nSigLevel = Optional TrustAll\nServer = file:///usr/share/anios/aur-repo\n' |
+  as_root tee "$DEFAULT_ROOT/etc/pacman.conf" >/dev/null
 if ! as_root "$FINALIZE_HELPER" "$DEFAULT_ROOT" demo default anios imi; then
   fail "finalizer integration test (default GRUB/AniOS/IMI) failed"
 fi
+if as_root grep -q '^\[anios-aur\]' "$DEFAULT_ROOT/etc/pacman.conf"; then
+  fail "finalizer để lại khai báo [anios-aur] trong pacman.conf của máy đích"
+fi
+as_root grep -qxF '[core]' "$DEFAULT_ROOT/etc/pacman.conf" ||
+  fail "finalizer làm mất các mục khác của pacman.conf đích"
+as_root test -s "$DEFAULT_ROOT/etc/modprobe.d/anios-nvidia.conf" ||
+  fail "finalizer không chép cấu hình modprobe NVIDIA sang máy đích"
+as_root test -s "$DEFAULT_ROOT/usr/local/lib/anios/gpu-env.sh" ||
+  fail "finalizer không chép helper môi trường GPU sang máy đích"
 ! grep -qE '^[[:space:]]*GRUB_(THEME|FONT)[[:space:]]*=' "$DEFAULT_ROOT/etc/default/grub" ||
   fail "default GRUB selection left a custom theme/font enabled"
 grep -q '^GRUB_TERMINAL_OUTPUT="console"$' "$DEFAULT_ROOT/etc/default/grub" ||
