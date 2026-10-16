@@ -352,11 +352,29 @@ srcinfo_deps() {
   # Chỉ depends/makedepends chung và x86_64: makepkg chạy --nocheck,
   # không cần checkdepends hay thư viện cho i686. Giữ phiên bản để
   # pacman -T không coi một thư viện quá cũ là đã thoả phụ thuộc.
+  # Bỏ phụ thuộc trỏ tới CHÍNH các pkgname của PackageBase này. Gói tách luôn khai
+  # báo phụ thuộc lẫn nhau: nvidia-580xx-dkms cần `nvidia-580xx-utils=<ver>`, còn
+  # nvidia-580xx-settings cần `libxnvctrl-580xx`. Các gói đó do CHÍNH makepkg lần
+  # này sinh ra, không có trong kho chính thức nên pacman -Sp không phân giải được
+  # và cả gói bị coi là hỏng. Phụ thuộc thật sự từ bên ngoài vẫn được giữ lại.
+  local own_names
+  own_names="$(sed -n -E -e 's/^[[:space:]]*pkgname[[:space:]]*=[[:space:]]*(.+)$/\1/p' \
+    -- "$srcinfo" | sed -E -e 's/[[:space:]]+$//')"
   sed -n -E \
     -e 's/^[[:space:]]*(make)?depends(_(x86_64))?[[:space:]]*=[[:space:]]*(.+)$/\4/p' \
     -- "$srcinfo" |
     sed -E -e 's/[[:space:]]+$//' |
-    awk 'NF && !seen[$0]++'
+    awk -v own="$own_names" '
+      BEGIN {
+        n = split(own, names, "\n")
+        for (i = 1; i <= n; i++) if (names[i] != "") isown[names[i]] = 1
+      }
+      NF {
+        base = $0
+        sub(/[<>=].*$/, "", base)
+        if (base in isown) next
+        if (!seen[$0]++) print
+      }'
 }
 
 # pacman -T in ra những phụ thuộc CHƯA được thoả (kể cả kiểm tra provides),

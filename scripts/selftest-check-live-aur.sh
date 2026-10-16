@@ -170,6 +170,7 @@ make_fake_image() {
     yay-13.0.1-1
     coccoc-browser-stable-152.0.7977.124-1
     legacy-launcher-latest-1
+    nvidia-580xx-dkms-580.178.04-4
     python-3.13.1-1
     python-pip-24.3.1-1
     nodejs-23.6.0-1
@@ -255,6 +256,7 @@ calamares 3.4.2-2
 yay 13.0.1-1
 coccoc-browser-stable 152.0.7977.124-1
 legacy-launcher latest-1
+nvidia-580xx-dkms 580.178.04-4
 python 3.13.1-1
 python-pip 24.3.1-1
 nodejs 23.6.0-1

@@ -140,6 +140,7 @@ repo_version() {
   case "$1" in
     base-devel | git | go | pacman | qt5-base | ttf-liberation | libx11) ;;
     glibc | jre-openjdk | archlinux-keyring | lib32-fake-arch-dep) ;;
+    dkms | libglvnd | jansson | libxext | zlib) ;;
     *) return 1 ;;
   esac
   echo 1
@@ -153,6 +154,9 @@ case "$op" in
       name="${dep%%[<>=]*}"
       if is_installed "$name"; then continue; fi
       if [[ "$name" == java-runtime ]] && is_installed jre-openjdk; then continue; fi
+      # nvidia-580xx-utils có provides=(nvidia-utils): khi nó đã cài thì
+      # phụ thuộc nvidia-utils của nvidia-580xx-settings được thoả.
+      if [[ "$name" == nvidia-utils ]] && is_installed nvidia-580xx-utils; then continue; fi
       printf '%s\n' "$dep"
     done
     exit 0
@@ -331,6 +335,13 @@ if [[ "$pkgdir" == nvidia-580xx-utils ]]; then
   # Gói tách: một PackageBase sinh nhiều file .pkg.tar (nvidia-580xx-utils và -dkms).
   : >"nvidia-580xx-utils-13.0.1-1-x86_64.pkg.tar.zst"
   : >"nvidia-580xx-dkms-13.0.1-1-x86_64.pkg.tar.zst"
+  echo "==> Finished making: $pkgdir 13.0.1-1 (gói tách)"
+  exit 0
+fi
+if [[ "$pkgdir" == nvidia-580xx-settings ]]; then
+  # Gói tách: settings và libxnvctrl-580xx (cùng PackageBase, như AUR thật).
+  : >"nvidia-580xx-settings-13.0.1-1-x86_64.pkg.tar.zst"
+  : >"libxnvctrl-580xx-13.0.1-1-x86_64.pkg.tar.zst"
   echo "==> Finished making: $pkgdir 13.0.1-1 (gói tách)"
   exit 0
 fi
@@ -901,21 +912,37 @@ grep -q '^::warning ' "$SANDBOX/state.no-sync-db/stdout" ||
 pass "thiếu sync DB trong airootfs được cảnh báo sớm thay vì hỏng lặng lẽ"
 
 # --- 11. Driver NVIDIA 580xx: gói tách được cài đủ và đưa vào kho cục bộ ---
+# SRCINFO khớp AUR thật (đã đối chiếu mirror archlinux/aur, 580.178.04):
+#  - nvidia-580xx-utils là gói tách (utils + opencl + dkms); dkms phụ thuộc
+#    CHÍNH utils=<ver>, utils provides nvidia-utils.
+#  - nvidia-580xx-settings là gói tách cùng libxnvctrl-580xx; settings cần
+#    nvidia-utils (được utils thoả qua provides) và libxnvctrl-580xx (tự sinh).
 make_fixture nvidia-580xx-utils 'pkgbase = nvidia-580xx-utils
-\tpkgdesc = NVIDIA drivers (580xx), split: nvidia-580xx-utils + nvidia-580xx-dkms
-\tdepends = libglvnd
-\tdepends = dkms
-\tpkgname = nvidia-580xx-utils
-\tpkgname = nvidia-580xx-dkms'
+	pkgver = 13.0.1
+	pkgdesc = NVIDIA drivers (580xx), split: utils + opencl + dkms
+pkgname = nvidia-580xx-utils
+	depends = libglvnd
+	provides = nvidia-utils
+pkgname = opencl-nvidia-580xx
+	depends = zlib
+pkgname = nvidia-580xx-dkms
+	depends = dkms
+	depends = nvidia-580xx-utils=13.0.1
+	depends = libglvnd'
 make_fixture lib32-nvidia-580xx-utils 'pkgbase = lib32-nvidia-580xx-utils
-\tpkgdesc = NVIDIA 32-bit libraries (580xx)
-\tdepends = nvidia-580xx-utils
-\tdepends = lib32-libglvnd
-\tpkgname = lib32-nvidia-580xx-utils'
+	pkgver = 13.0.1
+pkgname = lib32-nvidia-580xx-utils
+	depends = glibc'
 make_fixture nvidia-580xx-settings 'pkgbase = nvidia-580xx-settings
-\tpkgdesc = NVIDIA settings (580xx)
-\tdepends = nvidia-580xx-utils
-\tpkgname = nvidia-580xx-settings'
+	pkgver = 13.0.1
+	makedepends = jansson
+	makedepends = nvidia-580xx-utils
+pkgname = nvidia-580xx-settings
+	depends = jansson
+	depends = nvidia-utils
+	depends = libxnvctrl-580xx
+pkgname = libxnvctrl-580xx
+	depends = libxext'
 printf '%s\n' nvidia-580xx-utils lib32-nvidia-580xx-utils nvidia-580xx-settings \
   yay >"$SANDBOX/packages.aur.nvidia"
 status=0
