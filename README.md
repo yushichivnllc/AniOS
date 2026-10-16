@@ -376,10 +376,34 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 ## Phần cứng và hiệu năng
 
 - AniOS nhắm đến máy **x86_64**. Không hệ điều hành nào có thể bảo đảm game tương thích hoặc chạy nhanh trên mọi cấu hình; hiệu năng tùy thuộc CPU, GPU, RAM, tản nhiệt, trò chơi và driver. `linux-zen` được chọn để ưu tiên độ phản hồi, **không bảo đảm FPS cao hơn**.
-- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Driver NVIDIA proprietary không được cài sẵn; các card NVIDIA đời cũ có thể cần driver và cấu hình kernel riêng. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
+- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Card **NVIDIA Turing trở lên** (GTX 16, RTX 20/30/40/50) dùng driver proprietary **`nvidia-open-dkms`** đã được cài sẵn trong ảnh, kèm `nouveau` bị chặn và `nvidia-drm modeset=1` (xem [mục NVIDIA](#máy-chỉ-có-card-nvidia-không-vào-được-hyprland)). Card NVIDIA đời cũ hơn Turing (GTX 10 trở về trước) không được driver mở hỗ trợ; cần driver `nvidia-580xx-dkms` từ AUR và cấu hình riêng. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
 - Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
 - Hệ thống Live đọc ảnh nén trực tiếp từ USB (`copytoram=n`, không chép vào RAM; zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
+
+### Máy chỉ có card NVIDIA không vào được Hyprland
+
+Máy chỉ có GPU NVIDIA rời (ví dụ CPU Intel dòng F như i5-12400F không có iGPU, card RTX 2060 SUPER) trước đây không có driver nào dùng được cho Hyprland: ảnh chỉ có Mesa cho Intel/AMD, còn `nouveau` không đủ ổn định trên Turing. Bản ảnh hiện tại xử lý như sau:
+
+- Cài `nvidia-open-dkms`, `nvidia-utils`, `lib32-nvidia-utils`, `nvidia-settings`, `egl-wayland`, `libva-nvidia-driver` ở cả ảnh live lẫn hệ thống cài đặt. `dkms` biên dịch module theo `linux-zen-headers` nên không cần cài tay.
+- `/etc/modprobe.d/anios-nvidia.conf`: chặn `nouveau` và đặt `nvidia-drm modeset=1 fbdev=1` (bắt buộc cho Wayland).
+- `anios-session` nạp `/usr/local/lib/anios/gpu-env.sh`: khi có card NVIDIA và `nvidia-drm` đang chạy, đặt `GBM_BACKEND=nvidia-drm`, `__GLX_VENDOR_LIBRARY_NAME=nvidia`, `LIBVA_DRIVER_NAME=nvidia`. Không có NVIDIA thì không đặt gì nên máy Intel/AMD không đổi.
+
+Nếu vẫn gặp màn hình đen hoặc quay lại màn hình đăng nhập:
+
+1. **Tắt Secure Boot** trong BIOS/UEFI (Win 11 thường bật sẵn). Ảnh AniOS hiện không hỗ trợ Secure Boot nên có thể bị chặn khi bật; dùng chế độ UEFI (không CSM/Legacy).
+2. Sau khi vào TTY (`Ctrl+Alt+F2`), kiểm tra:
+   ```bash
+   lsmod | grep nvidia                       # phải có nvidia, nvidia_drm, nvidia_modeset
+   cat /sys/module/nvidia_drm/parameters/modeset   # phải là Y
+   dkms status                               # nvidia/<phiên bản> phải là "installed"
+   journalctl -b -u sddm
+   less ~/.local/share/hyprland/hyprland.log
+   ```
+3. Nếu `dkms status` không báo `installed`, module chưa biên dịch được cho kernel `linux-zen` hiện tại. Gửi kèm `/var/lib/dkms/nvidia/*/build/make.log` khi báo lỗi.
+4. Ảnh đã dựng trước thay đổi này **không có** driver NVIDIA; cần dựng lại ISO (`sudo ./scripts/build-iso.sh --clean`) hoặc cài lại từ ảnh mới.
+
+Kiểm tra cục bộ: `./scripts/selftest-gpu-env.sh` (logic chọn biến môi trường trên cây sysfs giả). Việc Hyprland thực sự chạy trên RTX 2060 SUPER **chưa được kiểm thử trên phần cứng thật** trong repo này.
 
 ### Sober (Roblox) và GNOME Disks
 
@@ -448,6 +472,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-installer.sh           # mô phỏng chọn Live/Install và các bước cài hệ thống
 ./scripts/selftest-build-iso-sudoers.sh   # bước kiểm tra NOPASSWD ở cuối build-iso.sh trên airootfs giả
 ./scripts/selftest-build-iso-permissions.sh # bước khai báo file_permissions (quyền/bit thực thi) của build-iso.sh
+./scripts/selftest-gpu-env.sh             # biến môi trường GPU NVIDIA của phiên Hyprland (sysfs giả)
 ```
 
 Các bài kiểm tra chạy nhanh, không cần dựng ISO. Có thể đặt `LUA=lua5.4` nếu

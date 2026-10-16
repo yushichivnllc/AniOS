@@ -261,6 +261,9 @@ for binary in anios-session anios-audio-setup anios-audio-check anios-switch-des
 done
 chmod 0755 "$LIVE_ROOT"/usr/local/bin/*
 printf 'zram-size = min(ram / 2, 4096)\n' >"$LIVE_ROOT/etc/systemd/zram-generator.conf"
+mkdir -p -- "$LIVE_ROOT/etc/modprobe.d" "$LIVE_ROOT/usr/local/lib/anios"
+printf 'options nvidia-drm modeset=1 fbdev=1\n' >"$LIVE_ROOT/etc/modprobe.d/anios-nvidia.conf"
+printf 'anios_export_gpu_env() { :; }\n' >"$LIVE_ROOT/usr/local/lib/anios/gpu-env.sh"
 mkdir -p -- "$LIVE_ROOT/usr/share/anios/skel/.config/hypr" "$LIVE_ROOT/usr/share/anios/skel/Desktop"
 cat >"$LIVE_ROOT/usr/share/anios/skel/.config/hypr/hyprlock.conf" <<'HYPRLOCK'
 # Live password: 1111

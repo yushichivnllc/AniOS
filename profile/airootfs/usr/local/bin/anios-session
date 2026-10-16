@@ -36,6 +36,14 @@ if [[ "${ANIOS_LIVE:-}" == 1 ]] && command -v anios-persist >/dev/null 2>&1; the
   ) >/dev/null 2>&1 &
 fi
 
+# Driver NVIDIA proprietary cần biến môi trường riêng (GBM, GLX, VA-API) trước khi
+# Hyprland khởi tạo GPU. Không có card NVIDIA thì hàm này không đặt gì.
+# shellcheck source=/dev/null
+if [[ -r /usr/local/lib/anios/gpu-env.sh ]]; then
+  . /usr/local/lib/anios/gpu-env.sh
+  anios_export_gpu_env
+fi
+
 mode="${1:-}"
 if [[ "$mode" == "--imi" || "$mode" == "imi" || "$mode" == "immaterial-impulse" ]]; then
   export ANIOS_DESKTOP="imi"

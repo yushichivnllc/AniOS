@@ -95,6 +95,19 @@ sof-firmware
 
 # Steam và hỗ trợ chơi game (kèm thư viện 32-bit của Steam)
 steam
+# GPU NVIDIA (RTX 20-series trở lên, ví dụ RTX 2060 SUPER/Turing). Máy chỉ có
+# card NVIDIA (CPU F-series không có iGPU) sẽ KHÔNG có driver nếu thiếu nhóm này:
+# nouveau không đủ để Hyprland (Wayland) chạy ổn trên Turing, nên ảnh cài driver
+# proprietary nvidia-open-dkms (module mở, hỗ trợ Turing trở lên). Dùng bản -dkms vì
+# linux-zen không phải kernel chuẩn mà nvidia-open (không -dkms) đi kèm.
+# egl-wayland cần cho EGL trên Wayland; libva-nvidia-driver cho tăng tốc video.
+nvidia-open-dkms
+nvidia-utils
+lib32-nvidia-utils
+nvidia-settings
+egl-wayland
+libva-nvidia-driver
+
 # XWayland và driver màn hình cơ bản cho SDDM / fallback
 xorg-xwayland
 xf86-video-fbdev

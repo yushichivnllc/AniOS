@@ -33,6 +33,19 @@ done
 # wlogout is AUR-only, so pacstrap cannot resolve it from the official Arch
 # repositories. The Quickshell session screen already provides the logout menu.
 ! grep -qxF wlogout "$ROOT_DIR/profile/packages.x86_64" || fail "wlogout is AUR-only; use the built-in Quickshell session menu"
+# Card NVIDIA (Turing trở lên) cần driver proprietary: thiếu nhóm này thì máy chỉ có
+# NVIDIA không vào được Hyprland. Phải có trong cả ảnh live lẫn manifest cài đặt.
+for nvidia_pkg in nvidia-open-dkms nvidia-utils lib32-nvidia-utils egl-wayland libva-nvidia-driver; do
+  grep -qxF "$nvidia_pkg" "$ROOT_DIR/profile/packages.x86_64" || fail "NVIDIA driver package missing from live manifest: $nvidia_pkg"
+  grep -qxF "$nvidia_pkg" "$ROOT_DIR/profile/install/packages.x86_64" || fail "NVIDIA driver package missing from installer manifest: $nvidia_pkg"
+done
+grep -qxF 'blacklist nouveau' "$AIROOTFS/etc/modprobe.d/anios-nvidia.conf" ||
+  fail "modprobe.d/anios-nvidia.conf must blacklist nouveau"
+grep -qxF 'options nvidia-drm modeset=1 fbdev=1' "$AIROOTFS/etc/modprobe.d/anios-nvidia.conf" ||
+  fail "modprobe.d/anios-nvidia.conf must enable nvidia-drm modeset and fbdev"
+[[ -s "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ]] || fail "usr/local/lib/anios/gpu-env.sh is missing"
+grep -qF '. /usr/local/lib/anios/gpu-env.sh' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session must source the GPU environment helper"
 # packages.x86_64 được pacstrap đọc trực tiếp nên CHỈ được chứa gói của kho chính
 # thức. Gói AUR phải nằm trong profile/packages.aur.x86_64, nơi
 # scripts/anios-aur-build.sh dựng chúng bằng makepkg bên trong chroot.
