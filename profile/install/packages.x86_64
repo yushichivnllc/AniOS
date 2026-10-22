@@ -187,3 +187,71 @@ openvino
 openvino-intel-gpu-plugin
 intel-compute-runtime
 onnxruntime-cpu
+
+# --- Bộ công cụ kiểm thử xâm nhập (pentest), đồng bộ với mục cùng tên trong
+# profile/packages.x86_64 của ảnh live. Chỉ gồm gói kho chính thức `extra` nên
+# pacstrap của Calamares cài trực tiếp được; gói pentest AUR (burpsuite,
+# netexec, nuclei, ffuf, responder...) là riêng cho ảnh live, không có ở đây.
+# check-profile.sh khoá hai manifest phải chứa đúng cùng tập gói pentest này.
+# Trinh sát và liệt kê (bind cung cấp dig/nslookup/host; vulscan là NSE của nmap).
+nmap
+masscan
+arp-scan
+fping
+traceroute
+whois
+bind
+nbtscan
+smbclient
+impacket
+vulscan
+# Kiểm thử web, TLS/SSL và proxy MITM.
+sqlmap
+nikto
+gobuster
+wpscan
+mitmproxy
+testssl.sh
+sslscan
+# MITM, ẩn danh, đường hầm và bắt gói tin.
+bettercap
+bettercap-caplets
+ettercap
+socat
+openbsd-netcat
+proxychains-ng
+macchanger
+openvpn
+wireshark-qt
+tcpdump
+# Khai thác lỗ hổng.
+metasploit
+# Kiểm thử mạng không dây.
+aircrack-ng
+wifite
+reaver
+bully
+hcxdumptool
+hcxtools
+hcxkeys
+kismet
+# Phá mật khẩu/băm và mật khẩu Windows offline.
+hashcat
+hashcat-utils
+john
+hydra
+ncrack
+medusa
+fcrackzip
+chntpw
+# Phân tích ngược, gỡ rối và forensics số.
+gdb
+pwndbg
+radare2
+ghidra
+binwalk
+foremost
+testdisk
+perl-image-exiftool
+strace
+ltrace

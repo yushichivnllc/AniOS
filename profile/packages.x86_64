@@ -256,3 +256,84 @@ openvino-intel-gpu-plugin
 intel-compute-runtime
 # ONNX Runtime bản CPU: chạy model .onnx cho các ứng dụng cần định dạng này.
 onnxruntime-cpu
+
+# --- Bộ công cụ kiểm thử xâm nhập (pentest): gói kho chính thức ------------
+# Mọi gói dưới đây đều nằm trong kho `extra` của Arch (đã đối chiếu với cơ sở
+# dữ liệu gói chính thức), nên pacstrap cài trực tiếp được và cùng danh sách này
+# được lặp lại trong profile/install/packages.x86_64 để hệ thống cài qua
+# Calamares cũng có đủ bộ công cụ. Nhóm chỉ có trên AUR (burpsuite, netexec,
+# nuclei, ffuf, responder...) nằm ở profile/packages.aur.x86_64 và chỉ có trong
+# ảnh live. CHỈ dùng trên hệ thống/mạng được uỷ quyền kiểm thử.
+#
+# Trinh sát và liệt kê: quét cổng, host, dịch vụ, DNS, SMB.
+# bind cung cấp dig/nslookup/host (Arch không có gói riêng tên dnsutils);
+# vulscan là tập script NSE biến nmap thành máy quét lỗ hổng theo CVE.
+nmap
+masscan
+arp-scan
+fping
+traceroute
+whois
+bind
+nbtscan
+smbclient
+impacket
+vulscan
+# Kiểm thử ứng dụng web: khai thác SQL injection, quét máy chủ web, fuzz
+# đường dẫn, quét TLS/SSL và proxy MITM dạng dòng lệnh.
+# quét TLS/SSL và proxy MITM dạng dòng lệnh.
+sqlmap
+nikto
+gobuster
+wpscan
+mitmproxy
+testssl.sh
+sslscan
+# MITM, ẩn danh và đường hầm: chặn/thao túng lưu lượng, đổi MAC, nối proxy, VPN.
+bettercap
+bettercap-caplets
+ettercap
+socat
+openbsd-netcat
+proxychains-ng
+macchanger
+openvpn
+# Bắt và phân tích gói tin. wireshark-qt kéo theo wireshark-cli (tshark,
+# dumpcap, capinfos); gói Arch set sẵn capability cho dumpcap nên người dùng
+# thường không cần chạy Wireshark bằng root.
+wireshark-qt
+tcpdump
+# Khai thác lỗ hổng: Metasploit Framework (msfconsole, msfvenom...).
+metasploit
+# Kiểm thử mạng không dây: phá WEP/WPA/WPS, thu bắt tay, dò và IDS wifi.
+# Cần card không dây hỗ trợ monitor mode/injection mới chạy được đầy đủ.
+aircrack-ng
+wifite
+reaver
+bully
+hcxdumptool
+hcxtools
+hcxkeys
+kismet
+# Phá mật khẩu và băm: GPU/CPU cracking, brute-force đăng nhập mạng,
+# crack file nén và reset mật khẩu Windows offline (chntpw).
+hashcat
+hashcat-utils
+john
+hydra
+ncrack
+medusa
+fcrackzip
+chntpw
+# Phân tích ngược, gỡ rối và forensics số: debugger kèm pwndbg cho khai thác
+# nhị phân, khung RE, khôi phục file, đọc metadata EXIF và theo dõi syscall.
+gdb
+pwndbg
+radare2
+ghidra
+binwalk
+foremost
+testdisk
+perl-image-exiftool
+strace
+ltrace
