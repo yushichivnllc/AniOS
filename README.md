@@ -1,6 +1,6 @@
 # AniOS
 
-AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland với kernel `linux-zen`, cài sẵn Steam, driver đồ họa mã nguồn mở phổ biến cho Intel/AMD, trình duyệt Cốc Cốc, Wine, Python, Node.js, Java, trợ lý AUR `yay` để cài thêm gói ngay trong phiên live, cùng **stack AI cục bộ** (Ollama bản Vulkan, llama-cpp, whisper-cpp, OpenVINO và hai ứng dụng GUI Jan AI / LM Studio). Hệ thống cài sẵn toàn bộ dotfile của desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) (XephyLon) hoàn toàn offline, hỗ trợ song song 2 chế độ giao diện: **AniOS Minimal (Waybar)** và **Immaterial Impulse (Quickshell)**.
+AniOS là **Live USB/DVD Arch Linux** hướng tới chơi game trên máy tính phòng net: khởi động vào Hyprland với kernel `linux-zen`, cài sẵn Steam, driver đồ họa mã nguồn mở phổ biến cho Intel/AMD, trình duyệt Cốc Cốc, Wine, Python, Node.js, Java, trợ lý AUR `yay` để cài thêm gói ngay trong phiên live, cùng **stack AI cục bộ** (Ollama bản Vulkan, llama-cpp, whisper-cpp, OpenVINO và hai ứng dụng GUI Jan AI / LM Studio) và **bộ công cụ kiểm thử xâm nhập (pentest)** nướng sẵn — nmap, Metasploit, Wireshark, Burp Suite, sqlmap, hashcat, aircrack-ng, Ghidra... (xem [mục pentest](#bộ-công-cụ-kiểm-thử-xâm-nhập-pentest)). Hệ thống cài sẵn toàn bộ dotfile của desktop [Immaterial Impulse](https://github.com/XephyLon/immaterial-impulse) (XephyLon) hoàn toàn offline, hỗ trợ song song 2 chế độ giao diện: **AniOS Minimal (Waybar)** và **Immaterial Impulse (Quickshell)**.
 
 > Repository này chứa **Archiso profile và script tạo ISO**. File ISO được dựng tự động bằng [GitHub Actions](#dựng-iso-tự-động-bằng-github-actions), hoặc dựng tay trên máy Arch Linux.
 
@@ -434,17 +434,68 @@ Kiểm tra cục bộ: `./scripts/selftest-gpu-env.sh` (logic chọn biến môi
 
 Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh phình thêm hàng chục GB). Model tải trong phiên được ghi vào ổ lưu trữ trên USB nên được giữ giữa các lần boot; model lớn nên trỏ `OLLAMA_MODELS` (hoặc thư mục model của Jan/LM Studio) sang ổ cứng gắn ngoài để không chiếm hết chỗ trên USB. Ảnh không kèm CUDA/ROCm: máy có GPU rời NVIDIA/AMD mạnh có thể tự cài thêm `ollama-cuda`/`ollama-rocm` bằng `yay`.
 
+## Bộ công cụ kiểm thử xâm nhập (pentest)
+
+AniOS nướng sẵn một bộ công cụ pentest chia hai nhóm theo đúng cơ chế đóng gói của bản phân phối:
+
+- **Gói kho chính thức (`extra`)** — nằm trong `profile/packages.x86_64` và được lặp lại trong `profile/install/packages.x86_64`, nên có trong **cả ảnh live lẫn hệ thống cài qua Calamares**; `scripts/check-profile.sh` khoá hai manifest phải chứa đúng cùng tập gói này.
+- **Gói AUR** — nằm trong `profile/packages.aur.x86_64`, dựng bằng `scripts/anios-aur-build.sh` ngay trong chroot lúc tạo ISO và **chỉ có trong ảnh live** (bộ cài đặt loại mọi gói AUR, giống Calamares, `yay`, Cốc Cốc).
+
+> ⚖️ **Chỉ sử dụng trên hệ thống và mạng mà bạn sở hữu hoặc đã được uỷ quyền kiểm thử bằng văn bản.** Quét cổng, bắt gói tin, tấn công mật khẩu hay hạ tầng không thuộc phạm vi cho phép có thể bị truy cứu trách nhiệm hình sự tại Việt Nam và nhiều quốc gia, kể cả khi mục đích là học tập.
+
+### Gói kho chính thức (ảnh live + bản cài đặt)
+
+| Nhóm | Gói |
+| --- | --- |
+| Trinh sát, liệt kê | `nmap` (+`vulscan`), `masscan`, `arp-scan`, `fping`, `traceroute`, `whois`, `bind` (dig/nslookup/host), `nbtscan`, `smbclient`, `impacket` |
+| Kiểm thử web & TLS | `sqlmap`, `nikto`, `gobuster`, `wpscan`, `mitmproxy`, `testssl.sh`, `sslscan` |
+| MITM, ẩn danh, đường hầm | `bettercap` (+`bettercap-caplets`), `ettercap`, `socat`, `openbsd-netcat`, `proxychains-ng`, `macchanger`, `openvpn` |
+| Bắt và phân tích gói tin | `wireshark-qt` (kéo theo `wireshark-cli`: `tshark`, `dumpcap`), `tcpdump` |
+| Khai thác lỗ hổng | `metasploit` (`msfconsole`, `msfvenom`) |
+| Mạng không dây | `aircrack-ng`, `wifite`, `reaver`, `bully`, `hcxdumptool`, `hcxtools`, `hcxkeys`, `kismet` |
+| Phá mật khẩu/băm | `hashcat` (+`hashcat-utils`), `john`, `hydra`, `ncrack`, `medusa`, `fcrackzip`, `chntpw` |
+| Phân tích ngược & forensics | `gdb` (+`pwndbg`), `radare2`, `ghidra`, `binwalk`, `foremost`, `testdisk`, `perl-image-exiftool` (exiftool), `strace`, `ltrace` |
+
+### Gói AUR (chỉ trong ảnh live)
+
+| Gói AUR | Công dụng |
+| --- | --- |
+| `burpsuite` | proxy chặn/sửa HTTP(S) dạng GUI cho pentest web (bản Community, tải từ portswigger.net lúc dựng) |
+| `netexec` | kế nhiệm CrackMapExec: kiểm thử SMB/Active Directory |
+| `responder` | độc hại LLMNR/NBT-NS/mDNS để bắt hash trong mạng nội bộ |
+| `exploit-db` | lệnh `searchsploit` tra cứu Exploit-DB, dùng được cả khi offline |
+| `ffuf` | fuzz thư mục/tham số web tốc độ cao |
+| `nuclei` | quét lỗ hổng theo template (tải template lần đầu bằng `nuclei -update-templates`) |
+| `enum4linux-ng` | liệt kê người dùng/chia sẻ SMB và AD |
+| `netdiscover` | phát hiện host trong LAN qua ARP |
+| `whatweb` | nhận diện công nghệ/phiên bản phía web |
+| `hashid` | nhận dạng loại hash |
+| `cewl` | tạo wordlist từ nội dung một trang web |
+| `crunch` | sinh wordlist theo quy tắc độ dài/bộ ký tự |
+| `steghide`, `stegseek` | giấu/trích dữ liệu kiểu steganography và crack ảnh steghide |
+| `samdump2` | trích hash mật khẩu từ tệp SAM của Windows |
+
+### Lưu ý sử dụng
+
+- Công cụ cần raw socket (`nmap -sS`, `masscan`, `aircrack-ng`, `hcxdumptool`...) phải chạy với `sudo`; mật khẩu tài khoản live là `1111`.
+- Wireshark không cần chạy bằng root: gói Arch set sẵn capability `cap_net_raw,cap_net_admin` cho `dumpcap`, người dùng thường vẫn bắt gói được.
+- Tấn công Wi-Fi cần card không dây hỗ trợ **monitor mode/injection**; `wifite` tự bật monitor nếu kernel và card hỗ trợ.
+- Lần đầu mở `msfconsole`, Metasploit sẽ khởi tạo cơ sở dữ liệu; nếu cần PostgreSQL đầy đủ thì chạy `msfdb init`.
+- Burp Suite và Ghidra là ứng dụng GUI, mở từ launcher (`Super+D`); JRE đã có sẵn nhờ `jre-openjdk`.
+- Hai gói nặng nhất là `metasploit` (khoảng 460 MB sau cài) và `ghidra`; bộ pentest làm ISO nặng thêm so với bản không có nó nhưng vẫn vừa với USB 16 GB như khuyến nghị chung.
+- Muốn thêm công cụ chưa nướng sẵn, gõ ngay trong phiên live: `yay -S zap amass dirsearch wfuzz` (các PackageBase này có trên AUR; chọn không nướng sẵn để giữ ảnh gọn).
+
 ## Cấu trúc repository
 
 - `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf` hỗ trợ song song Minimal và Immaterial Impulse), Quickshell, Waybar, Matugen, dotfile cài sẵn, ibus & fcitx5, công cụ chuyển đổi giao diện (`usr/local/bin/anios-switch-desktop`), dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng **chỉ do NetworkManager quản lý** (mặt nạ `systemd-networkd*` + `iwd`, drop-in `dns=systemd-resolved` cùng `FallbackDNS` của resolved, `usr/local/bin/anios-netcheck` và unit chạy nó), đồng hồ/múi giờ Việt Nam (`etc/localtime` → `Asia/Ho_Chi_Minh`, bật sẵn `systemd-timesyncd`, drop-in NTP cụm châu Á) và theme con trỏ Adwaita dùng chung cho Hyprland/GTK/XWayland (`~/.icons/default/index.theme`), kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
 - `profile/airootfs/usr/share/sddm/themes/wuwa/` — theme Qylock Wuthering Waves, mã nguồn giấy phép GPL-3.0; thông tin upstream và commit nguồn ở `UPSTREAM`.
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
 - `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).
-- `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey, theme con trỏ `adwaita-cursors`, Cốc Cốc/Wine/Python/Node.js/Java và tiện ích bổ sung vào Archiso `releng`.
-- `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
+- `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey, theme con trỏ `adwaita-cursors`, Cốc Cốc/Wine/Python/Node.js/Java, bộ công cụ pentest kho chính thức (nmap, metasploit, wireshark-qt, hashcat, aircrack-ng, ghidra...) và tiện ích bổ sung vào Archiso `releng`.
+- `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`, cùng nhóm pentest AUR như `burpsuite`, `netexec`, `ffuf`, `nuclei`, `responder`...); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR (git AUR → mirror GitHub → snapshot cgit), dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, thử lại gói hỏng, phân loại nguyên nhân hỏng, phát annotation cho GitHub Actions, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
-- `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
+- `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR, ràng buộc của bước dựng AUR và sự đồng bộ bộ công cụ pentest giữa ảnh live với bản cài đặt), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
 - `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; cần Lua 5.4 trở lên, không cần GPU.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.

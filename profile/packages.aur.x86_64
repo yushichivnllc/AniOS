@@ -59,3 +59,40 @@ jan-bin
 # dùng cho người không rành CLI. Bản -bin cài AppImage chính chủ của
 # lmstudio.ai vào /opt/lm-studio. Giấy phép EULA của upstream.
 lmstudio-bin
+
+# --- Bộ công cụ pentest chỉ có trên AUR (nướng vào ảnh live) ---------------
+# Các gói này không nằm trong kho chính thức của Arch (đã đối chiếu cơ sở dữ
+# liệu gói) nên không thể đặt trong profile/packages.x86_64; chúng được dựng
+# bằng đúng pipeline anios-aur-build.sh như các gói AUR phía trên và CHỈ có
+# trong ảnh live — manifest của bộ cài đặt (profile/install/packages.x86_64)
+# cố tình loại mọi gói AUR. Tên dưới đây đều là PackageBase đang tồn tại trên
+# AUR (đối chiếu qua mirror chính thức archlinux/aur). CHỈ dùng trên hệ thống
+# được uỷ quyền kiểm thử.
+#
+# Proxy web GUI và bộ công cụ Active Directory: Burp Suite (bản Community tải
+# từ portswigger.net lúc dựng), NetExec là kế nhiệm CrackMapExec.
+burpsuite
+netexec
+# Responder: độc hại LLMNR/NBT-NS/mDNS để bắt hash trong mạng nội bộ;
+# exploit-db cung cấp lệnh searchsploit tra cứu Exploit-DB ngay khi offline.
+responder
+exploit-db
+# Fuzz và quét lỗ hổng web: ffuf (Go) fuzz đường dẫn/tham số, nuclei (Go) quét
+# theo template; template của nuclei được tải lần đầu bằng `nuclei -update-templates`.
+ffuf
+nuclei
+# Liệt kê SMB/AD (enum4linux-ng), phát hiện host LAN qua ARP và nhận diện
+# công nghệ web (whatweb).
+enum4linux-ng
+netdiscover
+whatweb
+# Sinh và nhận dạng dữ liệu cho tấn công mật khẩu: hashid nhận dạng loại hash,
+# cewl tạo wordlist từ trang web, crunch sinh wordlist theo quy tắc.
+hashid
+cewl
+crunch
+# Steganography và Windows SAM: steghide giấu/trích dữ liệu trong ảnh,
+# stegseek crack ảnh steghide, samdump2 trích hash từ tệp SAM.
+steghide
+stegseek
+samdump2

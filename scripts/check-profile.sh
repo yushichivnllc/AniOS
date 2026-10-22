@@ -75,6 +75,45 @@ for aur_only in calamares yay yay-bin coccoc-browser-stable legacy-launcher; do
   ! grep -qxF "$aur_only" "$ROOT_DIR/profile/packages.x86_64" ||
     fail "$aur_only only exists in the AUR; pacstrap cannot resolve it. Move it to profile/packages.aur.x86_64"
 done
+
+# --- Bộ công cụ kiểm thử xâm nhập (pentest) --------------------------------
+# Gói pentest lấy từ kho chính thức phải có trong CẢ manifest live lẫn manifest
+# của bộ cài đặt: pacstrap giải quyết trực tiếp từ kho extra nên hai bên phải
+# đồng bộ, tránh hệ thống cài ra thiếu công cụ so với ảnh live. Danh sách này
+# khớp đúng mục "Bộ công cụ kiểm thử xâm nhập" trong hai file package.
+PENTEST_REPO_PACKAGES=(
+  nmap masscan arp-scan fping traceroute whois bind nbtscan smbclient impacket vulscan
+  sqlmap nikto gobuster wpscan mitmproxy testssl.sh sslscan
+  bettercap bettercap-caplets ettercap socat openbsd-netcat proxychains-ng macchanger openvpn
+  wireshark-qt tcpdump
+  metasploit
+  aircrack-ng wifite reaver bully hcxdumptool hcxtools hcxkeys kismet
+  hashcat hashcat-utils john hydra ncrack medusa fcrackzip chntpw
+  gdb pwndbg radare2 ghidra binwalk foremost testdisk perl-image-exiftool strace ltrace
+)
+for pentest_pkg in "${PENTEST_REPO_PACKAGES[@]}"; do
+  grep -qxF "$pentest_pkg" "$ROOT_DIR/profile/packages.x86_64" ||
+    fail "pentest toolkit package missing from live manifest (profile/packages.x86_64): $pentest_pkg"
+  grep -qxF "$pentest_pkg" "$ROOT_DIR/profile/install/packages.x86_64" ||
+    fail "pentest toolkit package missing from installer manifest (profile/install/packages.x86_64): $pentest_pkg"
+done
+# Nhóm pentest chỉ có trên AUR: nướng vào ảnh live bằng anios-aur-build.sh nên
+# phải nằm trong profile/packages.aur.x86_64 và KHÔNG được xuất hiện trong manifest
+# pacstrap (kho chính thức không phân giải được, bản dựng sẽ chết giữa chừng).
+PENTEST_AUR_PACKAGES=(
+  burpsuite netexec responder exploit-db ffuf nuclei enum4linux-ng netdiscover
+  whatweb hashid cewl crunch steghide stegseek samdump2
+)
+for pentest_aur in "${PENTEST_AUR_PACKAGES[@]}"; do
+  grep -qxF "$pentest_aur" "$ROOT_DIR/profile/packages.aur.x86_64" ||
+    fail "pentest AUR package missing from profile/packages.aur.x86_64: $pentest_aur"
+  for pentest_manifest in \
+    "$ROOT_DIR/profile/packages.x86_64" \
+    "$ROOT_DIR/profile/install/packages.x86_64"; do
+    ! grep -qxF "$pentest_aur" "$pentest_manifest" ||
+      fail "$pentest_aur is AUR-only; pacstrap cannot resolve it, keep it in profile/packages.aur.x86_64 (${pentest_manifest#"$ROOT_DIR/"} )"
+  done
+done
 KEYBINDS="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/keybinds.lua"
 for keybinds in "$KEYBINDS" "$AIROOTFS/etc/skel/.config/hypr/hyprland/keybinds.lua"; do
   grep -qF 'hl.dsp.global("quickshell:sessionToggle")' "$keybinds" ||
