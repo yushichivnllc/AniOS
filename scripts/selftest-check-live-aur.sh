@@ -159,7 +159,8 @@ make_fake_image() {
     "$img"/etc/sudoers.d "$img"/var/lib/pacman/local \
     "$img"/etc/calamares/modules "$img"/usr/lib/calamares/modules \
     "$img"/usr/local/lib/anios "$img"/usr/share/anios/installer/previews \
-    "$img"/usr/share/anios/installer/scripts "$img"/usr/share/anios/installer/upstream/grubphemous
+    "$img"/usr/share/anios/installer/scripts "$img"/usr/share/anios/installer/upstream/grubphemous \
+    "$img"/usr/share/anios/aur-repo
 
   # pacman DB thật (libalpm/be_local.c): mỗi gói đã cài là một thư mục
   # <tên>-<pkgver>-<pkgrel> (KHÔNG có hậu tố -<arch>; chỉ file .pkg.tar.zst mới
@@ -212,6 +213,7 @@ make_fake_image() {
     usr/local/lib/anios/anios-installer-skel \
     usr/local/lib/anios/anios-installer-finalize \
     usr/share/anios/installer/packages.x86_64 \
+    usr/share/anios/aur-repo/anios-aur.db.tar.gz \
     usr/share/anios/installer/previews/grub-gorgeous.png \
     usr/share/anios/installer/previews/qylock.png \
     usr/share/anios/installer/scripts/anios-end4-setup \

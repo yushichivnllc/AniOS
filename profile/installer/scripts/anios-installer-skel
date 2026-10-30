@@ -43,7 +43,16 @@ sed -i \
 # Drop the complete Live-password label, including its explanatory comments.
 sed -i '/^# Nhắc mật khẩu live:/,/^}/d' "$hyprlock"
 
-if grep -R -nF '1111' "$target_skel"; then
+# Mật khẩu live chỉ bao giờ xuất hiện dưới dạng MỘT TOKEN ĐỨNG RIÊNG
+# ("Mật khẩu phiên live: 1111"), không bao giờ nằm trong một literal dài hơn.
+# Dotfile Quickshell có sẵn các mã màu hex như "#111111" (region selector) và
+# "#88111111" (TargetRegion), nên `grep -R -nF '1111'` trên toàn bộ skeleton
+# khớp cả những dòng đó và HUỶ MỌI LƯỢT CÀI ĐẶT ngay tại bước này (Calamares
+# báo "Live password text remains in the target skeleton" sau khi pacstrap đã
+# chạy xong). Chỉ quét file văn bản (-I bỏ qua file nhị phân như font/PNG) và
+# chỉ tính token 1111 đứng riêng: đứng sau "#" hay sau một chữ số/chữ cái thì
+# là mã màu hoặc số lớn, không phải mật khẩu.
+if grep -RInE '(^|[^0-9A-Za-z#])1111([^0-9A-Za-z]|$)' "$target_skel"; then
   fail "Live password text remains in the target skeleton"
 fi
 if grep -R -nE 'anios-live|ARCH LINUX LIVE|live gaming desktop' "$target_skel/.config/hypr"; then

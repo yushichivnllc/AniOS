@@ -59,6 +59,25 @@ Trong Calamares, người dùng có thể chọn:
 
 Dựng bằng `--no-aur` vẫn vào được Live; thẻ cài đặt trong màn hình chào mừng sẽ bị vô hiệu hoá và báo rõ Calamares không có trong ảnh.
 
+### Lỗi `Live password text remains in the target skeleton`
+
+Bộ cài đặt tải xong toàn bộ gói (bước `pacstrap` chạy rất lâu) rồi dừng với:
+
+```text
+AniOS installer: Live password text remains in the target skeleton
+```
+
+Nguyên nhân nằm ở chính lớp bảo vệ đó, không phải ở máy của bạn: bước dọn skeleton
+(`profile/installer/scripts/anios-installer-skel`) quét `grep -R -nF '1111'` trên toàn bộ
+`/usr/share/anios/skel` để bảo đảm mật khẩu live không lọt sang máy đã cài — nhưng bộ dotfile
+Quickshell có sẵn các **mã màu hex** chứa đúng chuỗi đó (`#111111` ở region selector,
+`#88111111` ở TargetRegion). Vì vậy mọi lượt cài đều chết tại một bước mà thực tế không hề rò
+rỉ mật khẩu nào. Bản sửa chỉ coi `1111` là mật khẩu khi nó đứng như một token riêng trong
+file văn bản, nên màu sắc, số cổng và kích thước không còn làm hỏng bản cài
+(khoá bởi `scripts/selftest-installer.sh`, bài chạy skeleton thật trong kho chứ không phải
+bản stub nhỏ). Gặp lỗi này nghĩa là ISO được dựng từ bản profile cũ — dựng lại ISO bằng
+`scripts/build-iso.sh` từ bản mã hiện tại.
+
 ### Lỗi `failed to commit transaction (conflicting files)`
 
 Nếu bản dựng dừng với thông báo dạng:

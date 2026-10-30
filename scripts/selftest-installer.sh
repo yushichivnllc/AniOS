@@ -100,6 +100,11 @@ cat >"$FAKE_BIN/pacstrap" <<'FAKE'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf '%s\n' "$@" >"${ANIOS_TEST_PACSTRAP_LOG:?}"
+# Keep the configuration the helper really handed to pacstrap (it is a filtered
+# temporary copy) so the test can prove the Live-only tuning never reaches it.
+if [[ "${1:-}" == -K && "${2:-}" == -C && -n "${ANIOS_TEST_PACMAN_CONF_COPY:-}" ]]; then
+  install -m 0644 -- "$3" "$ANIOS_TEST_PACMAN_CONF_COPY"
+fi
 target="${4:?pacstrap target root is missing}"
 install -D -m 0755 /bin/true "$target/usr/bin/pacman"
 FAKE
@@ -323,18 +328,79 @@ grep -q 'pam:module = hyprlock' "$SKEL_OUTPUT/.config/hypr/hyprlock.conf" ||
 as_root test -x "$SKEL_ROOT/usr/local/bin/anios-session" ||
   fail "AniOS SDDM TryExec launcher was not installed before displaymanager setup"
 
+# --- Regression: sanitize the REAL committed skeleton ----------------------
+# The stub above is too small to catch the mistake this file now exists for: the
+# Live-password guard used to run `grep -R -nF '1111'` over the whole skeleton,
+# and the committed Quickshell dotfiles legitimately contain hex colours such as
+# "#111111" (region selector) and "#88111111". Every installation therefore died
+# at `shellprocess@anios-skel` with "Live password text remains in the target
+# skeleton" — after pacstrap had already spent its time downloading the system.
+# Run the helper against profile/airootfs/usr/share/anios/skel (the tree that is
+# baked into the Live ISO) so a colour, a port or a size can never do that again.
+REAL_LIVE="$SANDBOX/real-live"
+REAL_TARGET="$SANDBOX/real-target"
+REAL_SKEL_SRC="$ROOT_DIR/profile/airootfs/usr/share/anios/skel"
+mkdir -p -- "$REAL_LIVE/usr/share/anios" "$REAL_LIVE/usr/share/wayland-sessions" \
+  "$REAL_LIVE/usr/local/bin" "$REAL_TARGET"
+[[ -d "$REAL_SKEL_SRC/.config/hypr" ]] ||
+  fail "profile/airootfs/usr/share/anios/skel is missing from the repository"
+cp -a -- "$REAL_SKEL_SRC" "$REAL_LIVE/usr/share/anios/skel"
+for session in anios.desktop anios-imi.desktop anios-minimal.desktop; do
+  cp -- "$ROOT_DIR/profile/airootfs/usr/share/wayland-sessions/$session" \
+    "$REAL_LIVE/usr/share/wayland-sessions/$session"
+done
+cp -- "$ROOT_DIR/profile/airootfs/usr/local/bin/anios-session" \
+  "$REAL_LIVE/usr/local/bin/anios-session"
+# Pick the dotfile that carries a "1111" substring, if the tree still has one,
+# so the test proves the guard tolerates it instead of silently going green on a
+# skeleton that no longer exercises it.
+colour_source="$(grep -RlF '1111' "$REAL_LIVE/usr/share/anios/skel" 2>/dev/null |
+  grep -v 'hypr/hyprlock.conf$' | head -n 1 || true)"
+if [[ -n "$colour_source" ]]; then
+  colour_relative="${colour_source#"$REAL_LIVE/usr/share/anios/skel/"}"
+fi
+if ! as_root env ANIOS_LIVE_ROOT="$REAL_LIVE" \
+  "$ROOT_DIR/profile/installer/scripts/anios-installer-skel" "$REAL_TARGET" imi; then
+  fail "sanitizing the committed AniOS skeleton failed: the installer would abort on this image"
+fi
+[[ -s "$REAL_TARGET/etc/skel/.config/hypr/hyprlock.conf" ]] ||
+  fail "the committed skeleton was not copied into the target /etc/skel"
+grep -q 'pam:module = hyprlock' "$REAL_TARGET/etc/skel/.config/hypr/hyprlock.conf" ||
+  fail "the committed skeleton did not switch to the normal Hyprlock PAM service"
+if [[ -n "${colour_relative:-}" ]]; then
+  [[ -s "$REAL_TARGET/etc/skel/$colour_relative" ]] ||
+    fail "the Live-password guard dropped a legitimate dotfile: $colour_relative"
+  [[ -s "$REAL_TARGET/usr/share/anios/skel/$colour_relative" ]] ||
+    fail "the Live-password guard dropped a legitimate AniOS skeleton file: $colour_relative"
+  pass "installer skeleton guard tolerates '1111' inside $colour_relative"
+else
+  echo "SKIP: no dotfile with a '1111' substring left to exercise the guard"
+fi
+
 # Exercise pacstrap argument parsing and multilib validation with a safe fake.
 PACSTRAP_ROOT="$SANDBOX/pacstrap-target"
 PACSTRAP_MANIFEST="$SANDBOX/packages.x86_64"
 PACMAN_CONF="$SANDBOX/pacman.conf"
 PACSTRAP_LOG="$SANDBOX/pacstrap-args"
+PACMAN_CONF_COPY="$SANDBOX/pacstrap-pacman.conf"
 mkdir -p -- "$PACSTRAP_ROOT"
-printf '[options]\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >"$PACMAN_CONF"
+# The Live session rewrites /etc/pacman.conf at boot (CacheDir on tmpfs, kernel
+# in IgnorePkg, NoExtract of man/doc/locales) and pacstrap reads that same file.
+cat >"$PACMAN_CONF" <<'CONF'
+[options]
+# anios-live-pacman-tuning
+CacheDir = /tmp/pacman-pkg-cache/
+IgnorePkg = linux-zen linux-zen-headers linux-firmware linux-firmware-whence
+NoExtract = usr/share/doc/* usr/share/man/* usr/share/locale/* !usr/share/locale/en*
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+CONF
 printf '# target\nbase\nlib32-mesa\n' >"$PACSTRAP_MANIFEST"
 if ! as_root env \
   ANIOS_TARGET_MANIFEST="$PACSTRAP_MANIFEST" \
   ANIOS_LIVE_PACMAN_CONF="$PACMAN_CONF" \
   ANIOS_TEST_PACSTRAP_LOG="$PACSTRAP_LOG" \
+  ANIOS_TEST_PACMAN_CONF_COPY="$PACMAN_CONF_COPY" \
   "$PACSTRAP_HELPER" "$PACSTRAP_ROOT"; then
   if (( EUID != 0 )) && ! sudo -n true >/dev/null 2>&1; then
     echo "SKIP: root integration tests require passwordless sudo; static checks passed"
@@ -344,8 +410,22 @@ if ! as_root env \
 fi
 mapfile -t pacstrap_args <"$PACSTRAP_LOG"
 [[ "${pacstrap_args[0]}" == -K && "${pacstrap_args[1]}" == -C &&
-  "${pacstrap_args[2]}" == "$PACMAN_CONF" && "${pacstrap_args[3]}" == "$PACSTRAP_ROOT" ]] ||
+  "${pacstrap_args[3]}" == "$PACSTRAP_ROOT" ]] ||
   fail "pacstrap helper passed invalid options/order: ${pacstrap_args[*]}"
+# The helper hands pacstrap a filtered temporary copy (removed on exit), so the
+# copy the fake pacstrap captured is what has to be asserted on.
+[[ "${pacstrap_args[2]}" == /* ]] || fail "pacstrap helper did not pass an absolute pacman.conf path"
+# The filter must keep the repositories and drop only the Live-only tuning:
+# otherwise the installed system ends up without man pages, documentation or
+# any locale other than en/vi.
+[[ -s "$PACMAN_CONF_COPY" ]] || fail "the filtered pacman.conf was not captured"
+! grep -qE '^[[:space:]]*(CacheDir|IgnorePkg|IgnoreGroup|NoExtract)[[:space:]]*=' \
+  "$PACMAN_CONF_COPY" ||
+  fail "the Live pacman tuning would be applied to the installed system"
+grep -qxF '[multilib]' "$PACMAN_CONF_COPY" ||
+  fail "the filtered pacman.conf lost the multilib repository"
+grep -qF 'Include = /etc/pacman.d/mirrorlist' "$PACMAN_CONF_COPY" ||
+  fail "the filtered pacman.conf lost its repository configuration"
 ! printf '%s\n' "${pacstrap_args[@]}" | grep -qxE -- '--needed|--noconfirm' ||
   fail "pacstrap does not accept pacman-only --needed/--noconfirm flags"
 [[ -x "$PACSTRAP_ROOT/usr/bin/pacman" ]] || fail "fake pacstrap did not create target pacman"
