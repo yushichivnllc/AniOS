@@ -93,15 +93,7 @@ jobs:
       - name: Self-test Calamares installer helpers
         # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
         # trên cây hệ thống giả; không cài gì lên runner.
-        run: |
-          if ! ./scripts/selftest-installer.sh >/tmp/anios-selftest-installer.log 2>&1; then
-            tail -n 25 /tmp/anios-selftest-installer.log | while IFS= read -r line; do
-              echo "::error title=selftest-installer::$line"
-            done
-            cat /tmp/anios-selftest-installer.log
-            exit 1
-          fi
-          cat /tmp/anios-selftest-installer.log
+        run: ./scripts/selftest-installer.sh
       - name: Validate JSON, SDDM theme, and session configuration
         run: |
           python3 - <<'PY'
