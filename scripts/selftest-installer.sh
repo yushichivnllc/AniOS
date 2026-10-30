@@ -351,14 +351,17 @@ for session in anios.desktop anios-imi.desktop anios-minimal.desktop; do
 done
 cp -- "$ROOT_DIR/profile/airootfs/usr/local/bin/anios-session" \
   "$REAL_LIVE/usr/local/bin/anios-session"
-# Pick the dotfile that carries a "1111" substring, if the tree still has one,
-# so the test proves the guard tolerates it instead of silently going green on a
-# skeleton that no longer exercises it.
-colour_source="$(grep -RlF '1111' "$REAL_LIVE/usr/share/anios/skel" 2>/dev/null |
-  grep -v 'hypr/hyprlock.conf$' | head -n 1 || true)"
-if [[ -n "$colour_source" ]]; then
-  colour_relative="${colour_source#"$REAL_LIVE/usr/share/anios/skel/"}"
-fi
+# Every dotfile carrying a "1111" substring has to survive sanitization. The
+# only files allowed to go are the Live desktop README (public password) and the
+# lock-screen label inside hyprlock.conf; everything else - colours, ports,
+# sizes - must be copied through untouched. Do not pick just one match: grep -Rl
+# walks the tree in filesystem order, so "the first match" differs between the
+# developer's machine and CI.
+colour_files=()
+while IFS= read -r colour_source; do
+  colour_files+=("${colour_source#"$REAL_LIVE/usr/share/anios/skel/"}")
+done < <(grep -RlF '1111' "$REAL_LIVE/usr/share/anios/skel" 2>/dev/null |
+  grep -Ev '(^|/)(Desktop/README\.txt|Desktop/Sober\.desktop|hypr/hyprlock\.conf)$' || true)
 if ! as_root env ANIOS_LIVE_ROOT="$REAL_LIVE" \
   "$ROOT_DIR/profile/installer/scripts/anios-installer-skel" "$REAL_TARGET" imi; then
   fail "sanitizing the committed AniOS skeleton failed: the installer would abort on this image"
@@ -367,12 +370,14 @@ fi
   fail "the committed skeleton was not copied into the target /etc/skel"
 grep -q 'pam:module = hyprlock' "$REAL_TARGET/etc/skel/.config/hypr/hyprlock.conf" ||
   fail "the committed skeleton did not switch to the normal Hyprlock PAM service"
-if [[ -n "${colour_relative:-}" ]]; then
-  [[ -s "$REAL_TARGET/etc/skel/$colour_relative" ]] ||
-    fail "the Live-password guard dropped a legitimate dotfile: $colour_relative"
-  [[ -s "$REAL_TARGET/usr/share/anios/skel/$colour_relative" ]] ||
-    fail "the Live-password guard dropped a legitimate AniOS skeleton file: $colour_relative"
-  pass "installer skeleton guard tolerates '1111' inside $colour_relative"
+if (( ${#colour_files[@]} > 0 )); then
+  for colour_relative in "${colour_files[@]}"; do
+    [[ -s "$REAL_TARGET/etc/skel/$colour_relative" ]] ||
+      fail "the Live-password guard dropped a legitimate dotfile: $colour_relative"
+    [[ -s "$REAL_TARGET/usr/share/anios/skel/$colour_relative" ]] ||
+      fail "the Live-password guard dropped a legitimate AniOS skeleton file: $colour_relative"
+  done
+  pass "installer skeleton guard tolerates '1111' inside ${#colour_files[@]} dotfile(s), e.g. ${colour_files[0]}"
 else
   echo "SKIP: no dotfile with a '1111' substring left to exercise the guard"
 fi
