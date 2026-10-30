@@ -85,6 +85,11 @@ REQUIRED_FILES=(
   usr/local/lib/anios/anios-installer-skel
   usr/local/lib/anios/anios-installer-finalize
   usr/share/anios/installer/packages.x86_64
+  # Kho file cục bộ [anios-aur]: pacstrap của bộ cài đặt lấy driver NVIDIA 580xx
+  # từ đây, nên thiếu kho này thì MỌI lượt cài đặt đều chết ở bước pacstrap dù
+  # ảnh live vẫn vào desktop bình thường. Phát hiện ngay trong CI thay vì để
+  # người dùng là người đầu tiên gặp.
+  usr/share/anios/aur-repo/anios-aur.db.tar.gz
   usr/share/anios/installer/previews/grub-gorgeous.png
   usr/share/anios/installer/previews/qylock.png
   usr/share/anios/installer/scripts/anios-end4-setup

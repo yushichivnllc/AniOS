@@ -55,8 +55,36 @@ if grep -qxF 'nvidia-580xx-dkms' "$MANIFEST"; then
     fail "pacman.conf của ảnh live không khai báo kho [anios-aur]"
 fi
 
+# Lúc khởi động, phiên live tự tinh chỉnh /etc/pacman.conf để khỏi đầy tmpfs
+# cowspace: CacheDir trên /tmp, IgnorePkg bỏ qua kernel/firmware của phiên live
+# và NoExtract bỏ man page, /usr/share/doc, /usr/share/help, /usr/share/info và
+# mọi locale ngoài en/vi (xem anios-live-home.service và anios-update).
+#
+# pacstrap đọc CHÍNH file cấu hình đó (-C "$PACMAN_CONF"), nên nếu dùng nguyên
+# thì máy vừa cài sẽ không có man page, không có tài liệu và mất hết locale
+# không phải en/vi — đúng cho một phiên live sống trong RAM, sai cho một hệ
+# thống nằm trên đĩa. Dựng một bản sao đã lọc riêng cho bước cài: giữ nguyên
+# mọi kho (multilib và kho file [anios-aur] chứa driver NVIDIA 580xx), chỉ bỏ
+# ba dòng tinh chỉnh của phiên live. CacheDir không cần giữ vì pacstrap luôn
+# truyền --cachedir của riêng nó.
+install_conf="$(mktemp "${TMPDIR:-/tmp}/anios-installer-pacman.XXXXXX")"
+trap 'rm -f -- "$install_conf"' EXIT
+awk '
+  /^[[:space:]]*#[[:space:]]*anios-live-pacman-tuning[[:space:]]*$/ { next }
+  /^[[:space:]]*\[/ {
+    in_options = ($0 ~ /^[[:space:]]*\[options\][[:space:]]*$/)
+    print
+    next
+  }
+  in_options && /^[[:space:]]*(CacheDir|IgnorePkg|IgnoreGroup|NoExtract)[[:space:]]*=/ { next }
+  { print }
+' "$PACMAN_CONF" >"$install_conf"
+[[ -s "$install_conf" ]] || fail "could not prepare the pacman configuration for pacstrap"
+grep -qE '^[[:space:]]*\[' "$install_conf" ||
+  fail "the pacman configuration for pacstrap lost every repository"
+
 printf 'AniOS installer: pacstrap %s with %d curated packages\n' "$target_real" "${#packages[@]}"
-pacstrap -K -C "$PACMAN_CONF" "$target_real" "${packages[@]}"
+pacstrap -K -C "$install_conf" "$target_real" "${packages[@]}"
 
 [[ -x "$target_real/usr/bin/pacman" ]] || fail "pacstrap returned successfully but target pacman is missing"
 printf 'AniOS installer: target packages installed successfully\n'
