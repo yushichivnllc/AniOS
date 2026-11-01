@@ -229,7 +229,7 @@ push/PR mà không cần Arch Linux.
 
 ## Dựng ISO tự động bằng GitHub Actions
 
-Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves, cấu hình desktop, giao dàn âm thanh PipeWire cho `scripts/check-live-audio.sh`, và giao Calamares + packagechooser, các helper installer, gói AUR cùng `python`/`nodejs`/`wine` cho `scripts/check-live-aur.sh` kiểm tra) trước khi lưu lại. Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
+Workflow `.github/workflows/build-iso.yml` dựng ISO trên runner Ubuntu bằng cách chạy trực tiếp container Docker `archlinux:base-devel`, rồi gọi đúng `scripts/build-iso.sh` nên kết quả giống hệt khi dựng tay. Mỗi lượt chạy tự giải phóng dung lượng đĩa của runner, cài `archiso`, kiểm tra profile, dựng ISO, rồi tự kiểm tra kết quả (checksum SHA256, boot record El Torito cho BIOS/UEFI, đúng kernel `linux-zen`, đọc thẳng `airootfs.sfs` để xác nhận tên AniOS, wallpaper, theme SDDM Wuthering Waves, cấu hình desktop, giao dàn âm thanh PipeWire cho `scripts/check-live-audio.sh`, và giao Calamares + packagechooser, các helper installer, gói AUR cùng `python`/`nodejs`/`wine` cho `scripts/check-live-aur.sh` kiểm tra) trước khi lưu lại (và chia ISO thành các phần dưới 2 GB khi phát hành release, xem [Cách lấy file ISO](#dựng-iso-tự-động-bằng-github-actions)). Nếu một bước hỏng, lượt chạy đỏ và không có artifact.
 
 Khi nào workflow chạy:
 
@@ -242,10 +242,22 @@ Khi nào workflow chạy:
 
 Cách lấy file ISO:
 
-- **Artifact**: mở lần chạy tương ứng, cuộn xuống mục **Artifacts**, tải `anios-iso` (gồm file ISO, file `.sha256` và danh sách gói). Artifact được giữ 30 ngày.
-- **Release**: có ở lượt chạy theo tag hoặc `nightly`. GitHub chỉ nhận tệp đính kèm nhỏ hơn 2 GB, nên khi ISO nặng hơn thì workflow chỉ đính kèm checksum, danh sách gói và ghi link tải artifact trong phần mô tả release.
+- **Release** (nhanh nhất): có ở lượt chạy theo tag hoặc `nightly`. GitHub chỉ nhận tệp đính kèm nhỏ hơn 2 GB trong khi ISO nặng khoảng 6,5 GB, nên workflow **chia ISO thành các phần dưới 2 GB** (`anios-<ngay>-x86_64.iso.part01`, `.part02`, ...) rồi đính thẳng các phần đó vào release. Đó chỉ là `split` đọc/ghi byte — **không nén lại**, nên không tốn thêm thời gian dựng và không làm file to ra. Tải song song các phần rồi nối lại; phần mô tả của mỗi release có sẵn lệnh copy-paste:
 
-Kiểm tra file sau khi tải:
+  ```bash
+  mkdir -p anios-iso && cd anios-iso
+  # mỗi luồng một phần; -C - tự tải tiếp khi mạng đứt (dùng aria2c -x4 -s4 -c nếu có)
+  printf '%s\n' '<url part01>' '<url part02>' '<url part03>' '<url part04>' \
+    | xargs -n1 -P4 curl -fL -C - -O
+  sha256sum -c anios-<ngay>-x86_64.iso.parts.sha256   # kiểm tra từng phần (tuỳ chọn)
+  cat anios-<ngay>-x86_64.iso.part[0-9][0-9] > anios-<ngay>-x86_64.iso
+  sha256sum -c anios-<ngay>-x86_64.iso.sha256         # phải khớp SHA256 của ISO gốc
+  ```
+
+  CDN của release trả lời được HTTP Range nên tải nhiều luồng và resume được, không cần đăng nhập GitHub. Release `nightly` chỉ giữ tệp của bản dựng mới nhất: asset của bản cũ (kể cả các phần ISO) được dọn sau khi upload xong.
+- **Artifact**: mở lần chạy tương ứng, cuộn xuống mục **Artifacts**, tải `anios-iso`. Artifact tải từng tệp trần (không đóng gói ZIP) và không nén thêm, nhưng cần đăng nhập GitHub và **không resume được** — chỉ nên dùng khi cần bản dựng của một PR cụ thể. Artifact được giữ 30 ngày.
+
+Kiểm tra file sau khi tải (và sau khi ghép các phần):
 
 ```bash
 sha256sum -c anios-<ngay>-x86_64.iso.sha256

@@ -49,6 +49,13 @@ jobs:
       run:
         shell: bash
 
+    # ISO (~6,5 GB) lớn hơn giới hạn 2 GiB cho MỘT tệp đính kèm release, nên khi
+    # phát hành nó được chia thành các phần nhỏ hơn giới hạn này rồi đính thẳng
+    # vào release (xem bước "Chia ISO thành phần nhỏ"). Đổi số dưới đây là đổi
+    # kích thước mỗi phần; phải giữ dưới 2 GiB (2 * 1024^3 = 2147483648).
+    env:
+      ANIOS_ISO_PART_BYTES: 1992294400 # 1900 MiB, chừa dung sai dưới trần 2 GiB
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -478,6 +485,74 @@ jobs:
           /workspace/scripts/check-live-aur.sh "$squashfs" out/anios-pkglist.txt
           ARCH
 
+      - name: Chia ISO thành phần nhỏ để tải song song
+        # Tối ưu đường tải ISO của người dùng cuối, làm ngay trong workflow:
+        #
+        # * ISO AniOS (~6,5 GB) vượt giới hạn 2 GiB cho một tệp đính kèm
+        #   release. Vì vậy trước đây release chỉ có file .sha256, còn muốn lấy
+        #   ISO thì phải vào tab Artifacts: bắt đăng nhập GitHub, nhận về một
+        #   ZIP (Deflate) lớn, tải một luồng và ĐỨT LÀ TẢI LẠI TỪ ĐẦU.
+        # * Chia ISO ở đây là `split` thuần tuý: chỉ đọc/ghi byte, KHÔNG nén
+        #   lại, không tốn CPU — nhanh hơn nhiều so với việc nén thêm một lớp
+        #   nữa (dữ liệu ISO đã là squashfs xz, nén tiếp gần như không nhỏ hơn
+        #   mà chỉ tốn thời gian). Các phần khi đó đính vừa release: CDN của
+        #   release trả lời được HTTP Range nên curl/aria2c tải SONG SONG nhiều
+        #   phần và resume được sau khi mạng đứt, không cần đăng nhập.
+        # * Nối lại đúng thứ tự phải ra đúng file ISO gốc, nên bước này tự kiểm
+        #   tra bằng SHA256 trước khi cho phát hành; phần đính kèm sai thứ tự
+        #   hoặc thiếu byte sẽ làm lượt chạy đỏ chứ không âm thầm phát hành.
+        id: parts
+        run: |
+          set -Eeuo pipefail
+          iso="out/$(basename "$(ls -1 out/*.iso)")"
+          name="$(basename "$iso")"
+          rm -rf out/parts
+          mkdir -p out/parts
+
+          size="$(stat -c %s "$iso")"
+          echo "ISO: $name ($size byte), giới hạn mỗi phần: $ANIOS_ISO_PART_BYTES byte"
+
+          # Các phần là bản sao byte của ISO nên cần thêm đúng bằng dung lượng
+          # ISO trên đĩa. work/ (pacstrap + airootfs, vài GB) không còn ai dùng
+          # sau khi ISO đã dựng xong và đã qua hết các bước kiểm tra, nên xoá
+          # trước khi chia để không đẩy runner (chỉ trống ~25 GB) tới ENOSPC.
+          rm -rf work
+          df -h .
+
+          if (( size > ANIOS_ISO_PART_BYTES )); then
+            # -d --numeric-suffixes=1: part01, part02... để nối lại đúng thứ
+            # tự. Đuôi số 2 chữ số được viết thành [0-9][0-9] ở MỌI chỗ dùng
+            # lại: `*.part*` sẽ khớp cả file checksum `*.parts.sha256` và làm
+            # hỏng bản nối (đã trúng đúng lỗi này khi thử quy trình).
+            split -b "$ANIOS_ISO_PART_BYTES" -d -a 2 --numeric-suffixes=1 \
+              -- "$iso" "out/parts/$name.part"
+          fi
+          mapfile -t part_paths < <(
+            find out/parts -maxdepth 1 -type f -name "$name.part[0-9][0-9]" | sort
+          )
+          count="${#part_paths[@]}"
+
+          if (( count )); then
+            (
+              cd out/parts
+              sha256sum *.part[0-9][0-9] >"../$name.parts.sha256"
+            )
+            # Nối lại rồi so với SHA256 mà bước "Kiểm tra ISO vừa dựng" đã ghi:
+            # đây là bảo hiểm cho người tải, không phải kiểm tra hình thức.
+            expected="$(cut -d' ' -f1 "out/$name.sha256")"
+            actual="$(cat -- "${part_paths[@]}" | sha256sum | cut -d' ' -f1)"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::Nối các phần không ra đúng ISO gốc ($actual != $expected)"
+              exit 1
+            fi
+            echo "ISO chia thành $count phần (< $((ANIOS_ISO_PART_BYTES / 1024 / 1024)) MiB mỗi phần):"
+            ls -lh out/parts
+            echo "Nối lại và kiểm tra: cat $name.part[0-9][0-9] > $name && sha256sum -c $name.sha256 -> OK"
+          else
+            echo "ISO nhỏ hơn giới hạn một phần, giữ nguyên một tệp (đính trực tiếp vào release)."
+          fi
+          echo "count=$count" >>"$GITHUB_OUTPUT"
+
       - name: Dọn container dựng Arch
         if: always()
         run: docker rm --force anios-iso-builder || true
@@ -491,7 +566,11 @@ jobs:
             out/*.sha256
             out/anios-pkglist.txt
             out/iso-el-torito.txt
-          # ISO đã nén sẵn, nén thêm chỉ tốn thời gian.
+          # `archive: false` tải nguyên từng tệp thay vì gói tất cả vào một ZIP:
+          # không phải đọc/ghi lại 6,5 GB để đóng ZIP (upload nhanh hơn), và
+          # người tải nhận thẳng file ISO thay vì một ZIP khổng lồ.
+          archive: false
+          # ISO đã nén sẵn (squashfs xz + ISO 9660), nén thêm chỉ tốn thời gian.
           compression-level: 0
           retention-days: 30
           if-no-files-found: error
@@ -533,15 +612,37 @@ jobs:
             latest=false
           fi
 
-          # GitHub chỉ nhận tệp đính kèm dưới 2 GB qua API, ISO thường nặng hơn.
+          # ---- Tệp đính kèm release ----------------------------------------
+          # Bước "Chia ISO thành phần nhỏ để tải song song" đã tạo out/parts khi
+          # ISO vượt giới hạn 2 GiB của một tệp đính kèm. Ưu tiên đính các phần
+          # (tải song song + resume được qua CDN của release) hơn là đẩy người
+          # dùng về tab Artifacts.
+          mapfile -t part_paths < <(
+            find out/parts -maxdepth 1 -type f -name "$name_iso.part[0-9][0-9]" | sort
+          )
+          part_count="${#part_paths[@]}"
+
           files=""
-          if (( $(stat -c %s "$iso") <= 2 * 1024 * 1024 * 1024 - 1 )); then
-            files="$iso"$'\n'
-            iso_note="Tệp ISO nằm trong phần đính kèm của release này."
+          keep=""
+          if (( part_count )); then
+            for part in "${part_paths[@]}"; do
+              files+="$part"$'\n'
+              keep+="$(basename "$part")"$'\n'
+            done
+            iso_note="ISO nặng $size_h nên được chia thành **$part_count phần**, mỗi phần dưới 2 GB. Tải hết các phần, nối lại theo đúng thứ tự rồi kiểm tra SHA256 (lệnh ngay bên dưới): kết quả giống hệt file ISO gốc."
           else
-            iso_note="ISO nặng hơn giới hạn 2 GB của tệp đính kèm release. Tải bản artifact tại $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (mục Artifacts, tên anios-iso)."
+            files="$iso"$'\n'
+            keep+="$(basename "$iso")"$'\n'
+            iso_note="Tệp ISO nằm trong phần đính kèm của release này."
           fi
-          files+="out/$name_iso.sha256"$'\n'"out/anios-pkglist.txt"$'\n'"out/iso-el-torito.txt"
+          files+="out/$name_iso.sha256"$'\n'
+          keep+="$name_iso.sha256"$'\n'
+          if (( part_count )); then
+            files+="out/$name_iso.parts.sha256"$'\n'
+            keep+="$name_iso.parts.sha256"$'\n'
+          fi
+          files+="out/anios-pkglist.txt"$'\n'"out/iso-el-torito.txt"
+          keep+="anios-pkglist.txt"$'\n'"iso-el-torito.txt"
 
           {
             echo "tag=$tag"
@@ -551,7 +652,23 @@ jobs:
             echo 'files<<ANIOS_ASSETS'
             printf '%s\n' "$files"
             echo 'ANIOS_ASSETS'
+            echo 'keep<<ANIOS_KEEP'
+            printf '%s\n' "$keep"
+            echo 'ANIOS_KEEP'
           } >>"$GITHUB_OUTPUT"
+
+          release_base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag"
+          part_urls=""
+          for part in "${part_paths[@]}"; do
+            part_urls+="  '$release_base/$(basename "$part")' \\"$'\n'
+          done
+          if (( part_count )); then
+            # Tải kèm hai file checksum trong CÙNG một lệnh: lệnh trong phần mô
+            # tả release phải chạy được ngay sau khi copy, không bắt người dùng
+            # mở thêm tab để lấy file .sha256.
+            part_urls+="  '$release_base/$name_iso.parts.sha256' \\"$'\n'
+            part_urls+="  '$release_base/$name_iso.sha256' \\"$'\n'
+          fi
 
           {
             echo "### AniOS \`${GITHUB_SHA:0:7}\`"
@@ -567,13 +684,41 @@ jobs:
             echo "| SHA256 | \`$sha\` |"
             echo "| Số gói | $packages |"
             echo "| Kernel | \`linux-zen\` |"
+            if (( part_count )); then
+              echo "| Số phần | $part_count |"
+            fi
             echo
-            echo "Kiểm tra file sau khi tải:"
-            echo
-            echo '```bash'
-            echo "sha256sum -c $name_iso.sha256"
-            echo '```'
-            echo
+            if (( part_count )); then
+              # Lệnh copy-paste được: tải song song từng phần (curl -C - để
+              # resume khi mạng đứt), kiểm tra từng phần, nối lại, rồi kiểm tra
+              # SHA256 của ISO hoàn chỉnh.
+              echo "### Tải và ghép ISO ($part_count phần)"
+              echo
+              echo "Các phần và file checksum nằm ngay trong release này nên tải bằng CDN của GitHub, không cần đăng nhập. Tải song song để nhanh hơn (mỗi luồng một phần, \`-C -\` tự tiếp tục khi đứt mạng, chạy lại lệnh là tải tiếp chứ không tải lại từ đầu):"
+              echo
+              echo '```bash'
+              echo 'mkdir -p anios-iso && cd anios-iso'
+              echo "printf '%s\\n' \\"
+              printf '%s' "$part_urls"
+              echo "  | xargs -n1 -P$part_count curl -fL -C - -O"
+              echo "sha256sum -c $name_iso.parts.sha256   # kiểm tra từng phần (tuỳ chọn)"
+              echo "cat $name_iso.part[0-9][0-9] > $name_iso   # nối lại đúng thứ tự"
+              echo "sha256sum -c $name_iso.sha256          # phải khớp SHA256 của ISO gốc"
+              echo '```'
+              echo
+              echo "Máy có \`aria2c\` thì thay dòng \`xargs\` bằng \`aria2c -x4 -s4 -c <url>...\` để chia nhỏ mỗi phần thành nhiều luồng. Tải lại giữa đường chỉ cần chạy lại đúng lệnh trên: phần đã tải đủ được bỏ qua."
+              echo
+              echo "Tệp trong tab **Artifacts** của [lần chạy này]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) cũng có ISO nguyên bản, nhưng cần đăng nhập GitHub và không resume được nên chỉ nên dùng khi cần bản dựng của một PR cụ thể."
+              echo
+            fi
+            if (( ! part_count )); then
+              echo "Kiểm tra file sau khi tải:"
+              echo
+              echo '```bash'
+              echo "sha256sum -c $name_iso.sha256"
+              echo '```'
+              echo
+            fi
             echo "Ghi ra USB (thay \`/dev/sdX\` bằng ổ USB của bạn):"
             echo
             echo '```bash'
@@ -597,3 +742,37 @@ jobs:
           prerelease: ${{ steps.meta.outputs.prerelease }}
           make_latest: ${{ steps.meta.outputs.make_latest }}
           fail_on_unmatched_files: true
+
+      - name: Dọn asset cũ của release
+        if: steps.gate.outputs.release == 'true'
+        # softprops/action-gh-release chỉ THAY THẾ tệp trùng tên; tệp của bản
+        # dựng trước (tên kèm ngày) nằm lại release `nightly` mãi mãi. Từ khi
+        # ISO được chia phần, mỗi lượt để lại thêm ~6,5 GB tệp lỗi thời — sau
+        # vài tuần release toàn bản cũ và người dùng rất dễ tải nhầm. Xoá mọi
+        # asset không thuộc bản dựng vừa đăng, và chỉ xoá SAU khi upload xong để
+        # upload hỏng không để release trống.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          KEEP: ${{ steps.meta.outputs.keep }}
+        run: |
+          set -Eeuo pipefail
+          # Endpoint liệt kê asset của GitHub chỉ nhận id của release, không nhận
+          # tag: lấy id trước rồi mới phân trang danh sách asset.
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .id)"
+          mapfile -t assets < <(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" \
+              --jq '.[] | "\(.id)\t\(.name)"'
+          )
+          removed=0
+          for entry in "${assets[@]}"; do
+            id="${entry%%$'\t'*}"
+            asset_name="${entry#*$'\t'}"
+            if grep -qxF -- "$asset_name" <<<"$KEEP"; then
+              continue
+            fi
+            echo "Xoá asset cũ: $asset_name"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+            removed=$((removed + 1))
+          done
+          echo "Đã dọn $removed asset cũ; release chỉ còn tệp của bản dựng này."
