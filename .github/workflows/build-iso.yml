@@ -506,17 +506,27 @@ jobs:
           set -Eeuo pipefail
           iso="out/$(basename "$(ls -1 out/*.iso)")"
           name="$(basename "$iso")"
-          rm -rf out/parts
-          mkdir -p out/parts
+
+          # out/ do container Arch (chạy bằng root) tạo ra nên tài khoản
+          # `runner` của máy chạy KHÔNG ghi được vào đó — bản đầu của bước này
+          # chết đúng ở đây với "mkdir: cannot create directory 'out/parts':
+          # Permission denied". Vì vậy mọi thao tác ghi trong bước này (tạo thư
+          # mục, split, ghi checksum, xoá tệp tạm) chạy qua sudo; cuối bước trả
+          # lại quyền sở hữu out/ cho `runner` để các bước sau (upload
+          # artifact, soạn nội dung release) không cần sudo.
+          sudo rm -rf out/parts
+          sudo mkdir -p out/parts
 
           size="$(stat -c %s "$iso")"
           echo "ISO: $name ($size byte), giới hạn mỗi phần: $ANIOS_ISO_PART_BYTES byte"
 
           # Các phần là bản sao byte của ISO nên cần thêm đúng bằng dung lượng
-          # ISO trên đĩa. work/ (pacstrap + airootfs, vài GB) không còn ai dùng
-          # sau khi ISO đã dựng xong và đã qua hết các bước kiểm tra, nên xoá
-          # trước khi chia để không đẩy runner (chỉ trống ~25 GB) tới ENOSPC.
-          rm -rf work
+          # ISO trên đĩa. Dọn những thứ không còn dùng trước khi chia để runner
+          # (chỉ trống ~25 GB) không chạm ENOSPC:
+          #   * work/          — pacstrap + airootfs, chỉ dùng lúc dựng;
+          #   * out/airootfs.sfs — bản trích từ ISO để các bước kiểm tra đọc,
+          #                        không nằm trong artifact.
+          sudo rm -rf work out/airootfs.sfs
           df -h .
 
           if (( size > ANIOS_ISO_PART_BYTES )); then
@@ -524,7 +534,7 @@ jobs:
             # tự. Đuôi số 2 chữ số được viết thành [0-9][0-9] ở MỌI chỗ dùng
             # lại: `*.part*` sẽ khớp cả file checksum `*.parts.sha256` và làm
             # hỏng bản nối (đã trúng đúng lỗi này khi thử quy trình).
-            split -b "$ANIOS_ISO_PART_BYTES" -d -a 2 --numeric-suffixes=1 \
+            sudo split -b "$ANIOS_ISO_PART_BYTES" -d -a 2 --numeric-suffixes=1 \
               -- "$iso" "out/parts/$name.part"
           fi
           mapfile -t part_paths < <(
@@ -533,10 +543,12 @@ jobs:
           count="${#part_paths[@]}"
 
           if (( count )); then
+            # out/ vẫn thuộc root nên phải ghi checksum qua sudo tee (đọc các
+            # phần thì không cần: chúng là 0644 mà runner đọc được).
             (
               cd out/parts
-              sha256sum *.part[0-9][0-9] >"../$name.parts.sha256"
-            )
+              sha256sum *.part[0-9][0-9]
+            ) | sudo tee "out/$name.parts.sha256" >/dev/null
             # Nối lại rồi so với SHA256 mà bước "Kiểm tra ISO vừa dựng" đã ghi:
             # đây là bảo hiểm cho người tải, không phải kiểm tra hình thức.
             expected="$(cut -d' ' -f1 "out/$name.sha256")"
@@ -551,6 +563,13 @@ jobs:
           else
             echo "ISO nhỏ hơn giới hạn một phần, giữ nguyên một tệp (đính trực tiếp vào release)."
           fi
+
+          # Trả quyền sở hữu out/ (ISO, các phần, checksum, pkglist...) về
+          # `runner`: bước artifact và bước soạn nội dung release chạy bằng tài
+          # khoản này, và sau đây không còn ai cần sudo nữa.
+          sudo chown -R "$(id -u):$(id -g)" out
+          ls -ld out out/parts
+
           echo "count=$count" >>"$GITHUB_OUTPUT"
 
       - name: Dọn container dựng Arch
