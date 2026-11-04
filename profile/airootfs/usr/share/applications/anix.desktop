@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Anix — Whonix VM Setup
+Comment=Configure isolated Whonix Gateway and Workstation virtual machines
+Exec=/usr/local/bin/anix
+Icon=computer
+Terminal=false
+Categories=System;Security;

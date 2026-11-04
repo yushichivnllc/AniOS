@@ -110,144 +110,85 @@ install -D -m 0755 /bin/true "$target/usr/bin/pacman"
 FAKE
 chmod 0755 "$FAKE_BIN/mountpoint" "$FAKE_BIN/pacstrap"
 
-# Mock the Material QML chooser first and KDialog only as a fallback. Live must
-# leave the current session alone, while Install launches Calamares on Wayland.
+# Mock the Material QML mode chooser and KDialog fallback. AniTails dispatch
+# occurs only when its protected kernel command line is present; Anix starts its VM UI.
 GUI_BIN="$SANDBOX/gui-bin"
 GUI_RUNTIME="$SANDBOX/gui-runtime"
-CALAMARES_SETTINGS="$SANDBOX/calamares-settings.conf"
-CALAMARES_MODULES="$SANDBOX/calamares-modules"
-PKEXEC_LOG="$SANDBOX/pkexec-args"
 QML_LOG="$SANDBOX/qml-args"
 KDIALOG_LOG="$SANDBOX/kdialog-args"
-mkdir -p -- "$GUI_BIN" "$GUI_RUNTIME" "$CALAMARES_MODULES"
-printf 'settings: AniOS\n' >"$CALAMARES_SETTINGS"
-printf 'mock packagechooser plugin\n' >"$CALAMARES_MODULES/libcalamares_viewmodule_packagechooser.so"
+PROC_CMDLINE="$SANDBOX/proc-cmdline"
+NORMAL_CMDLINE="$SANDBOX/normal-cmdline"
+TAILS_LOG="$SANDBOX/tails-launch"
+ANIX_LOG="$SANDBOX/anix-launch"
+mkdir -p -- "$GUI_BIN" "$GUI_RUNTIME"
+printf 'BOOT_IMAGE=test anios_mode=anitails\n' >"$PROC_CMDLINE"
+printf 'BOOT_IMAGE=test\n' >"$NORMAL_CMDLINE"
 cat >"$GUI_BIN/qml6" <<'FAKE'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 {
   printf 'qml=%s\n' "${1:-}"
   printf 'style=%s\n' "${QT_QUICK_CONTROLS_STYLE:-}"
-  printf 'args=%s\n' "$*"
 } >>"${ANIOS_TEST_QML_LOG:?}"
 printf 'qml: ANIOS_BOOT_CHOICE_READY=1\n'
-printf 'qml: ANIOS_BOOT_CHOICE=%s\n' "${ANIOS_SELFTEST_CHOICE:-live}"
+printf 'qml: ANIOS_BOOT_CHOICE=%s\n' "${ANIOS_SELFTEST_CHOICE:-anios}"
 exit "${ANIOS_TEST_QML_EXIT:-0}"
 FAKE
 cat >"$GUI_BIN/kdialog" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${ANIOS_TEST_KDIALOG_LOG:?}"
 if [[ " $* " == *" --menu "* ]]; then
-  printf '%s\n' "${ANIOS_SELFTEST_CHOICE:-live}"
+  printf '%s\n' "${ANIOS_SELFTEST_CHOICE:-anios}"
 fi
 exit 0
 FAKE
-cat >"$GUI_BIN/calamares" <<'FAKE'
+cat >"$GUI_BIN/tails-launcher" <<'FAKE'
 #!/usr/bin/env bash
-exit 0
+printf 'launched\n' >>"${ANIOS_TEST_TAILS_LOG:?}"
 FAKE
-cat >"$GUI_BIN/pkexec" <<'FAKE'
+cat >"$GUI_BIN/anix-launcher" <<'FAKE'
 #!/usr/bin/env bash
-printf '%s\n' "$@" >"${ANIOS_TEST_PKEXEC_LOG:?}"
-exit 0
+printf 'launched\n' >>"${ANIOS_TEST_ANIX_LOG:?}"
 FAKE
-chmod 0755 "$GUI_BIN/qml6" "$GUI_BIN/kdialog" "$GUI_BIN/calamares" "$GUI_BIN/pkexec"
+chmod 0755 "$GUI_BIN/qml6" "$GUI_BIN/kdialog" "$GUI_BIN/tails-launcher" "$GUI_BIN/anix-launcher"
 : >"$QML_LOG"
 : >"$KDIALOG_LOG"
-python3 - "$GUI_RUNTIME/wayland-0" <<'PY'
-import socket
-import sys
-sock = socket.socket(socket.AF_UNIX)
-sock.bind(sys.argv[1])
-sock.close()
-PY
-
-env PATH="$GUI_BIN:$PATH" \
-  ANIOS_QML_BIN="$GUI_BIN/qml6" \
-  ANIOS_BOOT_CHOICE_QML="$BOOT_CHOICE_QML" \
-  ANIOS_TEST_QML_LOG="$QML_LOG" ANIOS_TEST_KDIALOG_LOG="$KDIALOG_LOG" \
-  ANIOS_CALAMARES_BIN="$GUI_BIN/calamares" \
-  ANIOS_CALAMARES_SETTINGS="$CALAMARES_SETTINGS" \
-  ANIOS_CALAMARES_MODULE_DIR="$CALAMARES_MODULES" \
-  ANIOS_SELFTEST_CHOICE=live \
-  "$BOOT_CHOICE"
-[[ ! -e "$PKEXEC_LOG" ]] || fail "Live ISO choice unexpectedly started Calamares"
+for mode in anios anitails anix; do
+  mode_cmdline="$NORMAL_CMDLINE"
+  [[ "$mode" != anitails ]] || mode_cmdline="$PROC_CMDLINE"
+  env PATH="$GUI_BIN:$PATH" \
+    ANIOS_QML_BIN="$GUI_BIN/qml6" \
+    ANIOS_BOOT_CHOICE_QML="$BOOT_CHOICE_QML" \
+    ANIOS_TEST_QML_LOG="$QML_LOG" ANIOS_TEST_KDIALOG_LOG="$KDIALOG_LOG" \
+    ANIOS_TEST_TAILS_LOG="$TAILS_LOG" ANIOS_TEST_ANIX_LOG="$ANIX_LOG" \
+    ANIOS_PROC_CMDLINE="$mode_cmdline" \
+    ANIOS_TAILS_BIN="$GUI_BIN/tails-launcher" ANIOS_ANIX_BIN="$GUI_BIN/anix-launcher" \
+    ANIOS_SELFTEST_CHOICE="$mode" \
+    "$BOOT_CHOICE" || fail "mode chooser failed for $mode"
+done
 grep -qxF "qml=$BOOT_CHOICE_QML" "$QML_LOG" ||
-  fail "Material chooser did not load its QML interface"
+  fail "mode chooser did not load its QML interface"
 grep -qxF 'style=Material' "$QML_LOG" ||
-  fail "Material chooser did not request the Material Controls style"
+  fail "mode chooser did not request the Material Controls style"
+grep -qxF 'launched' "$TAILS_LOG" || fail "AniTails selection did not invoke its browser helper"
+grep -qxF 'launched' "$ANIX_LOG" || fail "Anix selection did not invoke its VM helper"
 [[ ! -s "$KDIALOG_LOG" ]] || fail "Material chooser unexpectedly used the KDialog fallback"
 
-: >"$QML_LOG"
-env PATH="$GUI_BIN:$PATH" \
-  ANIOS_QML_BIN="$GUI_BIN/qml6" \
-  ANIOS_BOOT_CHOICE_QML="$BOOT_CHOICE_QML" \
-  ANIOS_TEST_QML_LOG="$QML_LOG" ANIOS_TEST_KDIALOG_LOG="$KDIALOG_LOG" \
-  ANIOS_CALAMARES_BIN="$GUI_BIN/calamares" \
-  ANIOS_CALAMARES_SETTINGS="$CALAMARES_SETTINGS" \
-  ANIOS_CALAMARES_MODULE_DIR="$CALAMARES_MODULES" \
-  ANIOS_SELFTEST_CHOICE=install \
-  ANIOS_TEST_PKEXEC_LOG="$PKEXEC_LOG" \
-  XDG_RUNTIME_DIR="$GUI_RUNTIME" WAYLAND_DISPLAY=wayland-0 \
-  "$BOOT_CHOICE"
-grep -qxF "XDG_RUNTIME_DIR=$GUI_RUNTIME" "$PKEXEC_LOG" ||
-  fail "Install choice did not pass the Live Wayland runtime to pkexec"
-grep -qxF 'WAYLAND_DISPLAY=wayland-0' "$PKEXEC_LOG" ||
-  fail "Install choice did not pass WAYLAND_DISPLAY to Calamares"
-grep -qxF "$GUI_BIN/calamares" "$PKEXEC_LOG" ||
-  fail "Install choice did not launch the Calamares GUI"
-
-# A failed QML launch must fall back to KDialog rather than dropping an install
-# selection or treating an error marker as a successful user action.
-rm -f -- "$PKEXEC_LOG"
+# A failed QML launch must fall back to a three-mode KDialog menu and dispatch Anix.
 : >"$KDIALOG_LOG"
 env PATH="$GUI_BIN:$PATH" \
   ANIOS_QML_BIN="$GUI_BIN/qml6" \
   ANIOS_BOOT_CHOICE_QML="$BOOT_CHOICE_QML" \
   ANIOS_TEST_QML_LOG="$QML_LOG" ANIOS_TEST_KDIALOG_LOG="$KDIALOG_LOG" \
-  ANIOS_TEST_QML_EXIT=1 \
-  ANIOS_CALAMARES_BIN="$GUI_BIN/calamares" \
-  ANIOS_CALAMARES_SETTINGS="$CALAMARES_SETTINGS" \
-  ANIOS_CALAMARES_MODULE_DIR="$CALAMARES_MODULES" \
-  ANIOS_SELFTEST_CHOICE=install \
-  ANIOS_TEST_PKEXEC_LOG="$PKEXEC_LOG" \
-  XDG_RUNTIME_DIR="$GUI_RUNTIME" WAYLAND_DISPLAY=wayland-0 \
+  ANIOS_TEST_ANIX_LOG="$ANIX_LOG" ANIOS_ANIX_BIN="$GUI_BIN/anix-launcher" \
+  ANIOS_TEST_QML_EXIT=1 ANIOS_SELFTEST_CHOICE=anix \
   "$BOOT_CHOICE"
 grep -q -- '--menu' "$KDIALOG_LOG" || fail "QML failure did not activate the KDialog fallback"
-grep -qxF "$GUI_BIN/calamares" "$PKEXEC_LOG" ||
-  fail "KDialog fallback did not preserve the Install action"
-
-# --no-aur images show the chooser but mark its Install card unavailable.
-: >"$QML_LOG"
-rm -f -- "$PKEXEC_LOG"
-env PATH="$GUI_BIN:$PATH" \
-  ANIOS_QML_BIN="$GUI_BIN/qml6" \
-  ANIOS_BOOT_CHOICE_QML="$BOOT_CHOICE_QML" \
-  ANIOS_TEST_QML_LOG="$QML_LOG" ANIOS_TEST_KDIALOG_LOG="$KDIALOG_LOG" \
-  ANIOS_CALAMARES_BIN="$GUI_BIN/not-installed" \
-  ANIOS_CALAMARES_SETTINGS="$CALAMARES_SETTINGS" \
-  ANIOS_CALAMARES_MODULE_DIR="$CALAMARES_MODULES" \
-  ANIOS_SELFTEST_CHOICE=live \
-  "$BOOT_CHOICE"
-grep -qF -- '--installer-unavailable' "$QML_LOG" ||
-  fail "chooser did not disable Install when Calamares is missing"
-[[ ! -e "$PKEXEC_LOG" ]] || fail "missing Calamares unexpectedly launched pkexec"
-
-# Defense in depth: even if a broken UI returns Install on a --no-aur image,
-# the helper must refuse to start a nonexistent installer.
-: >"$KDIALOG_LOG"
-env PATH="$GUI_BIN:$PATH" \
-  ANIOS_QML_BIN="$GUI_BIN/qml6" \
-  ANIOS_BOOT_CHOICE_QML="$BOOT_CHOICE_QML" \
-  ANIOS_TEST_QML_LOG="$QML_LOG" ANIOS_TEST_KDIALOG_LOG="$KDIALOG_LOG" \
-  ANIOS_CALAMARES_BIN="$GUI_BIN/not-installed" \
-  ANIOS_CALAMARES_SETTINGS="$CALAMARES_SETTINGS" \
-  ANIOS_CALAMARES_MODULE_DIR="$CALAMARES_MODULES" \
-  ANIOS_SELFTEST_CHOICE=install \
-  "$BOOT_CHOICE"
-[[ ! -e "$PKEXEC_LOG" ]] || fail "installer helper bypassed the missing-Calamares guard"
-grep -qF -- '--error' "$KDIALOG_LOG" ||
-  fail "missing-Calamares install attempt did not explain why it was refused"
+grep -qF 'AniTails — Tor-only Live (reboot required)' "$KDIALOG_LOG" ||
+  fail "KDialog fallback did not list AniTails"
+grep -qF 'Anix — Whonix Gateway + Workstation VMs' "$KDIALOG_LOG" ||
+  fail "KDialog fallback did not list Anix"
+[[ "$(wc -l <"$ANIX_LOG")" -eq 2 ]] || fail "KDialog fallback did not dispatch Anix"
 
 # Minimal but realistic Live payload required by the finalizer.
 printf 'fake wallpaper\n' >"$LIVE_ROOT/usr/share/anios/wallpaper.png"

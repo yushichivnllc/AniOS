@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Launch the AniTails Tor-routed browser. Network policy is enforced at boot by
+# the root-owned nftables kill switch; this command does not turn it on late.
+set -Eeuo pipefail
+proc_cmdline="${ANIOS_PROC_CMDLINE:-/proc/cmdline}"
+
+if ! grep -qw 'anios_mode=anitails' "$proc_cmdline"; then
+  echo "AniTails is not active. Reboot and select 'AniTails — Tor-only live mode' in the boot menu." >&2
+  exit 2
+fi
+
+systemctl is-active --quiet anios-tails-firewall.service || {
+  echo "AniTails kill switch is not active; refusing to launch a network browser." >&2
+  exit 3
+}
+systemctl is-active --quiet anios-tor.service || {
+  echo "Tor is not running; direct network access remains blocked." >&2
+  exit 4
+}
+
+browser="$(command -v firefox || true)"
+[[ -n "$browser" ]] || { echo "Firefox is not installed." >&2; exit 5; }
+
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+profile="$runtime/anios-tails-firefox"
+mkdir -p -- "$profile"
+chmod 0700 "$profile"
+cat >"$profile/user.js" <<'PREFS'
+// AniTails temporary Firefox profile: use system Tor SOCKS, never fall back direct.
+user_pref("network.proxy.type", 1);
+user_pref("network.proxy.socks", "127.0.0.1");
+user_pref("network.proxy.socks_port", 9050);
+user_pref("network.proxy.socks_version", 5);
+user_pref("network.proxy.socks_remote_dns", true);
+user_pref("network.proxy.failover_direct", false);
+user_pref("media.peerconnection.enabled", false);
+user_pref("network.trr.mode", 5);
+user_pref("privacy.resistFingerprinting", true);
+user_pref("privacy.firstparty.isolate", true);
+user_pref("browser.privatebrowsing.autostart", true);
+PREFS
+exec "$browser" --no-remote --profile "$profile" "$@"

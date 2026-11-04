@@ -94,6 +94,10 @@ jobs:
         # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
         # trên cây hệ thống giả; không cài gì lên runner.
         run: ./scripts/selftest-installer.sh
+      - name: Self-test AniTails and Anix privacy guards
+        # Kiểm tra helper Tor từ chối chạy nếu mode/firewall/Tor chưa sẵn sàng,
+        # profile Firefox chỉ ghi trong runtime RAM, và các luật kill-switch/isolation.
+        run: ./scripts/selftest-privacy-modes.sh
       - name: Validate JSON, SDDM theme, and session configuration
         run: |
           python3 - <<'PY'

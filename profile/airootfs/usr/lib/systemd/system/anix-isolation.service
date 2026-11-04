@@ -1,0 +1,14 @@
+[Unit]
+Description=Anix Workstation anti-leak host firewall guard
+Documentation=file:///usr/local/share/doc/anios/anix.md
+Before=libvirtd.service virtqemud.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/anios/anix-isolation-firewall
+ExecReload=/usr/local/lib/anios/anix-isolation-firewall
+# Intentionally keep the drop rule when stopping the service (fail closed).
+
+[Install]
+WantedBy=multi-user.target

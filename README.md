@@ -46,9 +46,32 @@ sudo ./scripts/build-iso.sh --skip-checks
 sudo ./scripts/build-iso.sh --no-aur
 ```
 
-### Cài AniOS từ Live ISO
+### Chọn chế độ từ Live ISO
 
-Trên ISO dựng mặc định (có AUR), AniOS tự đăng nhập vào desktop Live rồi mở màn hình chào mừng theo phong cách **Material Design** với hai lựa chọn **Dùng thử AniOS Live** và **Cài đặt AniOS**. Dùng thử sẽ đóng màn hình và giữ nguyên phiên hiện tại; cài đặt mở Calamares với các bước chọn ngôn ngữ/bàn phím, phân vùng, tài khoản và xác nhận trước khi cài. Cần kết nối Internet và tối thiểu 30 GB dung lượng trống.
+AniOS tự đăng nhập vào desktop Live rồi mở màn hình chọn chế độ theo phong cách **Material Design** gồm **AniOS thường**, **AniTails (Tails OS)** và **Anix (Whonix)**. AniTails là profile boot Live của AniOS có lớp ghi RAM, Tor-only kill switch và Firefox cấu hình SOCKS; đây **không phải** bản Tails chính thức, không bao gồm toàn bộ bảo vệ/chương trình của Tails và không thực hiện secure-erasure RAM như Tails. Chế độ này phải được boot từ mục **AniTails — Tor-only live mode** trong menu GRUB/Syslinux để firewall chặn mạng ngay từ trước khi NetworkManager kết nối. Các kết nối TCP/DNS của hệ thống đi qua Tor; UDP khác bị chặn, nên game và nhiều ứng dụng mạng sẽ không hoạt động.
+
+Anix dùng hai VM Whonix KVM thật: Gateway có WAN và mạng nội bộ, Workstation chỉ có mạng nội bộ; host bật quy tắc firewall chặn định tuyến từ mạng Workstation ra ngoài. Cần tải và xác minh image Whonix KVM chính thức, import hai VM vào virt-manager, tắt cả hai rồi chạy `anix setup <tên-VM-Gateway> <tên-VM-Workstation>`. AniOS không tải hay xác minh image thay người dùng. Không thêm NIC NAT/bridged vào Workstation. Đây là cấu hình mạng cho image Whonix, không phải một bản Whonix do AniOS phát hành.
+
+Bộ cài Calamares vẫn được giữ trong repository, nhưng lựa chọn cài đặt đã được gỡ khỏi màn hình chào mừng.
+
+#### AniTails: kết nối qua Tor
+
+1. Chọn **AniTails (Tails OS)** ở màn hình chào mừng và xác nhận khởi động lại.
+2. Trong menu GRUB/Syslinux, chọn **AniTails — Tor-only live mode**. Mục này tắt `ANIOS_PERSIST` và bật firewall trước NetworkManager.
+3. Mở **AniTails Firefox qua Tor** trong menu ứng dụng (Firefox được cấu hình SOCKS/Tor với profile tạm trong `/run`); lệnh tương ứng là `anios-tails`.
+
+Firewall redirect TCP/DNS đến Tor và drop lưu lượng outbound còn lại, ngoại trừ loopback, gói DHCP và kết nối relay do tiến trình Tor tạo. Nếu Tor không chạy, kết nối thường bị chặn thay vì fallback trực tiếp. Đây là cấu hình Tor-routed của AniOS, **không phải Tor Browser chính thức hay Tails**; nó chưa cung cấp toàn bộ biện pháp chống fingerprinting/forensics của Tails. AniTails không phù hợp chơi game hoặc dùng chung mạng LAN.
+
+#### Anix: Whonix Gateway + Workstation
+
+Bật Intel VT-x/AMD-V trong firmware, rồi cài image Whonix KVM chính thức theo hướng dẫn của Whonix; xác minh chữ ký/checksum từ upstream, sau đó import **Gateway** và **Workstation** vào virt-manager. Tắt cả hai VM và chạy:
+
+```bash
+anix setup '<tên VM Gateway>' '<tên VM Workstation>'
+anix verify '<tên VM Gateway>' '<tên VM Workstation>'
+```
+
+Lệnh tạo một mạng WAN NAT riêng và một bridge nội bộ không forward; cấu hình Gateway với hai NIC, Workstation với đúng một NIC nội bộ, rồi bật nftables trên host để chặn forward từ Workstation bridge ra interface khác. Khởi động Gateway trước Workstation. `anix status` xem mạng VM, `anix` mở virt-manager. **Không** tự thêm NIC NAT/bridged cho Workstation. Image VM không được đóng trong AniOS, không tải tự động, và độ an toàn phụ thuộc image/ cấu hình Whonix upstream cùng việc bạn giữ nguyên topology.
 
 Trong Calamares, người dùng có thể chọn:
 
@@ -57,7 +80,7 @@ Trong Calamares, người dùng có thể chọn:
 - **SDDM**: theme AniOS hoặc **Qylock / Wuthering Waves** từ [Darkkal44/qylock](https://github.com/Darkkal44/qylock).
 - **Dotfiles Hyprland**: **Immaterial Impulse** (được đóng gói sẵn, dùng offline) hoặc [end-4/dots-hyprland](https://github.com/end-4/dots-hyprland). Nếu chọn end-4, ở lần đăng nhập đầu tiên ứng dụng sẽ hỏi xác nhận trước khi tải revision đã pin và chạy trình cài đặt upstream dưới tài khoản người dùng; cần Internet, `sudo` và tải thêm gói.
 
-Dựng bằng `--no-aur` vẫn vào được Live; thẻ cài đặt trong màn hình chào mừng sẽ bị vô hiệu hoá và báo rõ Calamares không có trong ảnh.
+Dựng bằng `--no-aur` vẫn vào được AniOS Live; màn hình chọn chế độ không phụ thuộc vào Calamares.
 
 ### Lỗi `Live password text remains in the target skeleton`
 
@@ -266,12 +289,12 @@ Lưu ý: mỗi lượt dựng mất khoảng 45–150 phút (workflow đặt tr�
   - `anios-audio-setup` chạy khi vào phiên (cả từ unit người dùng lẫn từ `hyprland.lua`): bật các unit, chạy thẳng `pipewire`/`wireplumber`/`pipewire-pulse` nếu phiên không có `systemd --user`, khởi động lại dàn âm thanh khi có card mà không có thiết bị xuất nào, và ở **lần vào desktop đầu tiên sau khi khởi động** tự bỏ trạng thái tắt tiếng/âm lượng 0% do BIOS để lại trên thiết bị xuất mặc định (đặt 50%). Các phiên sau tôn trọng lựa chọn của người dùng vì thư mục home của tài khoản live được làm mới ở mỗi lần boot. Cảnh báo hiện trên desktop bằng `hyprctl notify`.
   - `anios-audio-check` (phím tắt `Super+Shift+A`, hoặc gõ lệnh trong Foot) in ra card ALSA, trạng thái từng unit, máy chủ pulse, danh sách thiết bị xuất và mức âm lượng, phát thử một tiếng bíp, rồi gợi ý cách sửa. Khi thiết bị xuất mặc định là HDMI/DisplayPort mà máy vẫn còn cổng analog, cảnh báo kèm đúng lệnh `wpctl set-default …` để chuyển về loa/jack 3.5mm — kiểu "không có tiếng" phổ biến nhất ở máy phòng net. Nhật ký: `$XDG_RUNTIME_DIR/anios-audio-setup.log`.
   - Muốn dựng lại dàn âm thanh bằng tay: `anios-audio-setup --force`; chọn thiết bị xuất bằng `pavucontrol`; kiểm tra kênh phần cứng đang `[off]` bằng `alsamixer`.
-- **Cài thêm phần mềm ngay trong phiên live**: `yay` đã có sẵn trong ảnh nên dùng được cả kho chính thức lẫn AUR — `yay -S <tên gói>` để cài (tự hỏi mật khẩu `sudo`), `yay -Syu` (hoặc alias `update-aur`) để cập nhật toàn bộ, `yay -Ss <từ khoá>` (alias `aur-search`) để tìm. Gói cài thêm được ghi vào ổ lưu trữ trên USB (xem [mục bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)) nên còn nguyên sau khi tắt máy; nếu USB không còn chỗ để tạo ổ lưu trữ và phiên rơi về chế độ RAM dự phòng thì gói chỉ tồn tại tới khi tắt máy. Gói phải biên dịch tốn thời gian và CPU — máy yếu nên ưu tiên gói `-bin`.
+- **Cài thêm phần mềm ngay trong phiên live**: `yay` đã có sẵn trong ảnh nên dùng được cả kho chính thức lẫn AUR — `yay -S <tên gói>` để cài (tự hỏi mật khẩu `sudo`), `yay -Syu` (hoặc alias `update-aur`) để cập nhật toàn bộ, `yay -Ss <từ khoá>` (alias `aur-search`) để tìm. Gói cài thêm được ghi vào ổ lưu trữ trên USB (xem [mục bên dưới](#lưu-trữ-bền-vững-của-anios-thường)) nên còn nguyên sau khi tắt máy; nếu USB không còn chỗ để tạo ổ lưu trữ và phiên rơi về chế độ RAM dự phòng thì gói chỉ tồn tại tới khi tắt máy. Gói phải biên dịch tốn thời gian và CPU — máy yếu nên ưu tiên gói `-bin`.
 - **Cốc Cốc Browser** (`coccoc-browser-stable`) cài sẵn cho ai cần trình duyệt tiếng Việt, tải media từ trang nội địa tốt; chạy qua XWayland trong phiên Hyprland, thêm `--ozone-platform-hint=auto` nếu muốn thử Wayland native.
 - **Phần mềm Windows**: `wine` + `winetricks` cài sẵn (kho `multilib` được bật từ lúc dựng nên phần 32-bit đầy đủ). Chạy `wine <file.exe>`; lần đầu Wine có thể đề nghị tải thêm Gecko/Mono. Game Windows nên ưu tiên qua Steam/Proton.
 - **Lập trình**: `python` + `pip`, `nodejs` + `npm` và Java (`jre-openjdk`) có sẵn; `base-devel` + `git` cũng nằm trong ảnh để `yay` tự dựng được gói AUR ngay trong phiên.
 - **Minecraft**: `legacy-launcher` (bản classic của llaun.ch) cài sẵn, mở từ launcher; cần Java (đã có) và tài khoản Minecraft hợp lệ.
-- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Nếu Steam báo `Steam needs to be online to update` hoặc `DownloadManifest - exhausted list of download hosts` dù máy đã có mạng, xem [mục riêng bên dưới](#steam-báo-steam-needs-to-be-online-to-update). Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải được ghi vào ổ lưu trữ trên USB nên dung lượng trống bằng phần còn lại của USB (xem [bên dưới](#lưu-trữ-trên-usb-không-chạy-trong-ram-kiểu-tails)). Nếu phiên đang ở chế độ RAM dự phòng thì hãy copy file cần giữ ra ổ ngoài trước khi tắt máy.
+- Mở Steam từ launcher. Steam cần Internet và tài khoản Steam. Nếu Steam báo `Steam needs to be online to update` hoặc `DownloadManifest - exhausted list of download hosts` dù máy đã có mạng, xem [mục riêng bên dưới](#steam-báo-steam-needs-to-be-online-to-update). Có thể thử GameMode bằng cách thêm `gamemoderun %command%` vào Steam → Properties → Launch Options của game. Steam và mọi thứ bạn tải được ghi vào ổ lưu trữ trên USB nên dung lượng trống bằng phần còn lại của USB (xem [bên dưới](#lưu-trữ-bền-vững-của-anios-thường)). Nếu phiên đang ở chế độ RAM dự phòng thì hãy copy file cần giữ ra ổ ngoài trước khi tắt máy.
 - Phím tắt: `Super+Return` mở Foot; `Super+D` mở launcher; `Super+Shift+A` mở công cụ kiểm tra âm thanh; `Super+Shift+L` khoá màn hình; `Ctrl+Alt+F2` mở TTY cứu hộ (ở đó `fastfetch` in thông tin máy); `Super+Shift+E` thoát phiên Hyprland.
 - **Màn hình khoá dùng mật khẩu**, không phải cơ chế bảo mật mạnh: nhập `1111` để mở khoá. Tài khoản live và `sudo` dùng cùng mật khẩu; mật khẩu này được tạo sẵn trong ảnh từ lúc build (pacman hook `anios-live-user.hook` viết hash vào `/etc/shadow`) và được `anios-live-home.service` đặt lại ở mỗi lần khởi động như dự phòng. Vì vậy đừng để dữ liệu quan trọng trong phiên live.
 - Nếu thoát phiên bằng `Super+Shift+E`, SDDM sẽ hiện theme **Wuthering Waves** của Qylock; chọn phiên **AniOS (Hyprland)** rồi nhập `1111` để vào lại. Theme hiện khung nền tĩnh ngay, rồi mới khởi tạo video sau 1,2 giây; nếu thiếu codec video thì khung tĩnh vẫn giữ cho màn hình đăng nhập dùng được. Các lỗi không vào được SDDM đã được xử lý triệt để: tắt tiến trình agetty autologin tty1 của releng để tránh tranh chấp VT, chuẩn hoá UID 1000 và nhóm quyền phần cứng (wheel, video, audio, input, seat) cho tài khoản `anios`, sửa liên kết dịch vụ chuẩn bị thư mục người dùng (`anios-live-home.service`), cấu hình `MinimumUid=500` cho SDDM, bổ sung fallback tài khoản tự động trong theme, và "nướng" mật khẩu `1111` vào `/etc/shadow` từ lúc build bằng pacman hook để đăng nhập thủ công SDDM (stack PAM `sddm` → `pam_unix`) không phụ thuộc vào việc service lúc khởi động có chạy thành công hay không — autologin thì luôn qua được vì dùng stack `sddm-autologin` (kết thúc bằng `pam_permit`).
@@ -322,9 +345,9 @@ Bản này dùng **một theme duy nhất là Adwaita** ở mọi tầng:
 
 Đổi theme/cỡ con trỏ ở **Settings → Cursor**: mỗi lựa chọn áp cùng lúc cho Hyprland (`hyprctl setcursor`), GTK 3/4, `~/.icons/default/index.theme` và gsettings, và chỉ được lưu vào cấu hình khi áp thành công. `scripts/selftest-apply-saved-cursor.sh` chạy đúng script khởi động đó với `hyprctl` giả trên cây icon giả để khoá lại hành vi trên (không cần Arch Linux, không cần phiên đồ hoạ).
 
-### Lưu trữ trên USB (không chạy trong RAM kiểu Tails)
+### Lưu trữ bền vững của AniOS thường
 
-AniOS **không** chạy theo kiểu "live trong RAM, tắt máy là mất hết" như Tails. Ghi ISO ra USB (Rufus chế độ DD, `dd`, balenaEtcher) chỉ dùng phần đầu đĩa, chỉ đọc; phần còn lại của USB để trống. AniOS dùng chính phần đó làm lớp ghi của hệ thống, nên USB 64 GB cho gần 64 GB chỗ trống chứ không phải vài GB phụ thuộc RAM:
+AniOS thường dùng phân vùng lưu trữ trên USB, không chạy theo kiểu "live trong RAM, tắt máy là mất hết". Mục boot AniTails mới là chế độ chạy lớp ghi trong RAM. Ghi ISO ra USB (Rufus chế độ DD, `dd`, balenaEtcher) chỉ dùng phần đầu đĩa, chỉ đọc; phần còn lại của USB để trống. AniOS dùng chính phần đó làm lớp ghi của hệ thống, nên USB 64 GB cho gần 64 GB chỗ trống chứ không phải vài GB phụ thuộc RAM:
 
 - Ảnh hệ thống được đọc thẳng từ USB (`copytoram=n`), không chép vào RAM.
 - **Lần boot đầu tiên** `anios-persist.service` (chạy trước SDDM) tạo phân vùng ext4 nhãn `ANIOS_PERSIST` trên toàn bộ phần trống của USB, chỉ thêm phân vùng mới và không đụng tới phân vùng sẵn có, rồi **tự khởi động lại một lần** (UEFI). Cần ít nhất 2 GiB trống; không đủ chỗ thì phiên chạy ở chế độ RAM dự phòng.
@@ -468,7 +491,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
-- `scripts/selftest-installer.sh` — mô phỏng giao diện Material Live/Install (và nhánh dự phòng KDialog), rồi kiểm tra pacstrap, staging dotfiles, lựa chọn GRUB/SDDM và finalizer trong sandbox.
+- `scripts/selftest-installer.sh` — mô phỏng giao diện Material chọn ba chế độ (và nhánh dự phòng KDialog), rồi kiểm tra pacstrap, staging dotfiles, lựa chọn GRUB/SDDM và finalizer trong sandbox.
 - `scripts/selftest-build-iso-sudoers.sh` — tự kiểm tra bước "không có luật sudo `NOPASSWD` nào lọt vào ảnh" ở cuối `build-iso.sh` trên airootfs giả: `/etc/sudoers` mặc định của gói `sudo` phải sạch, luật thật phải bị bắt kèm `file:dòng`; không cần Arch Linux.
 - `scripts/selftest-build-iso-permissions.sh` — tự kiểm tra bước khai báo `file_permissions` của `build-iso.sh` (mảng `ANIOS_FILE_PERMISSIONS`, hàm ghi và hàm đối chiếu) trên một profile `releng` giả: mọi mục phải nằm trong mảng mà `mkarchiso` thật sự nạp, còn thiếu khai báo, khai báo đường dẫn không có trong ảnh, `releng` đổi dòng mở mảng và mục sai định dạng đều phải bị chặn; không cần Arch Linux.
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
@@ -488,7 +511,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-apply-saved-cursor.sh # theme con trỏ lúc vào phiên (hyprctl giả, không nhấp nháy vì theme thiếu)
 ./scripts/selftest-anios-aur-build.sh     # bước dựng gói AUR trong chroot giả
 ./scripts/selftest-check-live-aur.sh      # bước kiểm tra Calamares/gói AUR/python/nodejs/wine trong ảnh giả
-./scripts/selftest-installer.sh           # mô phỏng chọn Live/Install và các bước cài hệ thống
+./scripts/selftest-installer.sh           # mô phỏng chọn AniOS/AniTails/Anix và các bước cài đặt
 ./scripts/selftest-build-iso-sudoers.sh   # bước kiểm tra NOPASSWD ở cuối build-iso.sh trên airootfs giả
 ./scripts/selftest-build-iso-permissions.sh # bước khai báo file_permissions (quyền/bit thực thi) của build-iso.sh
 ./scripts/selftest-gpu-env.sh             # biến môi trường GPU NVIDIA của phiên Hyprland (sysfs giả)

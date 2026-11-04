@@ -215,7 +215,7 @@ else
     hl.window_rule({ match = { fullscreen = 1 }, rounding = 0 })
 
     -- The first-boot QML welcome window is a dialog, but explicitly float and
-    -- center it so both Live/Install cards stay usable in the Minimal session.
+    -- center it so all three mode cards stay usable in the Minimal session.
     hl.window_rule({ match = { title = "^(AniOS - Welcome)$" }, float = true })
     hl.window_rule({ match = { title = "^(AniOS - Welcome)$" }, center = true })
 

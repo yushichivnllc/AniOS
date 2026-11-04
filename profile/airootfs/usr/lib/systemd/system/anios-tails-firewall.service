@@ -1,0 +1,14 @@
+[Unit]
+Description=AniTails Tor-only egress firewall
+Documentation=file:///usr/local/share/doc/anios/anitails.md
+ConditionKernelCommandLine=anios_mode=anitails
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/anios/anios-tails-firewall
+ExecReload=/usr/local/lib/anios/anios-tails-firewall
+
+[Install]
+WantedBy=multi-user.target

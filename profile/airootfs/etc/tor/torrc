@@ -1,0 +1,11 @@
+# AniTails transparent Tor gateway profile. The host firewall redirects ordinary
+# TCP and DNS to these local listeners and drops all other outbound traffic.
+ClientOnly 1
+AvoidDiskWrites 1
+DataDirectory /run/tor
+SocksPort 127.0.0.1:9050
+DNSPort 127.0.0.1:5353
+TransPort 127.0.0.1:9040
+AutomapHostsOnResolve 1
+VirtualAddrNetworkIPv4 10.192.0.0/10
+ClientUseIPv6 0

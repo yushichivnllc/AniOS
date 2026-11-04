@@ -193,7 +193,15 @@ fi
 
 # --- Cú pháp shell --------------------------------------------------------
 while IFS= read -r -d '' script; do
-  bash -n "$script" || fail "shell syntax error: $script"
+  case "$script" in
+    *.py)
+      python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$script" ||
+        fail "Python syntax error: $script"
+      ;;
+    *)
+      bash -n "$script" || fail "shell syntax error: $script"
+      ;;
+  esac
 done < <(find "$ROOT_DIR/scripts" "$AIROOTFS/usr/local" \
   "$ROOT_DIR/profile/installer/scripts" -type f -print0 2>/dev/null)
 
@@ -943,13 +951,16 @@ BOOT_CHOICE="$AIROOTFS/usr/local/bin/anios-boot-choice"
 BOOT_CHOICE_QML="$AIROOTFS/usr/share/anios/boot-choice.qml"
 
 [[ -x "$BOOT_CHOICE" ]] || fail "Live ISO boot chooser is missing or not executable"
-[[ -s "$BOOT_CHOICE_QML" ]] || fail "Material Live/Install chooser UI is missing"
+[[ -s "$BOOT_CHOICE_QML" ]] || fail "Material mode chooser UI is missing"
 grep -qF 'import QtQuick.Controls.Material' "$BOOT_CHOICE_QML" ||
-  fail "Live/Install chooser must use Qt Quick Controls Material"
+  fail "mode chooser must use Qt Quick Controls Material"
 grep -qF 'ANIOS_BOOT_CHOICE=' "$BOOT_CHOICE_QML" ||
-  fail "Live/Install chooser must report the selected action to its launcher"
-grep -qF 'installer-unavailable' "$BOOT_CHOICE_QML" ||
-  fail "Live/Install chooser must disable Install on images without Calamares"
+  fail "mode chooser must report the selected mode to its launcher"
+for mode in 'mode: "anios"' 'mode: "anitails"' 'mode: "anix"'; do
+  grep -qF "$mode" "$BOOT_CHOICE_QML" || fail "mode chooser is missing $mode"
+done
+! grep -qF 'Cài đặt AniOS' "$BOOT_CHOICE_QML" ||
+  fail "mode chooser must not show the AniOS installation option"
 python3 - "$BOOT_CHOICE_QML" <<'PY'
 from pathlib import Path
 import re
@@ -964,22 +975,50 @@ for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
         f"unbalanced {opener}{closer} in the Material boot chooser"
 for required in (
     "ApplicationWindow", "Material.theme: Material.Dark",
-    "enabled: root.installerAvailable", 'root.choose("live")',
-    'root.choose("install")', 'console.log("ANIOS_BOOT_CHOICE=" + mode)',
+    'root.choose(modelData.mode)', 'console.log("ANIOS_BOOT_CHOICE=" + mode)',
+    'name: "AniOS thường"', 'name: "AniTails (Tails OS)"', 'name: "Anix (Whonix)"',
 ):
     assert required in qml, f"Material boot chooser is missing {required}"
 PY
+for privacy_package in tor nftables torsocks qemu-desktop libvirt virt-manager dnsmasq edk2-ovmf; do
+  grep -qxF "$privacy_package" "$ROOT_DIR/profile/packages.x86_64" ||
+    fail "privacy/VM package manifest is missing $privacy_package"
+done
+for privacy_file in \
+  "$AIROOTFS/etc/tor/torrc" \
+  "$AIROOTFS/etc/nftables/anios-tails.nft" \
+  "$AIROOTFS/usr/lib/systemd/system/anios-tails-firewall.service" \
+  "$AIROOTFS/usr/lib/systemd/system/anios-tor.service" \
+  "$AIROOTFS/usr/local/bin/anios-tails" \
+  "$AIROOTFS/usr/local/bin/anix" \
+  "$AIROOTFS/usr/local/lib/anios/anix-domain-interfaces.py" \
+  "$AIROOTFS/usr/local/lib/anios/anios-tails-network-guard" \
+  "$AIROOTFS/usr/local/lib/anios/anix-isolation-firewall"; do
+  [[ -s "$privacy_file" ]] || fail "privacy mode payload is missing ${privacy_file#"$AIROOTFS/"}"
+done
+grep -qF 'anios_mode=anitails' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "GRUB/Syslinux boot configuration must expose the AniTails RAM-only mode"
+grep -qF 'anios_persist=off anios_mode=anitails' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "AniTails boot mode must disable USB persistence"
+grep -qF 'iifname "virbr-anix" oifname != "virbr-anix"' "$AIROOTFS/etc/nftables/anix-isolation.nft" ||
+  fail "Anix must block forwarding from its Workstation-only bridge"
+grep -qF 'virsh_system define' "$AIROOTFS/usr/local/bin/anix" ||
+  fail "Anix helper must configure imported Whonix VM network interfaces"
+[[ -x "$ROOT_DIR/scripts/selftest-privacy-modes.sh" ]] ||
+  fail "privacy mode self-test is missing or not executable"
+grep -qF 'selftest-privacy-modes.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "profile CI must run the privacy mode self-test"
 grep -qF 'command -v qml6' "$BOOT_CHOICE" ||
-  fail "Live/Install chooser must launch the packaged Qt 6 QML runtime"
+  fail "mode chooser must launch the packaged Qt 6 QML runtime"
 grep -qF '^(AniOS - Welcome)$' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" ||
-  fail "Minimal Hyprland session must center the Live/Install chooser"
+  fail "Minimal Hyprland session must center the mode chooser"
 grep -qF '^(AniOS - Welcome)$' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/rules.lua" ||
-  fail "Immaterial Impulse session must center the Live/Install chooser"
+  fail "Immaterial Impulse session must center the mode chooser"
 [[ -x "$INSTALLER_SELFTEST" ]] || fail "installer self-test is missing or not executable"
 grep -qF 'selftest-installer.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
   fail "the profile workflow must run scripts/selftest-installer.sh"
 grep -qF 'anios-boot-choice' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" ||
-  fail "the AniOS graphical session must open the Live ISO / installer choice"
+  fail "the AniOS graphical session must open the mode chooser"
 grep -qF 'ANIOS_LIVE' "$AIROOTFS/usr/local/bin/anios-session" ||
   fail "anios-session must gate the welcome chooser to the Live ISO only"
 grep -qxF 'calamares' "$AUR_MANIFEST" || fail "Calamares must be built into the Live ISO"

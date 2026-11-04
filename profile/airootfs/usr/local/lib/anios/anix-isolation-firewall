@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+/usr/bin/nft delete table inet anix_isolation 2>/dev/null || true
+exec /usr/bin/nft -f /etc/nftables/anix-isolation.nft
