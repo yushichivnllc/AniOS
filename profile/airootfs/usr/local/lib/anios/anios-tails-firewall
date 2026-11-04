@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Re-load atomically enough for a Live boot; the firewall is installed before
+# NetworkManager is allowed to bring up a physical interface.
+/usr/bin/nft delete table inet anios_tails 2>/dev/null || true
+exec /usr/bin/nft -f /etc/nftables/anios-tails.nft

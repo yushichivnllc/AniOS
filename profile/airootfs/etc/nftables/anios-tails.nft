@@ -1,0 +1,48 @@
+#!/usr/bin/nft -f
+# AniTails egress kill switch. Outbound user traffic may only reach local Tor
+# listeners; the tor service user alone may open direct relay connections.
+table inet anios_tails {
+    chain output_nat {
+        type nat hook output priority dstnat; policy accept;
+
+        meta skuid "tor" return
+        oifname "lo" return
+
+        # Never route private/LAN, link-local, multicast, or reserved destinations
+        # through Tor. The filter chain below drops these packets instead.
+        ip daddr {
+            0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16,
+            172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4
+        } return
+        ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } return
+
+        udp dport 53 redirect to :5353
+        tcp dport 53 redirect to :5353
+        meta l4proto tcp redirect to :9040
+    }
+
+    chain input_filter {
+        type filter hook input priority filter; policy drop;
+
+        iifname "lo" accept
+        ct state established,related accept
+        # DHCP reply traffic needed while the Tor-only uplink obtains an address.
+        udp sport 67 udp dport 68 accept
+        udp sport 547 udp dport 546 accept
+        ip protocol icmp icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+        meta l4proto ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+    }
+
+    chain output_filter {
+        type filter hook output priority filter; policy drop;
+
+        oifname "lo" accept
+        meta skuid "tor" accept
+        # DHCP is needed to acquire an address before Tor can bootstrap.
+        udp sport 68 udp dport 67 accept
+        udp sport 546 udp dport 547 accept
+        # Locally redirected TransPort/DNSPort connections.
+        ip daddr 127.0.0.0/8 accept
+        ip6 daddr ::1 accept
+    }
+}

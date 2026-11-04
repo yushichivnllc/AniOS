@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AniTails Firefox qua Tor
+Comment=Open Firefox through the Tor-only AniTails network
+Exec=/usr/local/bin/anios-tails
+Icon=firefox
+Terminal=false
+Categories=Network;WebBrowser;

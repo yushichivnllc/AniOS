@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # anios-persist — dùng phần dung lượng CÒN LẠI của USB làm ổ lưu trữ chính cho AniOS Live.
 #
-# AniOS KHÔNG chạy kiểu "live trong RAM rồi quên hết" như Tails: ISO ghi ra USB chỉ chiếm
-# phần đầu đĩa (chỉ đọc), phần còn lại của USB được dùng làm lớp ghi của hệ thống. Nhờ
+# AniOS thường dùng phần trống trên USB làm lớp ghi bền vững (khác với mục boot
+# AniTails, mục này tạo lớp ghi trong RAM rồi bỏ khi tắt máy). ISO chỉ chiếm phần
+# đầu đĩa (chỉ đọc), phần còn lại của USB được dùng làm lớp ghi. Nhờ
 # vậy USB 64 GB cho gần 64 GB chỗ trống thay vì vài GB tuỳ RAM, và gói đã cài, game,
 # dữ liệu trong home được giữ lại giữa các lần boot.
 #

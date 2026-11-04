@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+proc_cmdline="${ANIOS_PROC_CMDLINE:-/proc/cmdline}"
+nft_bin="${ANIOS_NFT_BIN:-/usr/bin/nft}"
+
+# Do not let NetworkManager acquire a live uplink unless the AniTails
+# kill-switch table was installed successfully at boot.
+grep -qw 'anios_mode=anitails' "$proc_cmdline" || exit 0
+"$nft_bin" list table inet anios_tails >/dev/null 2>&1 || {
+  echo "AniTails firewall is missing; refusing to start NetworkManager." >&2
+  exit 1
+}

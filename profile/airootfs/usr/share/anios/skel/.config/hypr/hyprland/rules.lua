@@ -46,7 +46,7 @@ hl.window_rule({match = {class = ".*plasmawindowed.*" },                     flo
 hl.window_rule({match = {class = "kcm_.*" },                                  float = true})
 hl.window_rule({match = {class = ".*bluedevilwizard" },                      float = true})
 hl.window_rule({match = {title = ".*Welcome" },                              float = true})
--- Keep AniOS' first-boot Material Live/Install chooser centered in both sessions.
+-- Keep AniOS' first-boot Material mode chooser centered in both sessions.
 hl.window_rule({match = {title = "^(AniOS - Welcome)$" },                    center = true})
 hl.window_rule({match = {title = "^(Settings)$" },                           float = true})
 hl.window_rule({match = {title = ".*Shell conflicts.*" },                    float = true})

@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# Configure/launch an isolated Whonix Gateway + Workstation pair in libvirt.
+set -Eeuo pipefail
+
+usage() {
+  cat <<'EOF'
+Anix — Whonix VM environment
+
+1. Download the official Whonix KVM Gateway and Workstation images from
+   https://www.whonix.org/wiki/KVM and import both into virt-manager.
+2. Shut down both VMs, then run:
+     anix setup <Gateway-domain-name> <Workstation-domain-name>
+3. Start the Gateway first, then the Workstation. The Workstation is attached
+   only to Anix's host-isolated internal network; the Gateway has WAN + internal.
+
+Commands:
+  anix                     Open virt-manager
+  anix setup GATEWAY WORKSTATION
+  anix verify GATEWAY WORKSTATION
+  anix status
+
+This helper does not download or authenticate OS images. Use only official,
+verified Whonix images. A VM topology is not safe if you manually add another
+Workstation NIC or change its network to NAT/bridged.
+EOF
+}
+
+fail() { printf 'Anix: %s\n' "$*" >&2; exit 1; }
+
+virsh_system() { virsh -c qemu:///system "$@"; }
+
+network_exists() {
+  virsh_system net-info "$1" >/dev/null 2>&1
+}
+
+verify_network() {
+  local name="$1" expected_forward="$2" expected_bridge="$3" xml
+  xml="$(mktemp /run/anix-network-check.XXXXXX.xml)"
+  virsh_system net-dumpxml "$name" >"$xml" || fail "cannot inspect libvirt network '$name'."
+  python3 - "$xml" "$name" "$expected_forward" "$expected_bridge" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+name, forward, bridge = sys.argv[2:]
+actual_name = root.findtext("name", "")
+forward_node = root.find("forward")
+actual_forward = forward_node.get("mode", "none") if forward_node is not None else "none"
+bridge_node = root.find("bridge")
+actual_bridge = bridge_node.get("name", "") if bridge_node is not None else ""
+if (actual_name, actual_forward, actual_bridge) != (name, forward, bridge):
+    raise SystemExit(f"unsafe libvirt network {actual_name!r}: forward={actual_forward!r}, bridge={actual_bridge!r}")
+PY
+  local result=$?
+  rm -f -- "$xml"
+  (( result == 0 )) || fail "libvirt network '$name' does not match the required isolated configuration."
+}
+
+ensure_networks() {
+  local wan_xml internal_xml
+  wan_xml="$(mktemp /run/anix-wan.XXXXXX.xml)"
+  internal_xml="$(mktemp /run/anix-internal.XXXXXX.xml)"
+  cat >"$wan_xml" <<'XML'
+<network>
+  <name>anix-wan</name>
+  <forward mode='nat'/>
+  <bridge name='virbr-anix-wan' stp='on' delay='0'/>
+  <ip address='192.168.233.1' netmask='255.255.255.0'>
+    <dhcp><range start='192.168.233.10' end='192.168.233.200'/></dhcp>
+  </ip>
+</network>
+XML
+  cat >"$internal_xml" <<'XML'
+<network>
+  <name>anix-internal</name>
+  <forward mode='none'/>
+  <bridge name='virbr-anix' stp='on' delay='0'/>
+</network>
+XML
+
+  if ! network_exists anix-wan; then
+    virsh_system net-define "$wan_xml"
+  fi
+  if ! network_exists anix-internal; then
+    virsh_system net-define "$internal_xml"
+  fi
+  rm -f -- "$wan_xml" "$internal_xml"
+  verify_network anix-wan nat virbr-anix-wan
+  verify_network anix-internal none virbr-anix
+  virsh_system net-autostart anix-wan >/dev/null
+  virsh_system net-autostart anix-internal >/dev/null
+  virsh_system net-info anix-wan | grep -q 'Active:.*yes' || virsh_system net-start anix-wan
+  virsh_system net-info anix-internal | grep -q 'Active:.*yes' || virsh_system net-start anix-internal
+}
+
+assert_domain_shutoff() {
+  local domain="$1" state
+  virsh_system dominfo "$domain" >/dev/null 2>&1 || fail "VM '$domain' was not found in qemu:///system."
+  state="$(virsh_system domstate "$domain" 2>/dev/null | tr -d '\r')"
+  [[ "$state" == "shut off" ]] || fail "VM '$domain' must be shut down before network isolation is configured."
+}
+
+set_domain_interfaces() {
+  local domain="$1" role="$2" xml out
+  assert_domain_shutoff "$domain"
+  xml="$(mktemp /run/anix-domain.XXXXXX.xml)"
+  out="$(mktemp /run/anix-domain-out.XXXXXX.xml)"
+  virsh_system dumpxml --inactive "$domain" >"$xml" || fail "cannot read VM '$domain'."
+  python3 /usr/local/lib/anios/anix-domain-interfaces.py rewrite "$xml" "$out" "$role" ||
+    fail "could not construct the isolated network config for '$domain'."
+  virsh_system define "$out" >/dev/null || fail "could not update network interfaces for '$domain'."
+  rm -f -- "$xml" "$out"
+}
+
+verify_domain_interfaces() {
+  local domain="$1" role="$2" xml
+  xml="$(mktemp /run/anix-domain-verify.XXXXXX.xml)"
+  virsh_system dumpxml --inactive "$domain" >"$xml" || fail "cannot inspect VM '$domain'."
+  python3 /usr/local/lib/anios/anix-domain-interfaces.py verify "$xml" "$role" ||
+    fail "VM '$domain' does not have the required isolated network topology."
+  rm -f -- "$xml"
+}
+
+case "${1:-}" in
+  setup)
+    [[ $# == 3 ]] || { usage; exit 2; }
+    [[ "$2" != "$3" ]] || fail "Gateway and Workstation must be two different VMs."
+    command -v virsh >/dev/null || fail "libvirt is not installed."
+    [[ -c /dev/kvm ]] || fail "KVM is unavailable; enable Intel VT-x/AMD-V in firmware and verify /dev/kvm."
+    command -v pkexec >/dev/null || fail "pkexec is unavailable; cannot enable the host firewall guard."
+    assert_domain_shutoff "$2"
+    assert_domain_shutoff "$3"
+    # Protect the host bridge before bringing up either guest network.
+    pkexec systemctl enable --now anix-isolation.service ||
+      fail "could not enable the Anix host-side isolation guard."
+    ensure_networks
+    set_domain_interfaces "$2" gateway
+    set_domain_interfaces "$3" workstation
+    verify_domain_interfaces "$2" gateway
+    verify_domain_interfaces "$3" workstation
+    printf 'Anix configured: Gateway %s => anix-wan + anix-internal; Workstation %s => anix-internal only.\n' "$2" "$3"
+    printf 'Start the Gateway first. Verify both guests are official Whonix images.\n'
+    ;;
+  verify)
+    [[ $# == 3 ]] || { usage; exit 2; }
+    [[ "$2" != "$3" ]] || fail "Gateway and Workstation must be two different VMs."
+    assert_domain_shutoff "$2"
+    assert_domain_shutoff "$3"
+    verify_network anix-wan nat virbr-anix-wan
+    verify_network anix-internal none virbr-anix
+    systemctl is-active --quiet anix-isolation.service || fail "host firewall guard is not active."
+    verify_domain_interfaces "$2" gateway
+    verify_domain_interfaces "$3" workstation
+    printf 'Anix isolation OK: Gateway=%s, Workstation=%s (Workstation has only anix-internal).\n' "$2" "$3"
+    ;;
+  status)
+    command -v virsh >/dev/null || fail "libvirt is not installed."
+    virsh_system net-list --all
+    ;;
+  ""|open)
+    command -v virt-manager >/dev/null || fail "virt-manager is not installed."
+    exec virt-manager --connect qemu:///system
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

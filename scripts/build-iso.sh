@@ -204,7 +204,7 @@ for boot_dir in efiboot grub syslinux; do
   fi
 done
 
-# AniOS KHÔNG chạy kiểu Tails ("live trong RAM, tắt máy là mất hết"):
+# AniOS thường KHÔNG chạy kiểu "live trong RAM, tắt máy là mất hết":
 #   * copytoram=n: không chép ảnh hệ thống vào RAM mà đọc thẳng từ USB (mặc định
 #     Archiso tự bật copytoram khi ảnh < 4 GiB và còn RAM, ngốn vài GB RAM);
 #   * lớp ghi nằm trên phân vùng ANIOS_PERSIST của USB (xem khối bên dưới), nên
@@ -252,6 +252,12 @@ if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
   # Mục dự phòng: bỏ qua ổ lưu dữ liệu (ví dụ phân vùng bị lỗi) và chạy thuần RAM.
   awk '
     /^menuentry .*--id .archlinux-accessibility./ && !done {
+      print "menuentry \"AniTails — Tor-only live mode, dữ liệu chỉ trong RAM (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-anitails'"'"' {"
+      print "    set gfxpayload=keep"
+      print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=n anios_persist=off anios_mode=anitails %KERNEL_PARAMS%"
+      print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
+      print "}"
+      print ""
       print "menuentry \"AniOS Live, chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-ram'"'"' {"
       print "    set gfxpayload=keep"
       print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=n anios_persist=off %KERNEL_PARAMS%"
@@ -288,6 +294,16 @@ MENU LABEL AniOS Live (%ARCH%, BIOS) with ^persistent storage
 LINUX /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen
 INITRD /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img
 APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=n %KERNEL_PARAMS%
+
+LABEL anios_anitails
+TEXT HELP
+Boot AniTails through Tor with a RAM-only writable overlay and an outbound kill switch.
+This mode requires the Tor packages and privacy profile in the ISO.
+ENDTEXT
+MENU LABEL AniTails — Tor-only live mode (RAM)
+LINUX /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen
+INITRD /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img
+APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=n anios_persist=off anios_mode=anitails %KERNEL_PARAMS%
 SYSLINUX_PERSIST
 fi
 
@@ -843,6 +859,11 @@ ANIOS_FILE_PERMISSIONS=(
   '/usr/local/bin/anios-switch-desktop:0:0:755'
   '/usr/local/bin/anios-session:0:0:755'
   '/usr/local/bin/anios-boot-choice:0:0:755'
+  '/usr/local/bin/anios-tails:0:0:755'
+  '/usr/local/bin/anix:0:0:755'
+  '/usr/local/lib/anios/anios-tails-firewall:0:0:755'
+  '/usr/local/lib/anios/anios-tails-network-guard:0:0:755'
+  '/usr/local/lib/anios/anix-isolation-firewall:0:0:755'
   '/usr/local/bin/anios-switch-im:0:0:755'
   '/usr/local/bin/anios-audio-setup:0:0:755'
   '/usr/local/bin/anios-audio-check:0:0:755'

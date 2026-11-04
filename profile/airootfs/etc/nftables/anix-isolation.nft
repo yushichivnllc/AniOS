@@ -1,0 +1,8 @@
+table inet anix_isolation {
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+        # The Whonix Workstation segment must never be routed by the host to any
+        # interface other than itself. Its only routed exit is the Whonix Gateway VM.
+        iifname "virbr-anix" oifname != "virbr-anix" counter drop
+    }
+}

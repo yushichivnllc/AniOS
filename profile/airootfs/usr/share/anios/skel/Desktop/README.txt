@@ -12,6 +12,14 @@ Super+Shift+L    Khoá màn hình (mật khẩu: 1111)
 Ctrl+Alt+F2      Mở TTY cứu hộ (Ctrl+Alt+F1 để quay lại desktop)
 Super+Shift+E    Thoát phiên Hyprland
 
+Chế độ riêng tư:
+- AniTails: khởi động lại và chọn mục “AniTails — Tor-only live mode” ở boot menu.
+  Chế độ này chạy lớp ghi RAM và bật firewall Tor trước khi mạng lên; không phải Tails OS.
+  Mở “AniTails Firefox qua Tor” để duyệt; UDP khác DHCP bị chặn.
+- Anix: dùng image Whonix KVM Gateway + Workstation chính thức; xem `anix --help`,
+  import hai VM rồi chạy `anix setup <Gateway> <Workstation>`. Workstation chỉ được
+  nối vào mạng nội bộ, không được tự thêm NIC NAT/bridged.
+
 Hai chế độ giao diện cài sẵn:
 1. Immaterial Impulse (mặc định): Giao diện Material 3 tuyệt đẹp (https://github.com/XephyLon/immaterial-impulse) với Quickshell + Matugen và hình nền Gawr Gura.
 2. AniOS Minimal: Giao diện nhẹ với Waybar + Mako, tối ưu cho GPU đời cũ.
