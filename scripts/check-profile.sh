@@ -1159,8 +1159,10 @@ for steam_edition in anios anix; do
 done
 grep -qxF 'ANIOS_EDITION_STEAM_PROVISION="full"' "$EDITIONS_DIR/anix/edition.conf" ||
   fail "anix is the full edition and must bake Proton GE as well"
-grep -qxF 'steam-native-runtime' "$EDITIONS_DIR/anix/packages.x86_64" ||
-  fail "anix must add steam-native-runtime"
+# protontricks là gói mốc của bản Anix: nó phải có trong manifest riêng của bản đó
+# và không được lọt sang bản khác.
+grep -qxF 'protontricks' "$EDITIONS_DIR/anix/packages.x86_64" ||
+  fail "anix must add protontricks"
 
 # --- Steam: môi trường, runtime offline và tự khởi động ---------------------
 for steam_script in anios-steam anios-steam-setup anios-steam-autostart; do

@@ -75,10 +75,10 @@ grep -qxF 'steam' "$ANIX_MANIFEST" || fail "bản anix phải có gói steam"
 ! grep -qxF 'steam' "$ANITALS_MANIFEST" || fail "bản amnesic aniterals KHÔNG được mang gói steam"
 pass "steam có trong anios/anix và bị cắt khỏi aniterals"
 
-grep -qxF 'steam-native-runtime' "$ANIX_MANIFEST" ||
-  fail "bản anix (đầy đủ nhất) phải thêm steam-native-runtime"
-! grep -qxF 'steam-native-runtime' "$ANIOS_MANIFEST" ||
-  fail "steam-native-runtime là gói riêng của anix, không được lọt vào bản anios"
+grep -qxF 'protontricks' "$ANIX_MANIFEST" ||
+  fail "bản anix (đầy đủ nhất) phải thêm protontricks"
+! grep -qxF 'protontricks' "$ANIOS_MANIFEST" ||
+  fail "protontricks là gói riêng của anix, không được lọt vào bản anios"
 pass "tầng Proton/runtime riêng của anix không lọt sang bản khác"
 
 grep -qxF 'tor' "$ANITALS_MANIFEST" || fail "bản aniterals phải cài tor"
@@ -161,5 +161,71 @@ grep -qF '${forward_args[@]' <<<"$recursive_call" ||
 grep -qF 'skip_next_arg' <<<"$all_block" ||
   fail "--edition all phải bỏ cả giá trị đi kèm --edition khi lọc tham số truyền xuống"
 pass "--edition all tách work dir riêng và không tự đệ quy vô hạn"
+
+# --- 6. file_permissions phải bỏ mục mà edition đã gỡ khỏi ảnh ----------------
+# Danh sách ANIOS_FILE_PERMISSIONS là của TOÀN họ AniOS. AniTails gỡ
+# anios-persist và anios-steam-quit qua remove.paths, mà verify_file_permissions()
+# đòi mọi đường dẫn khai báo phải có thật trong ảnh — nên không lọc là bản amnesic
+# chết ở bước đó với "file_permissions declares ... but the image has no such file"
+# dù profile hoàn toàn lành. Bài này nạp đúng hàm lọc từ build-iso.sh.
+perm_fn="$(awk '/^anios_drop_removed_permissions\(\) \{$/ { p = 1 } p { print } p && /^\}$/ { exit }' "$BUILD_ISO")"
+[[ -n "$perm_fn" ]] ||
+  fail "scripts/build-iso.sh không còn hàm anios_drop_removed_permissions() (khai báo ở đầu dòng)"
+[[ "$(tail -n1 <<<"$perm_fn")" == '}' ]] ||
+  fail "không tìm thấy dấu '}' đóng hàm anios_drop_removed_permissions() ở đầu dòng"
+eval "$perm_fn"
+
+# remove.paths THẬT của bản aniterals.
+mapfile -t anitals_removed < <(
+  sed -E -e 's/#.*$//' -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//' \
+    "$EDITIONS_DIR/aniterals/remove.paths" | awk 'NF'
+)
+(( ${#anitals_removed[@]} )) || fail "remove.paths của aniterals rỗng, không kiểm tra được gì"
+
+# Danh sách khai báo THẬT, trích từ build-iso.sh bằng chính bộ lọc của check-profile.
+mapfile -t real_declarations < <(
+  awk '
+    /^[[:space:]]*ANIOS_FILE_PERMISSIONS\+?=\(/ { in_list = 1; next }
+    in_list && /^[[:space:]]*\)/ { in_list = 0; next }
+    in_list {
+      gsub(/^[[:space:]]*['\''"]|['\''"][[:space:]]*(#.*)?$/, "")
+      if ($0 ~ /^[^:]+:[0-9]+:[0-9]+:[0-9]+$/) print
+    }
+  ' "$BUILD_ISO"
+)
+(( ${#real_declarations[@]} )) || fail "không đọc được ANIOS_FILE_PERMISSIONS từ build-iso.sh"
+
+ANIOS_FILE_PERMISSIONS=("${real_declarations[@]}")
+before_count="${#ANIOS_FILE_PERMISSIONS[@]}"
+# Hàm in ra danh sách được giữ; nơi gọi trong build-iso.sh gán lại bằng mapfile.
+mapfile -t ANIOS_FILE_PERMISSIONS < <(anios_drop_removed_permissions "${anitals_removed[@]}")
+after_count="${#ANIOS_FILE_PERMISSIONS[@]}"
+
+# Thông báo "drops" phải đi stderr, không được lẫn vào danh sách in ra stdout.
+if grep -q 'file_permissions drops' < <(anios_drop_removed_permissions "${anitals_removed[@]}" 2>/dev/null); then
+  fail "thông báo drops bị in ra stdout, sẽ lọt vào mảng file_permissions khi dùng mapfile"
+fi
+pass "thông báo drops đi stderr nên không làm bẩn mảng file_permissions"
+
+# Hai script mà aniterals gỡ đều nằm trong danh sách khai báo của cả họ.
+for dropped_script in /usr/local/bin/anios-persist /usr/local/bin/anios-steam-quit; do
+  grep -qxF -- "$dropped_script" <(printf '%s\n' "${anitals_removed[@]}") ||
+    fail "remove.paths của aniterals phải gỡ $dropped_script"
+  grep -qxF -- "$dropped_script:0:0:755" <(printf '%s\n' "${real_declarations[@]}") ||
+    fail "ANIOS_FILE_PERMISSIONS phải khai báo $dropped_script (bản anios vẫn cần nó)"
+  if grep -qxF -- "$dropped_script:0:0:755" <(printf '%s\n' "${ANIOS_FILE_PERMISSIONS[@]}"); then
+    fail "bản amnesic vẫn khai báo file_permissions cho $dropped_script đã bị gỡ: verify_file_permissions sẽ dừng bản dựng"
+  fi
+done
+(( after_count == before_count - 2 )) ||
+  fail "hàm lọc phải bỏ đúng 2 mục, thực tế $before_count -> $after_count"
+pass "file_permissions bỏ đúng các mục mà edition đã gỡ khỏi ảnh (anios-persist, anios-steam-quit)"
+
+# Không có gì bị gỡ thì danh sách phải nguyên vẹn.
+ANIOS_FILE_PERMISSIONS=("${real_declarations[@]}")
+mapfile -t ANIOS_FILE_PERMISSIONS < <(anios_drop_removed_permissions)
+(( ${#ANIOS_FILE_PERMISSIONS[@]} == ${#real_declarations[@]} )) ||
+  fail "không có remove.paths thì danh sách file_permissions phải giữ nguyên"
+pass "edition không gỡ gì thì file_permissions giữ nguyên"
 
 echo "All edition self-tests passed."

@@ -23,7 +23,7 @@ Repository dựng ra **ba file ISO** từ cùng một profile nền. Chi tiết 
 | --- | --- | --- | --- |
 | **AniOS** | `anios` (mặc định) | `anios-<ngày>-x86_64.iso` | Máy phòng net: Hyprland, **Steam tự khởi động** cùng desktop, Proton nướng sẵn, stack AI, lớp ghi trên USB. |
 | **AniTails** | `aniterals` | `aniterals-<ngày>-x86_64.iso` | Riêng tư kiểu Tails: ảnh chạy trong RAM (`copytoram=y`), Tor, nhật ký chỉ ở RAM, MAC ngẫu nhiên. **Không Steam, không lưu trữ, không AUR.** |
-| **Anix** | `anix` | `anix-<ngày>-x86_64.iso` | Người chơi game muốn hết cỡ: mọi thứ của AniOS cộng `steam-native-runtime`, Proton GE, DXVK/VKD3D, `protontricks`, OpenCL, công cụ theo dõi GPU. |
+| **Anix** | `anix` | `anix-<ngày>-x86_64.iso` | Người chơi game muốn hết cỡ: mọi thứ của AniOS cộng Proton GE, VKD3D, `protontricks`, lớp kiểm chứng Vulkan 32-bit, thư viện lib32 bổ sung và công cụ theo dõi GPU. |
 
 ```bash
 sudo ./scripts/build-all-editions.sh              # cả ba bản, một lần chạy
@@ -54,7 +54,7 @@ Gồm ba mảnh tách nhau rõ, để không phải chép vài GB mỗi lần kh
    AniTails không. Unit đặt `Restart=no` để người dùng tắt Steam thì nó tắt hẳn.
 
 Mở Steam bằng `anios-steam` (nạp `/etc/anios/steam/steam.env`, cài runtime, rồi gọi Steam).
-Ở bản Anix muốn chạy bằng thư viện hệ thống thay vì runtime Scout: `steam-native-runtime anios-steam`.
+Mở Steam bằng `anios-steam` để được nạp đủ môi trường và Proton đã nướng sẵn.
 
 Steam Runtime **không được nướng mặc định**: Valve phát hành nó theo snapshot có build-id và
 đường dẫn đổi theo thời gian, nên đoán URL rồi nướng một bản sai vào ảnh tệ hơn là để Steam tự

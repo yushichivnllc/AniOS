@@ -3,9 +3,7 @@
 # rồi mới gọi Steam thật.
 #
 # Dùng lệnh này thay cho `steam` trần khi muốn bảo đảm Proton/Steam Runtime của
-# ảnh đã nằm đúng chỗ trước khi client khởi động. Trên bản Anix, muốn chạy Steam
-# bằng thư viện hệ thống thay vì runtime Scout thì gọi:
-#     steam-native-runtime anios-steam
+# ảnh đã nằm đúng chỗ trước khi client khởi động.
 set -uo pipefail
 
 steam_env="${ANIOS_STEAM_ENV:-/etc/anios/steam/steam.env}"
@@ -26,8 +24,9 @@ fi
 
 steam_bin="${ANIOS_STEAM_BIN:-}"
 if [[ -z "$steam_bin" ]]; then
-  # steam-native-runtime đặt một wrapper cùng tên lên trước trong PATH; tôn trọng
-  # lựa chọn đó thay vì ghim cứng /usr/bin/steam.
+# Dùng `command -v` chứ không ghim cứng /usr/bin/steam: nếu người dùng cài thêm
+  # một wrapper cùng tên đứng trước trong PATH (ví dụ để chạy bằng thư viện hệ
+  # thống) thì tôn trọng lựa chọn đó.
   steam_bin="$(command -v steam 2>/dev/null || true)"
 fi
 if [[ -z "$steam_bin" ]]; then

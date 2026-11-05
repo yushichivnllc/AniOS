@@ -8,7 +8,7 @@ ghép nó lên profile nền lúc dựng.
 | --- | --- | --- |
 | **AniOS** (`anios`) | `anios-<ngày>-x86_64.iso` | Bản chính. Hyprland, **Steam tự khởi động**, Proton + Steam Runtime nướng sẵn, stack AI, lớp ghi trên USB. |
 | **AniTails** (`aniterals`) | `aniterals-<ngày>-x86_64.iso` | Bản **amnesic**. Ảnh chạy trong RAM (`copytoram=y`), Tor, journal chỉ ở RAM, MAC ngẫu nhiên, **không Steam, không lưu trữ, không AUR**. |
-| **Anix** (`anix`) | `anix-<ngày>-x86_64.iso` | Bản **đầy đủ nhất**. Mọi thứ của AniOS cộng `steam-native-runtime`, Proton GE, DXVK/VKD3D, `protontricks`, lớp kiểm chứng Vulkan 32-bit, OpenCL, công cụ theo dõi GPU. |
+| **Anix** (`anix`) | `anix-<ngày>-x86_64.iso` | Bản **đầy đủ nhất**. Mọi thứ của AniOS cộng Proton GE, VKD3D, `protontricks`, lớp kiểm chứng Vulkan 32-bit, thư viện lib32 bổ sung và công cụ theo dõi GPU. |
 
 ## Dựng
 
@@ -92,8 +92,7 @@ Ba mảnh ghép, tách nhau rõ:
    file marker để Steam mở thu gọn xuống khay.
 
 Mở Steam bằng `/usr/local/bin/anios-steam` (nạp `/etc/anios/steam/steam.env`, cài
-runtime, rồi gọi Steam). Trên bản Anix muốn chạy bằng thư viện hệ thống thay vì
-runtime Scout: `steam-native-runtime anios-steam`.
+runtime, rồi gọi Steam).
 
 ## AniTails và giới hạn của nó
 

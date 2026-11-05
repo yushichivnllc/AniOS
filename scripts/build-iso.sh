@@ -505,6 +505,9 @@ fi
 # thầm biến bản amnesic thành bản có lưu trữ, và lỗi đó chỉ lộ ra khi người dùng
 # cắm USB vào máy khác.
 edition_remove_paths="$EDITION_DIR/remove.paths"
+# Đường dẫn mà edition này gỡ khỏi ảnh, dùng để lọc ANIOS_FILE_PERMISSIONS ở
+# bước sau (xem ghi chú tại chỗ lọc).
+EDITION_REMOVED_PATHS=()
 if [[ -s "$edition_remove_paths" ]]; then
   while IFS= read -r remove_rel; do
     remove_rel="${remove_rel%%#*}"
@@ -521,6 +524,7 @@ if [[ -s "$edition_remove_paths" ]]; then
     fi
     printf 'Edition %s removes %s\n' "$ANIOS_EDITION_ID" "$remove_rel"
     rm -rf -- "$remove_target"
+    EDITION_REMOVED_PATHS+=("$remove_rel")
   done <"$edition_remove_paths"
 fi
 
@@ -1091,6 +1095,69 @@ EOF
   fi
 }
 enable_multilib "$BUILD_PROFILE/pacman.conf"
+
+# --- Phân giải manifest trước khi mkarchiso chạy -----------------------------
+# pacstrap chỉ báo "target not found: <gói>" SAU khi đã tải xong toàn bộ sync DB
+# và tạo install root, và lỗi nằm lẫn trong hàng nghìn dòng log của mkarchiso.
+# Bước này hỏi thẳng pacman xem mọi gói trong manifest có thật trong các kho đã
+# bật không, bằng MỘT lệnh và một dbpath tạm nên không đụng DB của máy dựng.
+#
+# Đây là lỗi dễ mắc nhất khi thêm gói vào manifest của một edition: kho Arch đổi
+# tên và bỏ gói theo thời gian, nên một cái tên từng đúng sẽ ngừng phân giải mà
+# không ai biết cho tới khi CI đỏ. Nó phải bị bắt trong vài giây, kèm danh sách
+# đúng những gói sai và tên file manifest cần sửa.
+#
+# Không chạy được (thiếu pacman, không có mạng) thì chỉ cảnh báo rồi bỏ qua: đây
+# là bước báo sớm, không phải một cổng chặn mới có thể làm hỏng bản dựng trên máy
+# không đủ điều kiện kiểm tra.
+anios_verify_manifest_resolvable() {
+  local manifest="$1" config="$2"
+  command -v pacman >/dev/null 2>&1 || {
+    printf 'Bỏ qua bước phân giải gói: máy này không có pacman\n'
+    return 0
+  }
+  local dbpath pacman_output rc=0
+  local pkgs=() missing=()
+  dbpath="$(mktemp -d "${TMPDIR:-/tmp}/anios-preflight.XXXXXX")"
+  mapfile -t pkgs < <(
+    sed -E -e 's/#.*$//' -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//' "$manifest" | awk 'NF'
+  )
+  if (( ${#pkgs[@]} == 0 )); then
+    rm -rf -- "$dbpath"
+    return 0
+  fi
+  if ! pacman -Sy --config "$config" --dbpath "$dbpath" --noconfirm >/dev/null 2>&1; then
+    printf 'Bỏ qua bước phân giải gói: không đồng bộ được database của các kho\n' >&2
+    rm -rf -- "$dbpath"
+    return 0
+  fi
+  pacman_output="$(pacman -Sp --config "$config" --dbpath "$dbpath" -- "${pkgs[@]}" 2>&1)" || rc=$?
+  rm -rf -- "$dbpath"
+  if (( rc == 0 )); then
+    printf 'Phân giải gói: cả %s gói đều có trong các kho đã bật\n' "${#pkgs[@]}"
+    return 0
+  fi
+  mapfile -t missing < <(sed -nE 's/^error: target not found: (.*)$/\1/p' <<<"$pacman_output")
+  if (( ${#missing[@]} == 0 )); then
+    # pacman hỏng vì lý do khác (kho, chữ ký, đĩa...): in nguyên văn để không
+    # che mất nguyên nhân thật.
+    printf '%s\n' "$pacman_output" >&2
+    return 1
+  fi
+  cat >&2 <<EOF
+
+Những gói sau KHÔNG tồn tại trong các kho đã bật:
+$(printf '  %s\n' "${missing[@]}")
+
+Manifest: ${manifest}
+
+Kho Arch đổi tên và bỏ gói theo thời gian, nên một cái tên từng đúng có thể ngừng
+phân giải. Tra tên hiện tại ở https://archlinux.org/packages/ rồi sửa manifest,
+hoặc bỏ gói đó khỏi danh sách.
+EOF
+  return 1
+}
+anios_verify_manifest_resolvable "$BUILD_PROFILE/packages.x86_64" "$BUILD_PROFILE/pacman.conf" || exit 1
 RUNTIME_PACMAN_CONF="$BUILD_PROFILE/airootfs/etc/pacman.conf"
 if [[ ! -f "$RUNTIME_PACMAN_CONF" ]]; then
   install -D -m 0644 "$BUILD_PROFILE/pacman.conf" "$RUNTIME_PACMAN_CONF"
@@ -1201,6 +1268,44 @@ split_file_permission() {
 # Ghi từng mục vào mảng file_permissions của profiledef.sh, ngay sau dòng mở mảng.
 # (releng khai báo mảng đó bằng dòng `file_permissions=(` ở đầu dòng; nếu archiso
 # đổi cách viết thì sed không khớp và verify_file_permissions sẽ dừng bản dựng.)
+# Bỏ khỏi ANIOS_FILE_PERMISSIONS những mục mà edition này đã gỡ khỏi ảnh.
+#
+# Danh sách ANIOS_FILE_PERMISSIONS là của TOÀN họ AniOS, còn mỗi edition được phép
+# gỡ file: AniTails gỡ anios-persist và anios-steam-quit vì bản amnesic không có
+# lưu trữ bền vững và không có Steam. verify_file_permissions() đòi mọi đường dẫn
+# khai báo phải có thật trong ảnh, nên không lọc thì bản amnesic chết đúng ở bước
+# đó với "file_permissions declares ... but the image has no such file" dù profile
+# hoàn toàn lành.
+#
+# Tham số: danh sách đường dẫn tuyệt đối trong ảnh đã bị remove.paths gỡ.
+# In ra stdout những mục được giữ lại; nơi gọi dùng mapfile để gán lại mảng.
+# Không gán ANIOS_FILE_PERMISSIONS ngay trong thân hàm: hai bộ trích mảng bằng awk
+# (ở đây và trong scripts/selftest-build-iso-permissions.sh) nhận diện mảng theo
+# đầu dòng ANIOS_FILE_PERMISSIONS=(...), nên một phép gán như vậy nằm giữa hai khối
+# khai báo sẽ khiến chúng nuốt luôn các hàm đứng sau. Thông báo "drops" đi stderr
+# để không lẫn vào danh sách.
+anios_drop_removed_permissions() {
+  local removed_paths=("$@")
+  if (( ! ${#removed_paths[@]} )); then
+    printf '%s\n' "${ANIOS_FILE_PERMISSIONS[@]}"
+    return 0
+  fi
+  local entry entry_path removed dropped
+  for entry in "${ANIOS_FILE_PERMISSIONS[@]}"; do
+    entry_path="${entry%%:*}"
+    dropped=0
+    for removed in "${removed_paths[@]}"; do
+      if [[ "$entry_path" == "$removed" ]]; then
+        dropped=1
+        printf 'Edition %s: file_permissions drops %s (removed from this image)\n' \
+          "${ANIOS_EDITION_ID:-?}" "$entry_path" >&2
+        break
+      fi
+    done
+    (( dropped )) || printf '%s\n' "$entry"
+  done
+}
+
 insert_file_permissions() {
   local entry
   for entry in "${ANIOS_FILE_PERMISSIONS[@]}"; do
@@ -1243,6 +1348,13 @@ verify_file_permissions() {
   done
   (( missing == 0 )) || exit 1
 }
+
+# Là hàm (không phải code inline) để scripts/selftest-editions.sh nạp ĐÚNG nó từ
+# file này và chạy trên danh sách thật.
+mapfile -t ANIOS_FILE_PERMISSIONS < <(
+  anios_drop_removed_permissions \
+    "${EDITION_REMOVED_PATHS[@]+"${EDITION_REMOVED_PATHS[@]}"}"
+)
 
 insert_file_permissions
 verify_file_permissions

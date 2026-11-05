@@ -4,44 +4,42 @@
 # manifest mà pacstrap đọc trực tiếp. Proton GE KHÔNG nằm ở đây — nó được tải
 # bằng scripts/anios-steam-provision.sh và nướng vào /usr/share/anios/steam-cache
 # (xem ANIOS_EDITION_STEAM_PROVISION="full" trong edition.conf).
+#
+# LƯU Ý KHI THÊM GÓI: kho Arch đổi tên và bỏ gói theo thời gian, nên một cái tên
+# từng đúng sẽ ngừng phân giải mà không ai biết. scripts/build-iso.sh có bước
+# "phân giải gói" hỏi thẳng pacman về TOÀN BỘ manifest trước khi mkarchiso chạy,
+# nên tên sai bị bắt trong vài giây kèm danh sách đúng những gói sai — không phải
+# sau khi pacstrap đã tải xong sync DB rồi chết giữa log.
 
-# --- Steam Runtime chạy bằng thư viện hệ thống -----------------------------
-# steam-native-runtime cho phép chạy Steam với thư viện của Arch thay vì runtime
-# Scout mà Valve đóng gói: mới hơn, vá lỗi nhanh hơn, và không phải tải runtime
-# riêng. Đổi bằng `steam-native-runtime steam` khi cần.
-steam-native-runtime
-
-# --- Lớp tương thích DirectX ----------------------------------------------
+# --- Lớp tương thích DirectX -------------------------------------------------
 # vkd3d: dịch Direct3D 12 sang Vulkan (game DX12).
-# dxvk-mingw: bản DXVK dựng bằng MinGW — Direct3D 9/10/11 sang Vulkan.
 vkd3d
 lib32-vkd3d
-dxvk-mingw
 
-# --- Chẩn đoán đồ hoạ/game -------------------------------------------------
+# --- Chẩn đoán đồ hoạ/game ---------------------------------------------------
 # Lớp kiểm chứng Vulkan: báo lỗi API ngay trong log thay vì để game crash âm thầm.
 vulkan-validation-layers
 lib32-vulkan-validation-layers
-# OpenCL (Rusticl) cho ứng dụng tính toán GPU không qua Vulkan.
-opencl-rusticl-mesa
-lib32-opencl-rusticl-mesa
 # protontricks: cài DLL/font của Windows vào prefix của từng game (thay winetricks
 # khi làm việc với prefix do Proton tạo).
 protontricks
 
-# --- Thư viện 32-bit mà game cũ hay thiếu ----------------------------------
+# --- Thư viện 32-bit mà game cũ hay thiếu ------------------------------------
 # Steam và game 32-bit cần những gói này ở phía lib32; bản chính chỉ mang tập tối
-# thiểu, bản Anix mang đủ để game cũ chạy được ngay không phải cài thêm.
+# thiểu, bản Anix mang thêm để game cũ chạy được ngay không phải cài.
 lib32-alsa-plugins
 lib32-libpulse
 lib32-nss
 lib32-curl
-lib32-gst-plugins-base-libs
 lib32-libva
-lib32-openal
-lib32-sdl2
-lib32-sdl2_image
 
-# --- Theo dõi GPU lúc chơi game -------------------------------------------
+# --- Theo dõi GPU lúc chơi game ----------------------------------------------
 nvtop
 radeontop
+
+# ĐÃ GỠ (CI báo "target not found" — kho Arch không còn các tên này):
+#   steam-native-runtime, dxvk-mingw, opencl-rusticl-mesa,
+#   lib32-opencl-rusticl-mesa, lib32-gst-plugins-base-libs,
+#   lib32-openal, lib32-sdl2, lib32-sdl2_image
+# Muốn thêm lại thì tra tên hiện tại ở https://archlinux.org/packages/ rồi để bước
+# phân giải gói của build-iso.sh xác nhận trước khi dựng.
