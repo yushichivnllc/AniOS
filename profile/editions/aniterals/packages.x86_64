@@ -1,0 +1,32 @@
+# Gói CHỈ có trong AniTails (bản amnesic/riêng tư).
+#
+# CHỈ được chứa gói của kho chính thức: file này được gộp vào manifest mà
+# pacstrap đọc trực tiếp. Gói AUR phải nằm ở profile/packages.aur.x86_64, mà bản
+# này thì dựng với AUR tắt (ANIOS_EDITION_AUR=0).
+
+# --- Mạng ẩn danh qua Tor --------------------------------------------------
+# tor chạy daemon cục bộ; torsocks bọc mọi ứng dụng không hỗ trợ SOCKS vào
+# mạng Tor; proxychains-ng cho ứng dụng chỉ nói HTTP/SOCKS qua cấu hình file.
+tor
+torsocks
+proxychains-ng
+
+# --- Chống thu thập siêu dữ liệu / chống forensic --------------------------
+# mat2 xoá metadata khỏi ảnh, tài liệu, âm thanh (thay cho công cụ exiftool thô).
+mat2
+# secure-delete: srm/smem/sfill/sswap — ghi đè nhiều lần trước khi xoá.
+secure-delete
+# wipe: ghi đè an toàn theo đường dẫn hoặc cả thiết bị.
+wipe
+# macchanger: đổi địa chỉ MAC của card mạng trước khi kết nối.
+macchanger
+
+# --- Mật mã và entropy -----------------------------------------------------
+gnupg
+# haveged nuôi /dev/random để GnuPG và LUKS không phải chờ entropy trên máy cũ.
+haveged
+
+# --- Công cụ chẩn đoán mạng ẩn danh ---------------------------------------
+# Kiểm tra đường Tor, đo độ trễ, xác nhận IP thật không bị lộ.
+traceroute
+bind

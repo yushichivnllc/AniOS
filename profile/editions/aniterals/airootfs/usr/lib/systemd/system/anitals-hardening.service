@@ -1,0 +1,19 @@
+[Unit]
+Description=AniTails amnesic session hardening
+Documentation=file:///usr/local/bin/anitals-hardening
+# Phải chạy trước khi phiên đồ hoạ mở để swap đã tắt và MAC đã đổi trước lúc
+# người dùng gõ mật khẩu.
+Before=sddm.service
+After=systemd-tmpfiles-setup.service NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/anitals-hardening --boot
+# Đổi MAC cần hạ card xuống rồi bật lên; trên máy nhiều card việc này có thể
+# chậm nên cho nhiều thời gian hơn mặc định 90s một chút.
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

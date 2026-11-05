@@ -1,0 +1,24 @@
+[Unit]
+Description=Start Steam automatically in the AniOS/Anix live session
+Documentation=file:///usr/local/bin/anios-steam-autostart
+# Chỉ bản nào muốn Steam tự mở mới có file đánh dấu này; scripts/build-iso.sh ghi
+# nó theo ANIOS_EDITION_STEAM_AUTOSTART của edition đang dựng. AniTails không có.
+ConditionPathExists=/etc/anios/steam-autostart
+# Chờ phiên đồ hoạ: anios-steam-autostart tự dò socket Wayland nếu systemd khởi
+# động unit sớm hơn Hyprland.
+After=graphical-session.target anios-audio-setup.service
+Wants=anios-audio-setup.service
+
+[Service]
+Type=simple
+# Steam là tiến trình nền dài của người dùng, không phải oneshot.
+ExecStart=/usr/local/bin/anios-steam-autostart
+# Steam thoát với mã khác 0 khi người dùng đóng cửa sổ là chuyện bình thường;
+# không để systemd báo lỗi phiên và KHÔNG tự khởi động lại (sẽ thành vòng lặp
+# mỗi khi người dùng cố tắt Steam).
+Restart=no
+SuccessExitStatus=0 1 2
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

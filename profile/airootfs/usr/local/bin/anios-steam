@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Điểm vào Steam của AniOS/Anix: nạp môi trường, cài runtime đã nướng sẵn (offline)
+# rồi mới gọi Steam thật.
+#
+# Dùng lệnh này thay cho `steam` trần khi muốn bảo đảm Proton/Steam Runtime của
+# ảnh đã nằm đúng chỗ trước khi client khởi động.
+set -uo pipefail
+
+steam_env="${ANIOS_STEAM_ENV:-/etc/anios/steam/steam.env}"
+if [[ -s "$steam_env" ]]; then
+  # File dùng cú pháp EnvironmentFile của systemd (KEY=VALUE, không có `export`),
+  # nên phải `set -a` để mọi biến gán trong đó được export sang Steam.
+  set -a
+  # shellcheck disable=SC1090
+  . "$steam_env"
+  set +a
+fi
+
+# Cài Proton/Steam Runtime đã nướng sẵn trong ảnh. Không có cache (ảnh dựng với
+# ANIOS_SKIP_STEAM_PROVISION=1) thì bước này tự bỏ qua.
+if [[ -x /usr/local/bin/anios-steam-setup ]]; then
+  /usr/local/bin/anios-steam-setup || true
+fi
+
+steam_bin="${ANIOS_STEAM_BIN:-}"
+if [[ -z "$steam_bin" ]]; then
+# Dùng `command -v` chứ không ghim cứng /usr/bin/steam: nếu người dùng cài thêm
+  # một wrapper cùng tên đứng trước trong PATH (ví dụ để chạy bằng thư viện hệ
+  # thống) thì tôn trọng lựa chọn đó.
+  steam_bin="$(command -v steam 2>/dev/null || true)"
+fi
+if [[ -z "$steam_bin" ]]; then
+  printf 'anios-steam: gói steam chưa được cài trong ảnh này\n' >&2
+  exit 127
+fi
+
+exec -- "$steam_bin" "$@"

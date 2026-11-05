@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Cài Proton / Proton GE / Steam Runtime đã NƯỚNG SẴN trong ảnh vào thư mục Steam
+# của người dùng — hoàn toàn offline, không cần Internet.
+#
+# Vì sao cần bước này thay vì để Proton nằm thẳng trong ~/.local/share/Steam:
+# home của tài khoản live được dựng lại từ /usr/share/anios/skel mỗi lần khởi động
+# (xem anios-live-home.service), nên nhét vài GB Proton vào skel là chép vài GB
+# mỗi lần boot. Giữ chúng NÉN trong /usr/share/anios/steam-cache (squashfs nén tốt)
+# rồi chỉ giải nén khi người dùng thật sự mở Steam: lần đầu tốn vài chục giây,
+# các lần sau bỏ qua nhờ file đánh dấu.
+#
+# Script này KHÔNG BAO GIỜ làm hỏng việc mở Steam: mọi lỗi đều được cảnh báo rồi
+# trả về 0 (trừ --strict, dành cho bài tự kiểm tra và cho CI). Steam lúc đó tự tải
+# Proton từ mạng như hành vi gốc.
+set -uo pipefail
+
+CACHE="${ANIOS_STEAM_CACHE:-/usr/share/anios/steam-cache}"
+STRICT=0
+[[ "${1:-}" == "--strict" ]] && STRICT=1
+
+log() { printf 'anios-steam-setup: %s\n' "$*"; }
+warn() { printf 'anios-steam-setup: %s\n' "$*" >&2; }
+
+fail() {
+  warn "$*"
+  (( STRICT )) && exit 1
+  return 0
+}
+
+steam_root="${STEAM_ROOT:-${ANIOS_STEAM_ROOT:-}}"
+if [[ -z "$steam_root" ]]; then
+  steam_root="${HOME:-}/.local/share/Steam"
+fi
+if [[ -z "${HOME:-}" ]]; then
+  fail "không xác định được HOME nên không biết cài Proton vào đâu"
+  exit 0
+fi
+
+if [[ ! -d "$CACHE" ]]; then
+  # Không phải lỗi: ảnh dựng với ANIOS_SKIP_STEAM_PROVISION=1 thì không có cache.
+  log "không có $CACHE (ảnh không nướng sẵn runtime); Steam sẽ tự tải khi có mạng"
+  exit 0
+fi
+
+manifest="$CACHE/manifest"
+if [[ ! -s "$manifest" ]]; then
+  log "$CACHE không có manifest, bỏ qua"
+  exit 0
+fi
+
+install -d -m 0755 -- "$steam_root" || fail "không tạo được $steam_root"
+
+# File đánh dấu: nếu nội dung manifest không đổi thì không giải nén lại. Nhờ vậy
+# mở Steam lần thứ hai trở đi không phải chờ, còn bản ISO mới (manifest khác) thì
+# tự cài lại bản Proton mới.
+stamp="$steam_root/.anios-provisioned"
+manifest_sum="$(sha256sum -- "$manifest" 2>/dev/null | cut -d' ' -f1)"
+if [[ -n "$manifest_sum" && -s "$stamp" ]] && [[ "$(cat -- "$stamp" 2>/dev/null)" == "$manifest_sum" ]]; then
+  log "Proton/Steam Runtime đã cài rồi (manifest không đổi), bỏ qua"
+  exit 0
+fi
+
+# Mỗi dòng manifest: <loại>|<tên>|<đường dẫn file nén trong cache>
+#   proton        -> giải nén vào $steam_root/compatibilitytools.d/<tên>/
+#   compat        -> symlink/đường dẫn đã là một compatibility tool hoàn chỉnh
+#   steam-runtime -> giải nén vào $steam_root/ubuntu12_32/
+provisioned=0
+while IFS='|' read -r kind name archive; do
+  # Bỏ dòng trống và comment.
+  [[ -n "${kind//[[:space:]]/}" ]] || continue
+  [[ "$kind" == \#* ]] && continue
+  if [[ -z "$name" || -z "$archive" ]]; then
+    warn "dòng manifest không hợp lệ: $kind|$name|$archive"
+    continue
+  fi
+  src="$CACHE/$archive"
+  if [[ ! -s "$src" ]]; then
+    # fail (không phải warn): manifest trỏ tới file không có nghĩa là ảnh nướng
+    # thiếu, và ở chế độ --strict (CI) đó phải là lỗi chứ không phải lời khuyên.
+    fail "manifest nói có $archive nhưng ảnh không có file đó; bỏ qua $name"
+    continue
+  fi
+
+  case "$kind" in
+    proton|proton-ge)
+      dest_root="$steam_root/compatibilitytools.d"
+      ;;
+    steam-runtime)
+      dest_root="$steam_root/ubuntu12_32"
+      ;;
+    *)
+      warn "loại không rõ trong manifest: $kind ($name)"
+      continue
+      ;;
+  esac
+
+  dest="$dest_root/$name"
+  if [[ -d "$dest" && -n "$(ls -A -- "$dest" 2>/dev/null)" ]]; then
+    log "$name đã có trong $dest_root, bỏ qua"
+    provisioned=1
+    continue
+  fi
+
+  # --strip-components=1 chỉ đúng khi tarball bọc ĐÚNG MỘT thư mục ở cấp ngoài
+  # cùng (Proton: proton-9.0-1/; snapshot runtime: steam-runtime/). Nếu upstream đổi
+  # cách đóng gói mà ta vẫn strip thì kết quả là một cây thư mục sai cấp — Steam
+  # không nhận Proton và KHÔNG báo gì. Chặn ngay thay vì im lặng cài sai.
+  top_level="$(tar -tf "$src" 2>/dev/null | cut -d/ -f1 | sort -u | grep -c . || true)"
+  if [[ "$top_level" != 1 ]]; then
+    fail "$archive bọc ${top_level:-0} mục ở cấp ngoài cùng (cần đúng 1) nên không strip an toàn được; bỏ qua $name"
+    continue
+  fi
+
+  install -d -m 0755 -- "$dest" || { warn "không tạo được $dest"; continue; }
+  log "đang giải nén $name vào $dest_root (có thể mất vài chục giây)"
+  if tar -xf "$src" -C "$dest" --strip-components=1 2>/dev/null; then
+    provisioned=1
+    log "đã cài $name"
+  else
+    warn "giải nén $name thất bại; xoá phần dở để lần sau thử lại"
+    rm -rf -- "$dest"
+  fi
+done <"$manifest"
+
+if (( provisioned )); then
+  printf '%s\n' "$manifest_sum" >"$stamp" 2>/dev/null ||
+    warn "không ghi được $stamp; lần mở Steam sau sẽ giải nén lại"
+  log "hoàn tất. Proton có sẵn trong Steam > Settings > Compatibility"
+else
+  log "không có gì để cài từ $CACHE"
+fi
+exit 0

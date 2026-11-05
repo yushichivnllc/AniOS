@@ -6,6 +6,10 @@ OUT_DIR="$ROOT_DIR/out"
 WORK_DIR="$ROOT_DIR/work"
 CLEAN_WORK=0
 SKIP_CHECKS=0
+# Bản dựng nào: anios (mặc định), aniterals (amnesic) hay anix (đầy đủ nhất).
+# Mỗi bản có profile/editions/<tên>/edition.conf quyết định gói, menu khởi động,
+# lớp ghi và Steam. Xem profile/editions/README.md.
+EDITION="anios"
 # Các gói trong profile/packages.aur.x86_64 được dựng ngay trong chroot lúc build.
 # Tắt --no-aur nếu cả AUR, mirror GitHub và snapshot đều không truy cập được.
 WITH_AUR=1
@@ -14,11 +18,18 @@ ORIG_ARGS=("$@")
 
 usage() {
   cat <<'EOF'
-Usage: sudo ./scripts/build-iso.sh [--output DIR] [--work DIR] [--clean] [--skip-checks] [--no-aur]
+Usage: sudo ./scripts/build-iso.sh [--edition EDITION] [--output DIR] [--work DIR]
+                                   [--clean] [--skip-checks] [--no-aur]
 
-Build AniOS from Archiso's installed releng profile. Requires an up-to-date
-Arch Linux x86_64 host, archiso, network access, and root privileges.
+Build an AniOS family ISO from Archiso's installed releng profile. Requires an
+up-to-date Arch Linux x86_64 host, archiso, network access, and root privileges.
 
+  --edition E  which edition to build (default: anios)
+                 anios      main edition: Hyprland, Steam, AI stack, USB storage
+                 aniterals  amnesic edition: everything in RAM, Tor, no Steam
+                 anix       fullest edition: full Proton stack, Proton GE
+               Use --edition all to build the three ISOs one after another, or
+               run scripts/build-all-editions.sh.
   --clean        delete the work directory first, so the image is built from
                  scratch instead of reusing a previous airootfs
   --skip-checks  do not run scripts/check-profile.sh before building
@@ -31,6 +42,11 @@ EOF
 
 while (($#)); do
   case "$1" in
+    -e|--edition)
+      (($# >= 2)) || { echo "Missing edition after $1" >&2; exit 2; }
+      EDITION="$2"
+      shift 2
+      ;;
     -o|--output)
       (($# >= 2)) || { echo "Missing directory after $1" >&2; exit 2; }
       OUT_DIR="$2"
@@ -64,6 +80,84 @@ while (($#)); do
       ;;
   esac
 done
+
+# --- --edition all: dựng lần lượt ba bản ------------------------------------
+# Mỗi bản cần work dir riêng (mkarchiso tái sử dụng work dir và bỏ qua bước đã
+# chạy, nên dùng chung một thư mục là bản sau kế thừa airootfs của bản trước).
+EDITIONS_DIR="$ROOT_DIR/profile/editions"
+if [[ "$EDITION" == all ]]; then
+  # Bỏ --edition và giá trị của nó khỏi tham số truyền xuống cho lượt gọi đệ quy.
+  # ORIG_ARGS vẫn còn đúng `--edition all`, mà vòng phân tích đọc tuần tự nên tuỳ
+  # chọn CUỐI cùng thắng: giữ nguyên thì lượt con lại thấy EDITION=all và tự gọi
+  # chính nó mãi mãi (mỗi vòng in một dòng "Building edition" rồi treo).
+  forward_args=()
+  skip_next_arg=0
+  for orig_arg in ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}; do
+    if (( skip_next_arg )); then
+      skip_next_arg=0
+      continue
+    fi
+    case "$orig_arg" in
+      -e|--edition)
+        skip_next_arg=1
+        continue
+        ;;
+      --edition=*)
+        continue
+        ;;
+    esac
+    forward_args+=("$orig_arg")
+  done
+
+  for edition_dir in "$EDITIONS_DIR"/*/; do
+    edition_id="${edition_dir%/}"
+    edition_id="${edition_id##*/}"
+    [[ -s "$edition_dir/edition.conf" ]] || continue
+    printf '\n===== Building edition: %s =====\n' "$edition_id"
+    # --output giữ nguyên để cả ba ISO nằm chung một thư mục; --work tách theo
+    # bản để không bản nào kế thừa airootfs của bản khác.
+    "$0" --edition "$edition_id" \
+      --work "$WORK_DIR-$edition_id" \
+      ${forward_args[@]+"${forward_args[@]}"} || exit $?
+  done
+  exit 0
+fi
+
+EDITION_DIR="$EDITIONS_DIR/$EDITION"
+if [[ ! -s "$EDITION_DIR/edition.conf" ]]; then
+  echo "Unknown edition: $EDITION" >&2
+  echo "Available editions in profile/editions/:" >&2
+  for edition_dir in "$EDITIONS_DIR"/*/; do
+    edition_id="${edition_dir%/}"
+    [[ -s "$edition_dir/edition.conf" ]] && printf '  %s\n' "${edition_id##*/}" >&2
+  done
+  exit 2
+fi
+
+# Giá trị mặc định của edition; edition.conf chỉ cần ghi những gì nó muốn khác.
+ANIOS_EDITION_ID="$EDITION"
+ANIOS_EDITION_NAME="AniOS"
+ANIOS_EDITION_ISO_NAME="anios"
+ANIOS_EDITION_ISO_LABEL='ANIOS_$(date +%Y%m)'
+ANIOS_EDITION_APPLICATION="AniOS Arch Linux Live Gaming Desktop"
+ANIOS_EDITION_MENU_NAME="AniOS"
+ANIOS_EDITION_COPYTORAM="n"
+ANIOS_EDITION_COW_SPACE_SIZE="10G"
+ANIOS_EDITION_PERSISTENCE=1
+ANIOS_EDITION_AUR=1
+ANIOS_EDITION_SOBER=1
+ANIOS_EDITION_STEAM_AUTOSTART=0
+ANIOS_EDITION_STEAM_PROVISION="off"
+# shellcheck source=/dev/null
+. "$EDITION_DIR/edition.conf"
+
+# Edition tự khai báo không dựng AUR thì --no-aur không cần thiết (và ngược lại).
+if (( ! ANIOS_EDITION_AUR )); then
+  WITH_AUR=0
+fi
+
+printf 'AniOS edition: %s (%s)\n' "$ANIOS_EDITION_ID" "$ANIOS_EDITION_NAME"
+
 
 if [[ $EUID -ne 0 ]]; then
   if command -v sudo >/dev/null 2>&1; then
@@ -146,6 +240,50 @@ cleanup_removed_overlay_paths() {
 }
 cleanup_removed_overlay_paths
 
+# Gộp manifest gói cho một edition.
+#   $1 = file packages.x86_64 của profile đang dựng (bị sửa tại chỗ)
+#   $2 = thư mục profile/editions/<edition>
+#
+# Hai thao tác, theo đúng thứ tự: XOÁ những gói liệt kê trong packages.remove của
+# edition (AniTails cắt Steam/AI), rồi NỐI packages.x86_64 của edition (Anix thêm
+# tầng Proton). Cuối cùng khử dòng trùng và dòng rỗng.
+#
+# Tên trong packages.remove không có trong manifest thì bị bỏ qua im lặng: gói đó
+# có thể đã bị loại từ trước, và bắt lỗi ở đây chỉ làm khó việc thêm bớt.
+#
+# Đây là hàm (không phải code inline) để scripts/selftest-editions.sh nạp ĐÚNG nó
+# từ file này và chạy trên manifest thật của repo — không cần Arch, không cần root.
+anios_apply_edition_packages() {
+  local target="$1" edition_dir="$2"
+  local remove_manifest="$edition_dir/packages.remove"
+  local add_manifest="$edition_dir/packages.x86_64"
+  local removed=() pkg removal_list
+  if [[ -s "$remove_manifest" ]]; then
+    while IFS= read -r pkg; do
+      pkg="${pkg%%#*}"
+      pkg="${pkg//[$'\t\r\n ']/}"
+      [[ -n "$pkg" ]] || continue
+      if grep -qxF -- "$pkg" "$target"; then
+        removed+=("$pkg")
+      fi
+    done <"$remove_manifest"
+    if (( ${#removed[@]} )); then
+      printf 'Edition %s removes packages: %s\n' "${ANIOS_EDITION_ID:-?}" "${removed[*]}"
+      removal_list="$(mktemp "${TMPDIR:-/tmp}/anios-edition-remove.XXXXXX")"
+      printf '%s\n' "${removed[@]}" >"$removal_list"
+      grep -vxF -f "$removal_list" "$target" >"$target.tmp"
+      mv -- "$target.tmp" "$target"
+      rm -f -- "$removal_list"
+    fi
+  fi
+  if [[ -s "$add_manifest" ]]; then
+    printf 'Edition %s adds packages from %s\n' "${ANIOS_EDITION_ID:-?}" "${add_manifest##*/}"
+    cat "$add_manifest" >>"$target"
+  fi
+  awk 'NF && !seen[$0]++' "$target" >"$target.tmp"
+  mv -- "$target.tmp" "$target"
+}
+
 BUILD_PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/anios-profile.XXXXXX")"
 cleanup() { rm -rf -- "$BUILD_PROFILE"; }
 trap cleanup EXIT
@@ -159,6 +297,36 @@ mv -- "$BUILD_PROFILE/packages.x86_64.tmp" "$BUILD_PROFILE/packages.x86_64"
 cat "$ROOT_DIR/profile/packages.x86_64" >> "$BUILD_PROFILE/packages.x86_64"
 awk 'NF && !seen[$0]++' "$BUILD_PROFILE/packages.x86_64" > "$BUILD_PROFILE/packages.x86_64.tmp"
 mv -- "$BUILD_PROFILE/packages.x86_64.tmp" "$BUILD_PROFILE/packages.x86_64"
+
+# --- Gói theo edition --------------------------------------------------------
+# profile/editions/<edition>/packages.remove liệt kê gói phải LOẠI khỏi manifest
+# đã gộp (AniTails cắt Steam/AI), còn packages.x86_64 của edition liệt kê gói
+# CHỈ bản đó có (Anix thêm tầng Proton). Cả hai đều là file danh sách đơn giản:
+# dòng trống và dòng bắt đầu bằng '#' bị bỏ qua.
+#
+# Tên trong packages.remove không có trong manifest thì bị bỏ qua im lặng: gói
+# đó có thể đã bị edition khác loại, và bắt lỗi ở đây chỉ làm khó việc thêm bớt.
+anios_apply_edition_packages "$BUILD_PROFILE/packages.x86_64" "$EDITION_DIR"
+
+# Chốt lại: bản amnesic không được mang Steam, còn bản chính/Anix bắt buộc phải có.
+# Đây là loại lỗi mà người dùng chỉ phát hiện sau khi đã ghi USB và khởi động.
+if grep -qxF 'steam' "$BUILD_PROFILE/packages.x86_64"; then
+  edition_has_steam=1
+else
+  edition_has_steam=0
+fi
+if (( ANIOS_EDITION_STEAM_AUTOSTART )) && (( ! edition_has_steam )); then
+  echo "Edition $ANIOS_EDITION_ID enables Steam autostart but the package list has no steam" >&2
+  exit 1
+fi
+if [[ "$ANIOS_EDITION_STEAM_PROVISION" != off ]] && (( ! edition_has_steam )); then
+  echo "Edition $ANIOS_EDITION_ID bakes the Steam runtime but the package list has no steam" >&2
+  exit 1
+fi
+if (( ! edition_has_steam )); then
+  printf 'Edition %s has no Steam (amnesic/privacy edition)\n' "$ANIOS_EDITION_ID"
+fi
+
 
 # Archiso's stock boot entries name the generic kernel. Rewrite every supported
 # bootloader entry (including fallback initramfs names) for linux-zen.
@@ -185,9 +353,9 @@ for boot_dir in efiboot grub syslinux; do
     find "$BUILD_PROFILE/$boot_dir" -type f \
       \( -name '*.conf' -o -name '*.cfg' \) -print0 |
       xargs -0r sed -i -E \
-        -e 's/Arch Linux install medium/AniOS Live/g' \
-        -e 's/Arch Linux live medium/AniOS Live/g' \
-        -e 's/^(MENU TITLE )Arch Linux$/\1AniOS/'
+        -e "s/Arch Linux install medium/${ANIOS_EDITION_MENU_NAME} Live/g" \
+        -e "s/Arch Linux live medium/${ANIOS_EDITION_MENU_NAME} Live/g" \
+        -e "s/^(MENU TITLE )Arch Linux\$/\\1${ANIOS_EDITION_MENU_NAME}/"
   fi
 done
 for boot_dir in efiboot grub syslinux; do
@@ -198,25 +366,49 @@ for boot_dir in efiboot grub syslinux; do
   fi
   # Nếu releng đổi cách đặt tên mục menu, sed ở trên không còn khớp: dừng lại
   # để người bảo trì cập nhật quy tắc thay vì phát hành ISO thiếu thương hiệu.
-  if ! grep -R -q 'AniOS' "$BUILD_PROFILE/$boot_dir"; then
-    echo "Boot menu in $boot_dir does not mention AniOS; update the rebranding rules in build-iso.sh" >&2
+  if ! grep -R -q "$ANIOS_EDITION_MENU_NAME" "$BUILD_PROFILE/$boot_dir"; then
+    echo "Boot menu in $boot_dir does not mention $ANIOS_EDITION_MENU_NAME; update the rebranding rules in build-iso.sh" >&2
     exit 1
   fi
 done
 
-# AniOS KHÔNG chạy kiểu Tails ("live trong RAM, tắt máy là mất hết"):
-#   * copytoram=n: không chép ảnh hệ thống vào RAM mà đọc thẳng từ USB (mặc định
-#     Archiso tự bật copytoram khi ảnh < 4 GiB và còn RAM, ngốn vài GB RAM);
-#   * lớp ghi nằm trên phân vùng ANIOS_PERSIST của USB (xem khối bên dưới), nên
-#     dung lượng trống bằng phần còn lại của USB chứ không phụ thuộc RAM.
-# cow_spacesize=10G chỉ còn là dung lượng tmpfs của chế độ dự phòng, dùng ở lần
-# boot đầu tiên (trước khi anios-persist.service tạo phân vùng) hoặc khi USB
-# không còn chỗ trống để tạo phân vùng.
+# Tham số khởi động quyết định dữ liệu của phiên nằm ở đâu, và mỗi edition chọn
+# một chỗ khác nhau:
+#
+#   AniOS / Anix (ANIOS_EDITION_COPYTORAM=n) — KHÔNG chạy kiểu Tails: không chép
+#     ảnh vào RAM mà đọc thẳng từ USB (mặc định Archiso tự bật copytoram khi ảnh
+#     < 4 GiB và còn RAM, ngốn vài GB RAM), và lớp ghi nằm trên phân vùng
+#     ANIOS_PERSIST của USB (xem khối bên dưới), nên dung lượng trống bằng phần
+#     còn lại của USB chứ không phụ thuộc RAM. cow_spacesize chỉ còn là tmpfs dự
+#     phòng cho lần boot đầu tiên (trước khi anios-persist.service tạo phân vùng)
+#     hoặc khi USB không còn chỗ trống để tạo phân vùng.
+#
+#   AniTails (ANIOS_EDITION_COPYTORAM=y) — đúng kiểu Tails: ảnh được chép vào RAM
+#     rồi chạy từ đó, mọi thứ ghi trong phiên nằm trên tmpfs và mất khi tắt máy.
+#     Bản này không có phân vùng ANIOS_PERSIST và không có mục menu lưu trữ.
+if [[ "$ANIOS_EDITION_COPYTORAM" != y && "$ANIOS_EDITION_COPYTORAM" != n ]]; then
+  echo "Edition $ANIOS_EDITION_ID sets an invalid ANIOS_EDITION_COPYTORAM: $ANIOS_EDITION_COPYTORAM (must be y or n)" >&2
+  exit 1
+fi
 for boot_dir in efiboot grub syslinux; do
   [[ -d "$BUILD_PROFILE/$boot_dir" ]] || continue
-  find "$BUILD_PROFILE/$boot_dir" -type f \( -name '*.conf' -o -name '*.cfg' \) -print0 |
-    xargs -0r sed -i -E '/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*$/ cow_spacesize=10G copytoram=n/ }'
+  find "$BUILD_PROFILE/$boot_dir" -type f \( -name '*.conf' -o -name '*.cfg' \) -print0 |\
+    xargs -0r sed -i -E "/archisobasedir=/ { /cow_spacesize=/! s/[[:space:]]*\$/ cow_spacesize=${ANIOS_EDITION_COW_SPACE_SIZE} copytoram=${ANIOS_EDITION_COPYTORAM}/ }"
 done
+# Chốt lại tham số vừa ghi: sai một chữ ở đây là đổi hẳn hành vi lưu trữ của ISO
+# mà lúc dựng không có lỗi nào báo ra.
+boot_param_seen=0
+for boot_dir in efiboot grub syslinux; do
+  [[ -d "$BUILD_PROFILE/$boot_dir" ]] || continue
+  grep -R -qF "copytoram=${ANIOS_EDITION_COPYTORAM}" "$BUILD_PROFILE/$boot_dir" && boot_param_seen=1
+done
+if (( ! boot_param_seen )); then
+  echo "No boot entry carries copytoram=${ANIOS_EDITION_COPYTORAM} for edition $ANIOS_EDITION_ID" >&2
+  exit 1
+fi
+printf 'Edition %s boots with copytoram=%s cow_spacesize=%s persistence=%s\n' \
+  "$ANIOS_EDITION_ID" "$ANIOS_EDITION_COPYTORAM" "$ANIOS_EDITION_COW_SPACE_SIZE" \
+  "$([[ $ANIOS_EDITION_PERSISTENCE == 1 ]] && echo on || echo off)"
 
 # --- Lưu trữ bền vững trên phần trống của USB ------------------------------
 # Ghi ISO ra USB chỉ dùng phần đầu đĩa (chỉ đọc). Lần boot đầu tiên,
@@ -230,6 +422,10 @@ done
 # Syslinux (BIOS) không có điều kiện nên thêm một mục riêng. Nếu cow_label trỏ tới
 # phân vùng không tồn tại thì initramfs rơi vào shell, vì vậy KHÔNG đặt nó vào mục
 # mặc định của Syslinux.
+# Cả khối lưu trữ bền vững chỉ dành cho edition có lớp ghi trên USB. AniTails chạy
+# amnesic trong RAM: không mục menu lưu trữ, không cow_label, và anios-persist
+# cũng bị remove.paths của edition đó xoá khỏi ảnh.
+if (( ANIOS_EDITION_PERSISTENCE )); then
 if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
   awk '
     /^default=/ && !injected {
@@ -252,14 +448,14 @@ if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
   # Mục dự phòng: bỏ qua ổ lưu dữ liệu (ví dụ phân vùng bị lỗi) và chạy thuần RAM.
   awk '
     /^menuentry .*--id .archlinux-accessibility./ && !done {
-      print "menuentry \"AniOS Live, chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-ram'"'"' {"
+      print "menuentry \"'"${ANIOS_EDITION_MENU_NAME}"' Live, chế độ dự phòng trong RAM, bỏ qua ổ lưu dữ liệu (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-ram'"'"' {"
       print "    set gfxpayload=keep"
       print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=n anios_persist=off %KERNEL_PARAMS%"
       print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
       print "}"
       print ""
       # Mục ép dùng ổ lưu dữ liệu, phòng khi GRUB không tự dò được nhãn (thiếu module).
-      print "menuentry \"AniOS Live, ép dùng ổ lưu dữ liệu ANIOS_PERSIST (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-persist'"'"' {"
+      print "menuentry \"'"${ANIOS_EDITION_MENU_NAME}"' Live, ép dùng ổ lưu dữ liệu ANIOS_PERSIST (%ARCH%, ${archiso_platform})\" --class arch --class gnu-linux --class gnu --class os --id '"'"'anios-persist'"'"' {"
       print "    set gfxpayload=keep"
       print "    linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=n %KERNEL_PARAMS%"
       print "    initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img"
@@ -276,22 +472,61 @@ if [[ -f "$BUILD_PROFILE/grub/grub.cfg" ]]; then
     { echo "Failed to add persistent-storage support to grub/grub.cfg" >&2; exit 1; }
 fi
 if [[ -f "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" ]]; then
-  cat >> "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" <<'SYSLINUX_PERSIST'
+  cat >> "$BUILD_PROFILE/syslinux/archiso_sys-linux.cfg" <<SYSLINUX_PERSIST
 
 # Chọn mục này sau lần boot đầu tiên, khi phân vùng ANIOS_PERSIST đã được tạo.
 LABEL anios_persist
 TEXT HELP
-Boot AniOS on BIOS and keep data on the ANIOS_PERSIST partition of the USB drive.
+Boot ${ANIOS_EDITION_MENU_NAME} on BIOS and keep data on the ANIOS_PERSIST partition of the USB drive.
 The partition is created automatically on the first boot (or with: anios-persist setup).
 ENDTEXT
-MENU LABEL AniOS Live (%ARCH%, BIOS) with ^persistent storage
+MENU LABEL ${ANIOS_EDITION_MENU_NAME} Live (%ARCH%, BIOS) with ^persistent storage
 LINUX /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-zen
 INITRD /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-zen.img
-APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=n %KERNEL_PARAMS%
+APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=ANIOS_PERSIST cow_directory=persistent_%ARCHISO_UUID% copytoram=${ANIOS_EDITION_COPYTORAM} %KERNEL_PARAMS%
 SYSLINUX_PERSIST
+fi
 fi
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
+
+# --- Overlay riêng của edition --------------------------------------------
+# profile/editions/<edition>/airootfs được chép SAU overlay chung nên nó ghi đè
+# được file của profile/airootfs (AniTails thay cấu hình journald, thêm unit Tor).
+edition_airootfs="$EDITION_DIR/airootfs"
+if [[ -d "$edition_airootfs" ]]; then
+  printf 'Edition %s overlays %s\n' "$ANIOS_EDITION_ID" "${edition_airootfs#"$ROOT_DIR"/}"
+  cp -a -- "$edition_airootfs/." "$BUILD_PROFILE/airootfs/"
+fi
+
+# remove.paths: overlay chỉ THÊM được file, còn edition có khi phải GỠ thứ bản
+# chính bật sẵn (AniTails gỡ anios-persist.service để không tạo phân vùng trên
+# USB). Thiếu file mà edition khai báo là dừng bản dựng: một cái tên gõ sai sẽ âm
+# thầm biến bản amnesic thành bản có lưu trữ, và lỗi đó chỉ lộ ra khi người dùng
+# cắm USB vào máy khác.
+edition_remove_paths="$EDITION_DIR/remove.paths"
+# Đường dẫn mà edition này gỡ khỏi ảnh, dùng để lọc ANIOS_FILE_PERMISSIONS ở
+# bước sau (xem ghi chú tại chỗ lọc).
+EDITION_REMOVED_PATHS=()
+if [[ -s "$edition_remove_paths" ]]; then
+  while IFS= read -r remove_rel; do
+    remove_rel="${remove_rel%%#*}"
+    remove_rel="${remove_rel//[$'\t\r\n ']/}"
+    [[ -n "$remove_rel" ]] || continue
+    [[ "$remove_rel" == /* ]] || {
+      echo "Edition $ANIOS_EDITION_ID remove.paths must list absolute image paths: $remove_rel" >&2
+      exit 1
+    }
+    remove_target="$BUILD_PROFILE/airootfs$remove_rel"
+    if [[ ! -e "$remove_target" && ! -L "$remove_target" ]]; then
+      echo "Edition $ANIOS_EDITION_ID asks to remove $remove_rel but the image has no such file" >&2
+      exit 1
+    fi
+    printf 'Edition %s removes %s\n' "$ANIOS_EDITION_ID" "$remove_rel"
+    rm -rf -- "$remove_target"
+    EDITION_REMOVED_PATHS+=("$remove_rel")
+  done <"$edition_remove_paths"
+fi
 
 # --- Chỉ NetworkManager được quản lý mạng của ảnh live ---------------------
 # profile/airootfs chỉ THÊM file lên bản sao releng ở trên, không xoá được gì, nên
@@ -767,6 +1002,75 @@ HOOK_FLATPAK
   chmod 0755 -- "$FLATPAK_HOOK"
 fi
 
+# --- Proton / Steam Runtime được nướng sẵn vào ảnh -------------------------
+# Steam tự tải Proton và runtime ở lần mở đầu tiên, nghĩa là lần đó phải có mạng
+# và chờ vài trăm MB. AniOS nướng sẵn chúng vào /usr/share/anios/steam-cache lúc
+# dựng (scripts/anios-steam-provision.sh, chạy trong chroot như bước dựng gói AUR)
+# để anios-steam-setup giải nén offline ở lần mở Steam đầu tiên.
+#
+# Tải hỏng KHÔNG làm hỏng bản dựng: hook chỉ cảnh báo, Steam lúc đó tự tải như
+# hành vi gốc. Bỏ qua hẳn bước này: ANIOS_SKIP_STEAM_PROVISION=1.
+if [[ "$ANIOS_EDITION_STEAM_PROVISION" != off && "${ANIOS_SKIP_STEAM_PROVISION:-0}" != 1 ]]; then
+  STEAM_PROVISION_SRC="$ROOT_DIR/scripts/anios-steam-provision.sh"
+  [[ -s "$STEAM_PROVISION_SRC" ]] || { echo "Missing Steam provisioner: $STEAM_PROVISION_SRC" >&2; exit 1; }
+  install -d -m 0755 -- "$BUILD_PROFILE/airootfs/root/.anios-steam"
+  install -m 0644 -- "$STEAM_PROVISION_SRC" "$BUILD_PROFILE/airootfs/root/.anios-steam/anios-steam-provision.sh"
+
+  STEAM_HOOK="$BUILD_PROFILE/airootfs/root/customize_airootfs.sh"
+  if [[ -e "$STEAM_HOOK" ]]; then
+    printf '\n' >>"$STEAM_HOOK"
+  else
+    cat >"$STEAM_HOOK" <<'HOOK_HEAD'
+#!/usr/bin/env bash
+# Hook do scripts/build-iso.sh sinh ra lúc dựng ISO; mkarchiso chạy nó trong
+# chroot airootfs rồi tự xoá đi, nên nó không bao giờ nằm trong ảnh live.
+set -Eeuo pipefail
+
+HOOK_HEAD
+  fi
+  # Ghi thẳng giá trị vào hook để không phụ thuộc cách arch-chroot truyền môi
+  # trường giữa các phiên bản archiso.
+  {
+    printf 'anios_github_actions=%s\n' "${GITHUB_ACTIONS:+true}"
+    printf 'anios_steam_level=%s\n' "$ANIOS_EDITION_STEAM_PROVISION"
+  } >>"$STEAM_HOOK"
+  cat >>"$STEAM_HOOK" <<'HOOK_STEAM'
+# --- AniOS: nướng Proton / Steam Runtime ------------------------------------
+anios_steam_dir=/root/.anios-steam
+anios_github_actions="${anios_github_actions:-${GITHUB_ACTIONS:-false}}"
+anios_steam_level="${anios_steam_level:-standard}"
+if [[ -s "$anios_steam_dir/anios-steam-provision.sh" ]]; then
+  GITHUB_ACTIONS="$anios_github_actions" \
+    bash "$anios_steam_dir/anios-steam-provision.sh" --level "$anios_steam_level" ||
+    echo "AniOS WARNING: không nướng được Proton/Steam Runtime; Steam sẽ tự tải khi có mạng" >&2
+else
+  echo "AniOS WARNING: thiếu $anios_steam_dir/anios-steam-provision.sh" >&2
+fi
+rm -rf -- "$anios_steam_dir"
+HOOK_STEAM
+  chmod 0755 -- "$STEAM_HOOK"
+  printf 'Edition %s bakes the Steam runtime at level: %s\n' \
+    "$ANIOS_EDITION_ID" "$ANIOS_EDITION_STEAM_PROVISION"
+else
+  printf 'Edition %s: skipping the Steam runtime bake\n' "$ANIOS_EDITION_ID"
+fi
+
+# --- Steam tự khởi động cùng desktop ----------------------------------------
+# Unit người dùng anios-steam-autostart.service nằm trong mọi ảnh nhưng có
+# ConditionPathExists=/etc/anios/steam-autostart, nên chỉ edition nào ghi file
+# đánh dấu này mới tự mở Steam (AniOS chính và Anix; AniTails thì không).
+if (( ANIOS_EDITION_STEAM_AUTOSTART )); then
+  install -d -m 0755 -- "$BUILD_PROFILE/airootfs/etc/anios"
+  install -m 0644 -- /dev/null "$BUILD_PROFILE/airootfs/etc/anios/steam-autostart"
+  printf 'Edition %s autostarts Steam at login\n' "$ANIOS_EDITION_ID"
+fi
+
+# File đánh dấu edition: để script trong phiên biết mình đang chạy bản nào thay
+# vì đoán từ tên gói có mặt hay không.
+install -d -m 0755 -- "$BUILD_PROFILE/airootfs/etc/anios"
+printf '%s\n' "$ANIOS_EDITION_ID" >"$BUILD_PROFILE/airootfs/etc/anios/edition"
+printf '%s\n' "$ANIOS_EDITION_NAME" >"$BUILD_PROFILE/airootfs/etc/anios/edition-name"
+
 # Gói AUR (wine, Cốc Cốc, nodejs, base-devel...) làm airootfs phình thêm vài GB.
 # Báo sớm khi đĩa còn ít chỗ để người dựng biết vì sao bản dựng chết giữa chừng.
 free_kib="$(df -Pk -- "$(dirname -- "$WORK_DIR")" | awk 'NR==2 {print $4}')"
@@ -791,6 +1095,69 @@ EOF
   fi
 }
 enable_multilib "$BUILD_PROFILE/pacman.conf"
+
+# --- Phân giải manifest trước khi mkarchiso chạy -----------------------------
+# pacstrap chỉ báo "target not found: <gói>" SAU khi đã tải xong toàn bộ sync DB
+# và tạo install root, và lỗi nằm lẫn trong hàng nghìn dòng log của mkarchiso.
+# Bước này hỏi thẳng pacman xem mọi gói trong manifest có thật trong các kho đã
+# bật không, bằng MỘT lệnh và một dbpath tạm nên không đụng DB của máy dựng.
+#
+# Đây là lỗi dễ mắc nhất khi thêm gói vào manifest của một edition: kho Arch đổi
+# tên và bỏ gói theo thời gian, nên một cái tên từng đúng sẽ ngừng phân giải mà
+# không ai biết cho tới khi CI đỏ. Nó phải bị bắt trong vài giây, kèm danh sách
+# đúng những gói sai và tên file manifest cần sửa.
+#
+# Không chạy được (thiếu pacman, không có mạng) thì chỉ cảnh báo rồi bỏ qua: đây
+# là bước báo sớm, không phải một cổng chặn mới có thể làm hỏng bản dựng trên máy
+# không đủ điều kiện kiểm tra.
+anios_verify_manifest_resolvable() {
+  local manifest="$1" config="$2"
+  command -v pacman >/dev/null 2>&1 || {
+    printf 'Bỏ qua bước phân giải gói: máy này không có pacman\n'
+    return 0
+  }
+  local dbpath pacman_output rc=0
+  local pkgs=() missing=()
+  dbpath="$(mktemp -d "${TMPDIR:-/tmp}/anios-preflight.XXXXXX")"
+  mapfile -t pkgs < <(
+    sed -E -e 's/#.*$//' -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//' "$manifest" | awk 'NF'
+  )
+  if (( ${#pkgs[@]} == 0 )); then
+    rm -rf -- "$dbpath"
+    return 0
+  fi
+  if ! pacman -Sy --config "$config" --dbpath "$dbpath" --noconfirm >/dev/null 2>&1; then
+    printf 'Bỏ qua bước phân giải gói: không đồng bộ được database của các kho\n' >&2
+    rm -rf -- "$dbpath"
+    return 0
+  fi
+  pacman_output="$(pacman -Sp --config "$config" --dbpath "$dbpath" -- "${pkgs[@]}" 2>&1)" || rc=$?
+  rm -rf -- "$dbpath"
+  if (( rc == 0 )); then
+    printf 'Phân giải gói: cả %s gói đều có trong các kho đã bật\n' "${#pkgs[@]}"
+    return 0
+  fi
+  mapfile -t missing < <(sed -nE 's/^error: target not found: (.*)$/\1/p' <<<"$pacman_output")
+  if (( ${#missing[@]} == 0 )); then
+    # pacman hỏng vì lý do khác (kho, chữ ký, đĩa...): in nguyên văn để không
+    # che mất nguyên nhân thật.
+    printf '%s\n' "$pacman_output" >&2
+    return 1
+  fi
+  cat >&2 <<EOF
+
+Những gói sau KHÔNG tồn tại trong các kho đã bật:
+$(printf '  %s\n' "${missing[@]}")
+
+Manifest: ${manifest}
+
+Kho Arch đổi tên và bỏ gói theo thời gian, nên một cái tên từng đúng có thể ngừng
+phân giải. Tra tên hiện tại ở https://archlinux.org/packages/ rồi sửa manifest,
+hoặc bỏ gói đó khỏi danh sách.
+EOF
+  return 1
+}
+anios_verify_manifest_resolvable "$BUILD_PROFILE/packages.x86_64" "$BUILD_PROFILE/pacman.conf" || exit 1
 RUNTIME_PACMAN_CONF="$BUILD_PROFILE/airootfs/etc/pacman.conf"
 if [[ ! -f "$RUNTIME_PACMAN_CONF" ]]; then
   install -D -m 0644 "$BUILD_PROFILE/pacman.conf" "$RUNTIME_PACMAN_CONF"
@@ -812,10 +1179,10 @@ grep -q 'geo.mirror.pkgbuild.com' "$RUNTIME_PACMAN_CONF" ||
 # với theme Evangelion (Ayanami) khi mở AniOS.
 sed -i \
   -e "s/'uefi\.systemd-boot'/'uefi.grub'/g" \
-  -e 's/^iso_name=.*/iso_name="anios"/' \
-  -e 's/^iso_label=.*/iso_label="ANIOS_$(date +%Y%m)"/' \
+  -e "s/^iso_name=.*/iso_name=\"${ANIOS_EDITION_ISO_NAME}\"/"  \
+  -e "s|^iso_label=.*|iso_label=\"${ANIOS_EDITION_ISO_LABEL}\"|"  \
   -e 's|^iso_publisher=.*|iso_publisher="AniOS Project <https://github.com/yushichivnllc/AniOS>"|' \
-  -e 's/^iso_application=.*/iso_application="AniOS Arch Linux Live Gaming Desktop"/' \
+  -e "s|^iso_application=.*|iso_application=\"${ANIOS_EDITION_APPLICATION}\"|"  \
   -e 's/^iso_version=.*/iso_version="$(date +%Y.%m.%d)"/' \
   "$BUILD_PROFILE/profiledef.sh"
 if grep -q 'uefi\.systemd-boot' "$BUILD_PROFILE/profiledef.sh" || ! grep -q 'uefi\.grub' "$BUILD_PROFILE/profiledef.sh"; then
@@ -849,6 +1216,9 @@ ANIOS_FILE_PERMISSIONS=(
   '/usr/local/bin/anios-update:0:0:755'
   '/usr/local/bin/anios-netcheck:0:0:755'
   '/usr/local/bin/anios-steam-quit:0:0:755'
+  '/usr/local/bin/anios-steam:0:0:755'
+  '/usr/local/bin/anios-steam-setup:0:0:755'
+  '/usr/local/bin/anios-steam-autostart:0:0:755'
   '/usr/local/bin/anios-persist:0:0:755'
   '/usr/local/bin/anios-sober:0:0:755'
   '/usr/local/lib/anios/create-live-user:0:0:755'
@@ -863,6 +1233,22 @@ if (( WITH_AUR )); then
     '/usr/local/lib/anios/anios-installer-skel:0:0:755'
     '/usr/local/lib/anios/anios-installer-finalize:0:0:755'
   )
+fi
+
+# Script nằm trong overlay RIÊNG của edition (profile/editions/<id>/airootfs) cũng
+# mất bit thực thi y như script của profile/airootfs, vì mkarchiso chép cả hai bằng
+# cp --no-preserve=mode. Suy ra danh sách trực tiếp từ overlay thay vì chép tay:
+# thêm script mới vào một edition là không cần sửa gì ở đây.
+#
+# Dùng readarray chứ KHÔNG dùng `ANIOS_FILE_PERMISSIONS+=(...)` trong vòng lặp:
+# cả scripts/selftest-build-iso-permissions.sh lẫn scripts/check-profile.sh trích
+# khối khai báo mảng bằng awk (từ dòng `ANIOS_FILE_PERMISSIONS=(` tới dòng `)` đầu
+# tiên) rồi eval. Một lệnh += nằm trong `while read` sẽ bị trích RA KHỎI ngữ cảnh
+# của vòng lặp và eval với biến lặp chưa tồn tại ("edition_script: unbound
+# variable"). Dòng readarray dưới đây không khớp mẫu awk đó nên không bị trích.
+if [[ -d "$EDITION_DIR/airootfs" ]]; then
+  readarray -d '' -t -O "${#ANIOS_FILE_PERMISSIONS[@]}" ANIOS_FILE_PERMISSIONS \
+    < <(find "$EDITION_DIR/airootfs" -type f -perm -u+x -printf '/%P:0:0:755\0' 2>/dev/null)
 fi
 
 # Tách một mục của danh sách trên thành FP_PATH (đường dẫn trong ảnh) và FP_LINE
@@ -882,6 +1268,44 @@ split_file_permission() {
 # Ghi từng mục vào mảng file_permissions của profiledef.sh, ngay sau dòng mở mảng.
 # (releng khai báo mảng đó bằng dòng `file_permissions=(` ở đầu dòng; nếu archiso
 # đổi cách viết thì sed không khớp và verify_file_permissions sẽ dừng bản dựng.)
+# Bỏ khỏi ANIOS_FILE_PERMISSIONS những mục mà edition này đã gỡ khỏi ảnh.
+#
+# Danh sách ANIOS_FILE_PERMISSIONS là của TOÀN họ AniOS, còn mỗi edition được phép
+# gỡ file: AniTails gỡ anios-persist và anios-steam-quit vì bản amnesic không có
+# lưu trữ bền vững và không có Steam. verify_file_permissions() đòi mọi đường dẫn
+# khai báo phải có thật trong ảnh, nên không lọc thì bản amnesic chết đúng ở bước
+# đó với "file_permissions declares ... but the image has no such file" dù profile
+# hoàn toàn lành.
+#
+# Tham số: danh sách đường dẫn tuyệt đối trong ảnh đã bị remove.paths gỡ.
+# In ra stdout những mục được giữ lại; nơi gọi dùng mapfile để gán lại mảng.
+# Không gán ANIOS_FILE_PERMISSIONS ngay trong thân hàm: hai bộ trích mảng bằng awk
+# (ở đây và trong scripts/selftest-build-iso-permissions.sh) nhận diện mảng theo
+# đầu dòng ANIOS_FILE_PERMISSIONS=(...), nên một phép gán như vậy nằm giữa hai khối
+# khai báo sẽ khiến chúng nuốt luôn các hàm đứng sau. Thông báo "drops" đi stderr
+# để không lẫn vào danh sách.
+anios_drop_removed_permissions() {
+  local removed_paths=("$@")
+  if (( ! ${#removed_paths[@]} )); then
+    printf '%s\n' "${ANIOS_FILE_PERMISSIONS[@]}"
+    return 0
+  fi
+  local entry entry_path removed dropped
+  for entry in "${ANIOS_FILE_PERMISSIONS[@]}"; do
+    entry_path="${entry%%:*}"
+    dropped=0
+    for removed in "${removed_paths[@]}"; do
+      if [[ "$entry_path" == "$removed" ]]; then
+        dropped=1
+        printf 'Edition %s: file_permissions drops %s (removed from this image)\n' \
+          "${ANIOS_EDITION_ID:-?}" "$entry_path" >&2
+        break
+      fi
+    done
+    (( dropped )) || printf '%s\n' "$entry"
+  done
+}
+
 insert_file_permissions() {
   local entry
   for entry in "${ANIOS_FILE_PERMISSIONS[@]}"; do
@@ -924,6 +1348,13 @@ verify_file_permissions() {
   done
   (( missing == 0 )) || exit 1
 }
+
+# Là hàm (không phải code inline) để scripts/selftest-editions.sh nạp ĐÚNG nó từ
+# file này và chạy trên danh sách thật.
+mapfile -t ANIOS_FILE_PERMISSIONS < <(
+  anios_drop_removed_permissions \
+    "${EDITION_REMOVED_PATHS[@]+"${EDITION_REMOVED_PATHS[@]}"}"
+)
 
 insert_file_permissions
 verify_file_permissions

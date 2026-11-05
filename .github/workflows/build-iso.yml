@@ -597,3 +597,289 @@ jobs:
           prerelease: ${{ steps.meta.outputs.prerelease }}
           make_latest: ${{ steps.meta.outputs.make_latest }}
           fail_on_unmatched_files: true
+
+  # ---------------------------------------------------------------------------
+  # Hai bản còn lại của họ AniOS: aniterals (amnesic) và anix (đầy đủ nhất).
+  #
+  # Tách thành job matrix riêng thay vì matrix hoá job `build` ở trên: job đó mang
+  # hàng chục kiểm tra ĐẶC THÙ bản anios (lớp ghi ANIOS_PERSIST, copytoram=n, gói
+  # AUR yay/coccoc/legacy-launcher, định danh NAME="AniOS"). Ép chúng chạy cho bản
+  # amnesic là đỏ chắc chắn, còn nới lỏng chúng để "cho qua" thì mất luôn lớp bảo
+  # vệ đã kiểm chứng. Ở đây mỗi bản được kiểm bằng CHÍNH đặc tả trong
+  # profile/editions/<bản>/edition.conf, nên đặc tả và kiểm tra không thể lệch nhau.
+  # ---------------------------------------------------------------------------
+  build-editions:
+    name: Dựng ISO (${{ matrix.edition }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      # Một bản hỏng không được huỷ bản kia: ba bản độc lập nhau.
+      fail-fast: false
+      matrix:
+        edition: [aniterals, anix]
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUILDER: anios-iso-builder-${{ matrix.edition }}
+      OUT: out/${{ matrix.edition }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Giải phóng dung lượng đĩa
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/.ghcup /usr/local/share/boost /usr/share/swift
+          df -h /
+
+      - name: Khởi chạy container Arch để dựng ISO
+        run: |
+          docker run --detach \
+            --name "$BUILDER" \
+            --privileged \
+            --network host \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            --env GITHUB_WORKSPACE=/workspace \
+            --entrypoint tail \
+            archlinux:base-devel \
+            -f /dev/null
+
+      - name: Cài archiso và công cụ dựng ISO
+        run: |
+          docker exec -i "$BUILDER" bash -e -o pipefail -s <<'ARCH'
+          packages=(archiso grub squashfs-tools dosfstools mtools libisoburn git lua)
+          pacman-key --init 2>/dev/null || true
+          pacman-key --populate archlinux 2>/dev/null || true
+          if ! pacman -Syu --noconfirm --needed "${packages[@]}"; then
+            echo "::warning::Cài thất bại, đang làm mới archlinux-keyring rồi thử lại"
+            pacman -Sy --noconfirm --needed archlinux-keyring
+            pacman-key --populate archlinux 2>/dev/null || true
+            pacman -Syu --noconfirm --needed "${packages[@]}"
+          fi
+          test -d /usr/share/archiso/configs/releng
+          ARCH
+
+      - name: Kiểm tra profile
+        run: docker exec "$BUILDER" /workspace/scripts/check-profile.sh
+
+      - name: Đọc đặc tả của bản đang dựng
+        # Mọi kiểm tra bên dưới đối chiếu với ĐÚNG edition.conf, không hardcode:
+        # sửa đặc tả là kiểm tra tự đổi theo.
+        id: spec
+        run: |
+          conf="profile/editions/${{ matrix.edition }}/edition.conf"
+          test -s "$conf"
+          get() { bash -c ". '$conf'; printf '%s' \"\${$1}\""; }
+          {
+            echo "name=$(get ANIOS_EDITION_NAME)"
+            echo "iso_name=$(get ANIOS_EDITION_ISO_NAME)"
+            echo "menu_name=$(get ANIOS_EDITION_MENU_NAME)"
+            echo "copytoram=$(get ANIOS_EDITION_COPYTORAM)"
+            echo "persistence=$(get ANIOS_EDITION_PERSISTENCE)"
+            echo "aur=$(get ANIOS_EDITION_AUR)"
+            echo "steam_autostart=$(get ANIOS_EDITION_STEAM_AUTOSTART)"
+            echo "steam_provision=$(get ANIOS_EDITION_STEAM_PROVISION)"
+          } >>"$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Dựng ISO
+        run: |
+          docker exec -i \
+            --env ANIOS_EDITION_ID="${{ matrix.edition }}" \
+            --env ANIOS_EDITION_OUT="$OUT" \
+            "$BUILDER" bash -e -o pipefail -s <<'ARCH'
+          df -h "$GITHUB_WORKSPACE"
+          mkdir -p "$ANIOS_EDITION_OUT"
+          # Truyền tên bản tường minh: suy nó từ đường dẫn output (${OUT##*/}) thì
+          # chỉ cần ai đổi --output là bản dựng âm thầm dựng sai edition.
+          ./scripts/build-iso.sh \
+            --edition "$ANIOS_EDITION_ID" \
+            --output "$ANIOS_EDITION_OUT" \
+            --work "$GITHUB_WORKSPACE/work-$ANIOS_EDITION_ID"
+          ARCH
+
+      - name: Kiểm tra ISO của bản này
+        run: |
+          docker exec -i \
+            --env ANIOS_EDITION_OUT="$OUT" \
+            --env SPEC_NAME="${{ steps.spec.outputs.name }}" \
+            --env SPEC_ISO_NAME="${{ steps.spec.outputs.iso_name }}" \
+            --env SPEC_MENU_NAME="${{ steps.spec.outputs.menu_name }}" \
+            --env SPEC_COPYTORAM="${{ steps.spec.outputs.copytoram }}" \
+            --env SPEC_PERSISTENCE="${{ steps.spec.outputs.persistence }}" \
+            --env SPEC_AUR="${{ steps.spec.outputs.aur }}" \
+            --env SPEC_STEAM_AUTO="${{ steps.spec.outputs.steam_autostart }}" \
+            --env SPEC_STEAM_PROV="${{ steps.spec.outputs.steam_provision }}" \
+            "$BUILDER" bash -e -o pipefail -s <<'ARCH'
+          shopt -s nullglob
+          isos=("$ANIOS_EDITION_OUT"/*.iso)
+          (( ${#isos[@]} == 1 )) || {
+            echo "::error::Kỳ vọng đúng 1 file ISO trong $ANIOS_EDITION_OUT, thấy ${#isos[@]}"
+            exit 1
+          }
+          iso="${isos[0]}"
+          ls -lh "$iso"
+
+          # Tên file ISO phải mang tên của bản này, để ba bản không đè nhau khi tải về.
+          case "$(basename -- "$iso")" in
+            "$SPEC_ISO_NAME"-*) ;;
+            *) echo "::error::ISO không mang tên bản $SPEC_ISO_NAME: $(basename -- "$iso")"; exit 1 ;;
+          esac
+
+          ( cd "$ANIOS_EDITION_OUT" && sha256sum "$(basename -- "$iso")" >"$(basename -- "$iso").sha256" )
+          cat "$ANIOS_EDITION_OUT/$(basename -- "$iso").sha256"
+
+          # Boot record El Torito cho cả BIOS và UEFI.
+          xorriso -indev "$iso" -report_el_torito plain >"$ANIOS_EDITION_OUT/iso-el-torito.txt"
+          cat "$ANIOS_EDITION_OUT/iso-el-torito.txt"
+
+          # Menu GRUB: đúng theme Evangelion, đúng tên bản, đúng chế độ lưu trữ.
+          xorriso -indev "$iso" -osirrox on \
+            -extract /boot/grub/grub.cfg "$ANIOS_EDITION_OUT/iso-grub.cfg"
+          grep -qF '/themes/ayanami/theme.txt' "$ANIOS_EDITION_OUT/iso-grub.cfg"
+          grep -qF 'evangelion-index-01' "$ANIOS_EDITION_OUT/iso-grub.cfg"
+          grep -qF "$SPEC_MENU_NAME" "$ANIOS_EDITION_OUT/iso-grub.cfg" || {
+            echo "::error::Menu khởi động không mang tên bản $SPEC_MENU_NAME"; exit 1; }
+          grep -qF "copytoram=$SPEC_COPYTORAM" "$ANIOS_EDITION_OUT/iso-grub.cfg" || {
+            echo "::error::Thiếu copytoram=$SPEC_COPYTORAM trong menu khởi động"; exit 1; }
+
+          # Lớp ghi bền vững: chỉ bản bật persistence mới được có, bản amnesic thì
+          # tuyệt đối không — sai ở đây là đổi hẳn cam kết "tắt máy là mất hết".
+          if [[ "$SPEC_PERSISTENCE" == 1 ]]; then
+            grep -qF 'cow_label=ANIOS_PERSIST' "$ANIOS_EDITION_OUT/iso-grub.cfg" || {
+              echo "::error::Bản này bật persistence nhưng menu thiếu cow_label=ANIOS_PERSIST"; exit 1; }
+          else
+            if grep -qF 'ANIOS_PERSIST' "$ANIOS_EDITION_OUT/iso-grub.cfg"; then
+              echo "::error::Bản amnesic không được có lớp ghi ANIOS_PERSIST trong menu khởi động"; exit 1
+            fi
+            echo "OK: bản amnesic không có lớp ghi bền vững"
+          fi
+
+          # Kernel phải là linux-zen, không còn entry trỏ kernel generic.
+          xorriso -indev "$iso" -ls /arch/boot/x86_64 >"$ANIOS_EDITION_OUT/iso-boot-dir.txt"
+          grep -q 'vmlinuz-linux-zen' "$ANIOS_EDITION_OUT/iso-boot-dir.txt"
+          if grep -qE '(vmlinuz|initramfs)-linux(\.img)?$' "$ANIOS_EDITION_OUT/iso-boot-dir.txt"; then
+            echo "::error::ISO vẫn còn entry boot trỏ tới kernel generic"; exit 1
+          fi
+
+          xorriso -indev "$iso" -osirrox on -extract /arch/pkglist.x86_64.txt \
+            "$ANIOS_EDITION_OUT/pkglist.txt"
+          pkglist="$ANIOS_EDITION_OUT/pkglist.txt"
+          echo "Số gói: $(wc -l <"$pkglist")"
+          grep -q '^linux-zen ' "$pkglist"
+          grep -q '^sddm ' "$pkglist"
+
+          # Steam: bản amnesic KHÔNG có; bản chơi game thì phải có và có marker tự khởi động.
+          if grep -q '^steam ' "$pkglist"; then
+            [[ "$SPEC_STEAM_AUTO" == 1 ]] || {
+              echo "::error::Bản này không bật Steam tự khởi động nhưng ảnh lại có steam"; exit 1; }
+            echo "OK: có gói steam"
+          else
+            [[ "$SPEC_STEAM_PROV" == off ]] || {
+              echo "::error::Bản này nướng Steam runtime nhưng ảnh không có gói steam"; exit 1; }
+            echo "OK: bản này không mang Steam"
+          fi
+
+          # Gói AUR chỉ có ở bản bật AUR.
+          if [[ "$SPEC_AUR" == 1 ]]; then
+            for pkg in yay coccoc-browser-stable; do
+              grep -q "^$pkg " "$pkglist" || {
+                echo "::error::Bản này bật AUR nhưng ảnh thiếu $pkg"; exit 1; }
+            done
+          else
+            for pkg in yay coccoc-browser-stable calamares; do
+              if grep -q "^$pkg " "$pkglist"; then
+                echo "::error::Bản này tắt AUR nhưng ảnh vẫn có $pkg"; exit 1
+              fi
+            done
+            echo "OK: bản này không mang gói AUR"
+          fi
+
+          # Tor chỉ bản amnesic mới cài.
+          if grep -q '^tor ' "$pkglist"; then
+            echo "OK: có tor"
+          fi
+          ARCH
+
+      - name: Kiểm tra đặc trưng của bản amnesic trong ảnh live
+        if: matrix.edition == 'aniterals'
+        run: |
+          docker exec -i --env ANIOS_EDITION_OUT="$OUT" "$BUILDER" \
+            bash -e -o pipefail -s <<'ARCH'
+          iso=("$ANIOS_EDITION_OUT"/*.iso)
+          xorriso -indev "${iso[0]}" -osirrox on \
+            -extract /arch/x86_64/airootfs.sfs "$ANIOS_EDITION_OUT/airootfs.sfs"
+          sfs="$ANIOS_EDITION_OUT/airootfs.sfs"
+
+          # Nhật ký phải ở RAM, không ghi xuống đĩa.
+          unsquashfs -cat "$sfs" etc/systemd/journald.conf.d/10-aniterals-ram.conf |
+            grep -qxF 'Storage=volatile'
+          # Tor phải được bật sẵn.
+          unsquashfs -ll "$sfs" etc/systemd/system/multi-user.target.wants |
+            grep -qF 'tor.service'
+          # Không còn dấu vết của lớp ghi bền vững.
+          if unsquashfs -ll "$sfs" usr/lib/systemd/system 2>/dev/null |
+              grep -F 'anios-persist.service' >/dev/null; then
+            echo "::error::anios-persist.service vẫn nằm trong bản amnesic"; exit 1
+          fi
+          if unsquashfs -ll "$sfs" usr/local/bin 2>/dev/null |
+              grep -F 'anios-persist' >/dev/null; then
+            echo "::error::anios-persist vẫn nằm trong bản amnesic"; exit 1
+          fi
+          # Steam phải biến mất hoàn toàn, kể cả unit thoát êm và shortcut.
+          for gone in usr/local/bin/anios-steam-quit \
+                      usr/share/anios/skel/Desktop/Steam.desktop; do
+            if unsquashfs -ll "$sfs" "${gone%/*}" 2>/dev/null | grep -F "${gone##*/}" >/dev/null; then
+              echo "::error::$gone vẫn nằm trong bản amnesic"; exit 1
+            fi
+          done
+          # Unit siết chặt phiên amnesic phải có và bật sẵn.
+          unsquashfs -cat "$sfs" usr/lib/systemd/system/anitals-hardening.service |
+            grep -qF 'anitals-hardening --boot'
+          unsquashfs -ll "$sfs" etc/systemd/system/multi-user.target.wants |
+            grep -qF 'anitals-hardening.service'
+          echo "OK: bản amnesic đúng đặc tả (journal RAM, Tor bật, không lưu trữ, không Steam)"
+          ARCH
+
+      - name: Kiểm tra Proton được nướng sẵn (bản có Steam)
+        if: matrix.edition == 'anix'
+        run: |
+          docker exec -i --env ANIOS_EDITION_OUT="$OUT" "$BUILDER" \
+            bash -e -o pipefail -s <<'ARCH'
+          iso=("$ANIOS_EDITION_OUT"/*.iso)
+          xorriso -indev "${iso[0]}" -osirrox on \
+            -extract /arch/x86_64/airootfs.sfs "$ANIOS_EDITION_OUT/airootfs.sfs"
+          sfs="$ANIOS_EDITION_OUT/airootfs.sfs"
+
+          # Bộ cài runtime offline và marker tự khởi động phải có trong ảnh.
+          unsquashfs -cat "$sfs" usr/local/bin/anios-steam-setup | grep -qF 'anios-steam-cache'
+          unsquashfs -ll "$sfs" etc/anios | grep -qF 'steam-autostart'
+          unsquashfs -ll "$sfs" etc/systemd/user/default.target.wants |
+            grep -qF 'anios-steam-autostart.service'
+          # Tầng Proton riêng của bản anix.
+          unsquashfs -cat "$sfs" etc/anios/edition | grep -qxF 'anix'
+          echo "OK: bản anix có bộ cài Proton offline và Steam tự khởi động"
+          echo "Ghi chú: Proton/Steam Runtime chỉ được nướng khi máy dựng tải được từ GitHub;"
+          echo "         nếu bước dựng in 'không nướng được' thì Steam tự tải ở lần mở đầu tiên."
+          ARCH
+
+      - name: Dọn container dựng Arch
+        if: always()
+        run: docker rm --force "$BUILDER" || true
+
+      - name: Lưu ISO làm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anios-iso-${{ matrix.edition }}
+          path: |
+            out/${{ matrix.edition }}/*.iso
+            out/${{ matrix.edition }}/*.sha256
+            out/${{ matrix.edition }}/pkglist.txt
+            out/${{ matrix.edition }}/iso-el-torito.txt
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error

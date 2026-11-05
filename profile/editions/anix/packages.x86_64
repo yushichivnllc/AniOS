@@ -1,0 +1,45 @@
+# Gói CHỈ có trong Anix (bản đầy đủ nhất, Pro/Gaming).
+#
+# CHỈ được chứa gói của kho chính thức (extra/multilib): file này được gộp vào
+# manifest mà pacstrap đọc trực tiếp. Proton GE KHÔNG nằm ở đây — nó được tải
+# bằng scripts/anios-steam-provision.sh và nướng vào /usr/share/anios/steam-cache
+# (xem ANIOS_EDITION_STEAM_PROVISION="full" trong edition.conf).
+#
+# LƯU Ý KHI THÊM GÓI: kho Arch đổi tên và bỏ gói theo thời gian, nên một cái tên
+# từng đúng sẽ ngừng phân giải mà không ai biết. scripts/build-iso.sh có bước
+# "phân giải gói" hỏi thẳng pacman về TOÀN BỘ manifest trước khi mkarchiso chạy,
+# nên tên sai bị bắt trong vài giây kèm danh sách đúng những gói sai — không phải
+# sau khi pacstrap đã tải xong sync DB rồi chết giữa log.
+
+# --- Lớp tương thích DirectX -------------------------------------------------
+# vkd3d: dịch Direct3D 12 sang Vulkan (game DX12).
+vkd3d
+lib32-vkd3d
+
+# --- Chẩn đoán đồ hoạ/game ---------------------------------------------------
+# Lớp kiểm chứng Vulkan: báo lỗi API ngay trong log thay vì để game crash âm thầm.
+vulkan-validation-layers
+lib32-vulkan-validation-layers
+# protontricks: cài DLL/font của Windows vào prefix của từng game (thay winetricks
+# khi làm việc với prefix do Proton tạo).
+protontricks
+
+# --- Thư viện 32-bit mà game cũ hay thiếu ------------------------------------
+# Steam và game 32-bit cần những gói này ở phía lib32; bản chính chỉ mang tập tối
+# thiểu, bản Anix mang thêm để game cũ chạy được ngay không phải cài.
+lib32-alsa-plugins
+lib32-libpulse
+lib32-nss
+lib32-curl
+lib32-libva
+
+# --- Theo dõi GPU lúc chơi game ----------------------------------------------
+nvtop
+radeontop
+
+# ĐÃ GỠ (CI báo "target not found" — kho Arch không còn các tên này):
+#   steam-native-runtime, dxvk-mingw, opencl-rusticl-mesa,
+#   lib32-opencl-rusticl-mesa, lib32-gst-plugins-base-libs,
+#   lib32-openal, lib32-sdl2, lib32-sdl2_image
+# Muốn thêm lại thì tra tên hiện tại ở https://archlinux.org/packages/ rồi để bước
+# phân giải gói của build-iso.sh xác nhận trước khi dựng.
