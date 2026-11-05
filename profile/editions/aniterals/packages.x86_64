@@ -14,8 +14,8 @@ proxychains-ng
 # --- Chống thu thập siêu dữ liệu / chống forensic --------------------------
 # mat2 xoá metadata khỏi ảnh, tài liệu, âm thanh (thay cho công cụ exiftool thô).
 mat2
-# secure-delete: srm/smem/sfill/sswap — ghi đè nhiều lần trước khi xoá.
-secure-delete
+# secure-delete thuộc AUR, không được đưa vào manifest pacstrap của bản
+# không AUR. Dùng wipe bên dưới; coreutils của nền cũng cung cấp shred.
 # wipe: ghi đè an toàn theo đường dẫn hoặc cả thiết bị.
 wipe
 # macchanger: đổi địa chỉ MAC của card mạng trước khi kết nối.
