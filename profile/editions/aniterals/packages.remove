@@ -1,0 +1,43 @@
+# Gói bị LOẠI khỏi manifest của bản AniTails.
+#
+# profile/packages.x86_64 là manifest của bản AniOS chính. AniTails dùng lại phần
+# desktop/mạng/âm thanh/bộ gõ của nó rồi cắt bỏ tầng chơi game và tầng AI để ảnh
+# nhỏ đi và bớt bề mặt tấn công — đúng mục đích của một bản amnesic.
+#
+# Cách áp dụng: scripts/build-iso.sh xoá những dòng TRÙNG TÊN trong manifest đã
+# gộp. Tên không có trong manifest thì bị bỏ qua im lặng (không phải lỗi), nên
+# thêm/bớt dòng ở đây không bao giờ làm hỏng bản dựng.
+
+# --- Tầng Steam/chơi game --------------------------------------------------
+steam
+gamescope
+gamemode
+lib32-gamemode
+mangohud
+lib32-mangohud
+
+# Thư viện 32-bit chỉ Steam/Wine cần. Mesa và Vulkan loader 64-bit được GIỮ LẠI
+# để trình duyệt vẫn tăng tốc bằng GPU.
+lib32-mesa
+lib32-vulkan-icd-loader
+lib32-vulkan-intel
+lib32-vulkan-radeon
+lib32-vulkan-nouveau
+vulkan-nouveau
+
+# --- Tầng Windows/Wine -----------------------------------------------------
+wine
+winetricks
+
+# --- Tầng AI cục bộ --------------------------------------------------------
+ollama-vulkan
+llama-cpp
+whisper-cpp
+ggml-vulkan
+
+# --- Nặng và không liên quan tới riêng tư ---------------------------------
+# Flatpak/Sober là kênh cài ứng dụng đóng gói sẵn; bản amnesic không giữ chúng.
+flatpak
+# Java runtime chỉ legacy-launcher (Minecraft) cần, mà gói đó thuộc nhóm AUR
+# vốn đã tắt ở bản này.
+jre-openjdk

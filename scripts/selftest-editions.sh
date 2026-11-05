@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# Tự kiểm tra hệ thống ba bản edition (anios / aniterals / anix) mà không cần
+# dựng ISO, không cần Arch, không cần root.
+#
+# Vì sao có bài này: ba bản ISO dùng chung một profile nền và khác nhau ở manifest
+# gói. Lỗi dễ gặp nhất là bản amnesic vẫn mang Steam (ảnh phình vô ích, đúng thứ
+# bản đó muốn bỏ) hoặc bản "đầy đủ nhất" lại thiếu tầng Proton — cả hai đều chỉ lộ
+# ra sau một lượt dựng hàng chục phút và một lần ghi USB.
+#
+# Bài này nạp ĐÚNG hàm anios_apply_edition_packages() từ scripts/build-iso.sh (không
+# chép lại logic, nên sửa hàm là bài này thấy ngay) rồi chạy nó trên manifest thật
+# của repo cho từng bản, và kiểm tra luôn đường phân giải --edition của CLI.
+#
+# Chạy: ./scripts/selftest-editions.sh
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_ISO="$ROOT_DIR/scripts/build-iso.sh"
+EDITIONS_DIR="$ROOT_DIR/profile/editions"
+BASE_MANIFEST="$ROOT_DIR/profile/packages.x86_64"
+
+fail() { echo "FAIL: $*" >&2; exit 1; }
+pass() { echo "OK: $*"; }
+
+[[ -s "$BUILD_ISO" ]] || fail "thiếu $BUILD_ISO"
+[[ -s "$BASE_MANIFEST" ]] || fail "thiếu manifest nền: $BASE_MANIFEST"
+[[ -d "$EDITIONS_DIR" ]] || fail "thiếu $EDITIONS_DIR"
+
+# --- Nạp hàm từ build-iso.sh ------------------------------------------------
+# build-iso.sh chạy ngay khi nạp (cần root, archiso...) nên không `source` được;
+# lấy riêng thân hàm, từ dòng khai báo ở đầu dòng tới dấu `}` đầu tiên ở đầu dòng.
+fn_src="$(awk '/^anios_apply_edition_packages\(\) \{$/ { p = 1 } p { print } p && /^\}$/ { exit }' "$BUILD_ISO")"
+[[ -n "$fn_src" ]] ||
+  fail "scripts/build-iso.sh không còn hàm anios_apply_edition_packages() (khai báo ở đầu dòng)"
+[[ "$(tail -n1 <<<"$fn_src")" == '}' ]] ||
+  fail "không tìm thấy dấu '}' đóng hàm anios_apply_edition_packages() ở đầu dòng"
+eval "$fn_src"
+pass "nạp được đúng hàm anios_apply_edition_packages() từ scripts/build-iso.sh"
+
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/anios-editions-selftest.XXXXXX")"
+cleanup() {
+  if [[ -n "${ANIOS_SELFTEST_KEEP_SANDBOX:-}" ]]; then
+    echo "Sandbox giữ lại tại: $SANDBOX" >&2
+    return 0
+  fi
+  rm -rf -- "$SANDBOX"
+}
+trap cleanup EXIT
+
+# Manifest cuối cùng của một edition, dựng bằng ĐÚNG hàm mà build-iso.sh gọi.
+edition_manifest() {
+  # Hai lệnh `local` riêng: gộp vào một lệnh (`local a="$1" b="...$a..."`) thì
+  # bash khai báo cả hai biến TRƯỚC khi gán, nên tham chiếu $edition_id trong cùng
+  # câu lệnh bị `set -u` coi là biến chưa tồn tại.
+  local edition_id="$1"
+  local out="$SANDBOX/$edition_id.packages"
+  cp -- "$BASE_MANIFEST" "$out"
+  ANIOS_EDITION_ID="$edition_id" anios_apply_edition_packages "$out" "$EDITIONS_DIR/$edition_id" >/dev/null
+  printf '%s\n' "$out"
+}
+
+# --- 1. Ba bản tồn tại và phân giải được -----------------------------------
+found_editions="$(cd "$EDITIONS_DIR" && for d in */; do [[ -s "$d/edition.conf" ]] && printf '%s\n' "${d%/}"; done | sort | tr '\n' ' ')"
+[[ "$found_editions" == "anios aniterals anix " ]] ||
+  fail "profile/editions phải có đúng ba bản anios aniterals anix, thực tế: $found_editions"
+pass "có đúng ba bản edition: anios, aniterals, anix"
+
+# --- 2. Manifest của từng bản ----------------------------------------------
+ANIOS_MANIFEST="$(edition_manifest anios)"
+ANITALS_MANIFEST="$(edition_manifest aniterals)"
+ANIX_MANIFEST="$(edition_manifest anix)"
+
+grep -qxF 'steam' "$ANIOS_MANIFEST" || fail "bản anios phải có gói steam"
+grep -qxF 'steam' "$ANIX_MANIFEST" || fail "bản anix phải có gói steam"
+! grep -qxF 'steam' "$ANITALS_MANIFEST" || fail "bản amnesic aniterals KHÔNG được mang gói steam"
+pass "steam có trong anios/anix và bị cắt khỏi aniterals"
+
+grep -qxF 'steam-native-runtime' "$ANIX_MANIFEST" ||
+  fail "bản anix (đầy đủ nhất) phải thêm steam-native-runtime"
+! grep -qxF 'steam-native-runtime' "$ANIOS_MANIFEST" ||
+  fail "steam-native-runtime là gói riêng của anix, không được lọt vào bản anios"
+pass "tầng Proton/runtime riêng của anix không lọt sang bản khác"
+
+grep -qxF 'tor' "$ANITALS_MANIFEST" || fail "bản aniterals phải cài tor"
+grep -qxF 'macchanger' "$ANITALS_MANIFEST" || fail "bản aniterals phải cài macchanger"
+! grep -qxF 'ollama-vulkan' "$ANITALS_MANIFEST" || fail "bản aniterals phải cắt stack AI (ollama-vulkan)"
+! grep -qxF 'wine' "$ANITALS_MANIFEST" || fail "bản aniterals phải cắt wine"
+pass "aniterals có Tor/anti-forensic và đã cắt game + AI"
+
+# Phần dùng chung của ba bản không được mất đi khi cắt gói.
+for shared in linux-zen hyprland sddm pipewire networkmanager firefox; do
+  for m in "$ANIOS_MANIFEST" "$ANITALS_MANIFEST" "$ANIX_MANIFEST"; do
+    grep -qxF "$shared" "$m" || fail "gói dùng chung $shared bị mất trong $(basename "$m")"
+  done
+done
+pass "phần nền (kernel, Hyprland, SDDM, PipeWire, mạng, trình duyệt) còn nguyên ở cả ba bản"
+
+# --- 3. Khử trùng lặp và không còn dòng rỗng --------------------------------
+# Comment ĐƯỢC phép: định dạng manifest của pacman chấp nhận dòng `#`, và chính
+# profile/packages.x86_64 (được pacstrap đọc trực tiếp) có hàng chục dòng chú thích.
+# scripts/check-profile.sh cũng kiểm manifest bằng regex cho phép `#`. Cái phải bị
+# loại là dòng RỖNG và dòng TRÙNG, vì chúng làm khó đọc và gây cài lặp.
+for m in "$ANIOS_MANIFEST" "$ANITALS_MANIFEST" "$ANIX_MANIFEST"; do
+  dupes="$(sort -- "$m" | uniq -d)"
+  [[ -z "$dupes" ]] || fail "$(basename "$m") còn dòng trùng: $dupes"
+  if grep -nE '^[[:space:]]*$' "$m" >/dev/null; then
+    fail "$(basename "$m") còn dòng rỗng"
+  fi
+  # Dùng ĐÚNG regex mà scripts/check-profile.sh kiểm manifest: `$` nằm trong nhánh
+  # cuối của nhóm, nên dòng `#` (kèm chú thích) vẫn hợp lệ, còn tên gói thì phải
+  # trọn dòng.
+  if grep -nEv '^[[:space:]]*($|#|[a-zA-Z0-9@._+-]+$)' "$m" >/dev/null; then
+    fail "$(basename "$m") có dòng không hợp lệ: $(grep -nEv '^[[:space:]]*($|#|[a-zA-Z0-9@._+-]+$)' "$m" | head -n 3)"
+  fi
+done
+pass "manifest của cả ba bản không còn dòng trùng/dòng rỗng và mọi dòng đều hợp lệ"
+
+# --- 4. CLI phân giải --edition --------------------------------------------
+status=0
+out="$("$BUILD_ISO" --edition nosuch 2>&1)" || status=$?
+(( status == 2 )) || fail "--edition không hợp lệ phải exit 2, thực tế $status"
+for edition_id in anios aniterals anix; do
+  grep -qxF "  $edition_id" <<<"$out" || fail "--edition sai không liệt kê bản $edition_id: $out"
+done
+pass "--edition sai thì exit 2 và liệt kê đúng ba bản có sẵn"
+
+status=0
+"$BUILD_ISO" --edition >/dev/null 2>&1 || status=$?
+(( status == 2 )) || fail "--edition thiếu tham số phải exit 2, thực tế $status"
+pass "--edition thiếu tham số bị từ chối"
+
+help_out="$("$BUILD_ISO" --help)"
+for edition_id in anios aniterals anix all; do
+  grep -qF "$edition_id" <<<"$help_out" || fail "--help không nhắc tới $edition_id"
+done
+pass "--help liệt kê cả ba bản và --edition all"
+
+# --- 5. --edition all phải tách work dir theo từng bản ----------------------
+# mkarchiso tái sử dụng work dir và bỏ qua bước đã chạy, nên ba bản dùng chung một
+# work dir là bản sau kế thừa airootfs của bản trước (ISO ra sai mà không báo lỗi).
+all_block="$(awk '/if \[\[ "\$EDITION" == all \]\]; then/ { p = 1 } p { print } p && /^fi$/ { exit }' "$BUILD_ISO")"
+[[ -n "$all_block" ]] || fail "build-iso.sh không còn nhánh xử lý --edition all"
+grep -qF -- '--work "$WORK_DIR-$edition_id"' <<<"$all_block" ||
+  fail "--edition all phải tách work dir theo từng bản, nếu không bản sau kế thừa airootfs của bản trước"
+grep -qF 'edition.conf' <<<"$all_block" ||
+  fail "--edition all phải duyệt theo edition.conf có thật chứ không hardcode tên bản"
+# ORIG_ARGS vẫn còn đúng `--edition all`; vòng phân tích đọc tuần tự nên tuỳ chọn
+# CUỐI thắng. Truyền thẳng ORIG_ARGS xuống lượt con thì con lại thấy EDITION=all
+# và tự gọi chính nó mãi mãi. Bắt buộc phải lọc --edition ra trước.
+#
+# Chỉ xét LỆNH GỌI ĐỆ QUY (từ dòng `"$0" --edition` tới dòng có `|| exit $?`):
+# ORIG_ARGS vẫn được phép xuất hiện ở vòng lọc phía trên, vì đó chính là nguồn
+# để lọc.
+recursive_call="$(awk '/"\$0" --edition "\$edition_id"/ { p = 1 } p { print } p && /\|\| exit \$\?/ { exit }' <<<"$all_block")"
+[[ -n "$recursive_call" ]] || fail "không tìm thấy lệnh gọi đệ quy trong nhánh --edition all"
+if grep -qF 'ORIG_ARGS' <<<"$recursive_call"; then
+  fail "--edition all truyền thẳng ORIG_ARGS (còn --edition all) cho lượt gọi đệ quy: sẽ tự gọi chính nó mãi mãi"
+fi
+grep -qF '${forward_args[@]' <<<"$recursive_call" ||
+  fail "lệnh gọi đệ quy phải truyền danh sách tham số đã lọc (forward_args)"
+grep -qF 'skip_next_arg' <<<"$all_block" ||
+  fail "--edition all phải bỏ cả giá trị đi kèm --edition khi lọc tham số truyền xuống"
+pass "--edition all tách work dir riêng và không tự đệ quy vô hạn"
+
+echo "All edition self-tests passed."

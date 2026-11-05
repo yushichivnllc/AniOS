@@ -1,0 +1,28 @@
+# Đường dẫn TRONG ẢNH mà bản AniTails phải xoá khỏi airootfs sau khi overlay
+# của profile/airootfs đã được chép vào profile dựng.
+#
+# Lý do cần cơ chế này: overlay chỉ THÊM được file, mà AniTails phải GỠ thứ bản
+# chính bật sẵn — cụ thể là lớp ghi bền vững trên USB. Mỗi dòng là một đường dẫn
+# tuyệt đối tính từ gốc airootfs; dòng trống và dòng bắt đầu bằng '#' bị bỏ qua.
+# scripts/build-iso.sh dừng bản dựng nếu đường dẫn không tồn tại, để một cái tên
+# gõ sai không âm thầm biến bản amnesic thành bản có lưu trữ.
+
+# Lớp ghi ANIOS_PERSIST trên USB: service tạo phân vùng và symlink bật nó.
+/usr/lib/systemd/system/anios-persist.service
+/etc/systemd/system/multi-user.target.wants/anios-persist.service
+/usr/local/bin/anios-persist
+/usr/share/applications/anios-persist.desktop
+
+# KHÔNG xoá /usr/local/bin/anios-boot-choice: hyprland.lua gọi nó bằng đường dẫn
+# tuyệt đối lúc phiên khởi động, nên thiếu file là phiên live báo lỗi mỗi lần boot.
+# anios-boot-choice tự nhận ra không có anios-persist và bỏ nút lưu trữ.
+
+# Steam không có trong bản này nên unit thoát êm cũng không cần.
+/usr/lib/systemd/system/anios-steam-quit.service
+/etc/systemd/system/multi-user.target.wants/anios-steam-quit.service
+/usr/local/bin/anios-steam-quit
+
+# Shortcut Steam trên Desktop. Chỉ cần xoá bản gốc trong usr/share/anios/skel:
+# build-iso.sh chép thư mục đó sang /etc/skel và /home/anios SAU bước remove.paths,
+# nên hai bản sao kia tự biến mất và không được liệt kê ở đây.
+/usr/share/anios/skel/Desktop/Steam.desktop

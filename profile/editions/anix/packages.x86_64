@@ -1,0 +1,47 @@
+# Gói CHỈ có trong Anix (bản đầy đủ nhất, Pro/Gaming).
+#
+# CHỈ được chứa gói của kho chính thức (extra/multilib): file này được gộp vào
+# manifest mà pacstrap đọc trực tiếp. Proton GE KHÔNG nằm ở đây — nó được tải
+# bằng scripts/anios-steam-provision.sh và nướng vào /usr/share/anios/steam-cache
+# (xem ANIOS_EDITION_STEAM_PROVISION="full" trong edition.conf).
+
+# --- Steam Runtime chạy bằng thư viện hệ thống -----------------------------
+# steam-native-runtime cho phép chạy Steam với thư viện của Arch thay vì runtime
+# Scout mà Valve đóng gói: mới hơn, vá lỗi nhanh hơn, và không phải tải runtime
+# riêng. Đổi bằng `steam-native-runtime steam` khi cần.
+steam-native-runtime
+
+# --- Lớp tương thích DirectX ----------------------------------------------
+# vkd3d: dịch Direct3D 12 sang Vulkan (game DX12).
+# dxvk-mingw: bản DXVK dựng bằng MinGW — Direct3D 9/10/11 sang Vulkan.
+vkd3d
+lib32-vkd3d
+dxvk-mingw
+
+# --- Chẩn đoán đồ hoạ/game -------------------------------------------------
+# Lớp kiểm chứng Vulkan: báo lỗi API ngay trong log thay vì để game crash âm thầm.
+vulkan-validation-layers
+lib32-vulkan-validation-layers
+# OpenCL (Rusticl) cho ứng dụng tính toán GPU không qua Vulkan.
+opencl-rusticl-mesa
+lib32-opencl-rusticl-mesa
+# protontricks: cài DLL/font của Windows vào prefix của từng game (thay winetricks
+# khi làm việc với prefix do Proton tạo).
+protontricks
+
+# --- Thư viện 32-bit mà game cũ hay thiếu ----------------------------------
+# Steam và game 32-bit cần những gói này ở phía lib32; bản chính chỉ mang tập tối
+# thiểu, bản Anix mang đủ để game cũ chạy được ngay không phải cài thêm.
+lib32-alsa-plugins
+lib32-libpulse
+lib32-nss
+lib32-curl
+lib32-gst-plugins-base-libs
+lib32-libva
+lib32-openal
+lib32-sdl2
+lib32-sdl2_image
+
+# --- Theo dõi GPU lúc chơi game -------------------------------------------
+nvtop
+radeontop

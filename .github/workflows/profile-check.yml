@@ -94,6 +94,23 @@ jobs:
         # Chạy pacstrap, skeleton cleanup, theme finalizer và các lựa chọn dotfiles
         # trên cây hệ thống giả; không cài gì lên runner.
         run: ./scripts/selftest-installer.sh
+      - name: Self-test the three ISO editions
+        # Ba bản ISO (anios, aniterals, anix) dùng chung một profile nền và khác nhau
+        # ở manifest gói. Bài này nạp ĐÚNG hàm anios_apply_edition_packages() từ
+        # scripts/build-iso.sh rồi chạy nó trên manifest thật của repo, để bắt trong
+        # vài giây những lỗi chỉ lộ ra sau một lượt dựng hàng chục phút: bản amnesic
+        # vẫn mang Steam, bản "đầy đủ nhất" thiếu tầng Proton, gói dùng chung bị cắt
+        # nhầm, manifest còn dòng trùng. Kèm kiểm tra đường phân giải --edition và
+        # việc --edition all tách work dir theo từng bản.
+        run: ./scripts/selftest-editions.sh
+      - name: Self-test the offline Steam runtime installer
+        # anios-steam-setup chạy ở lần mở Steam ĐẦU TIÊN của người dùng, nên lỗi của
+        # nó chỉ lộ ra trên máy thật sau khi đã ghi USB. Bài này chạy đúng script đó
+        # trên một cache giả có tarball thật: giải nén Proton vào
+        # compatibilitytools.d, đặt Steam Runtime vào ubuntu12_32, bỏ qua khi đã cài,
+        # cài lại khi manifest đổi, và không bao giờ chặn Steam khi cache thiếu/hỏng.
+        # Nó cũng chốt rằng script hoàn toàn offline (không curl/wget/pacman).
+        run: ./scripts/selftest-anios-steam-setup.sh
       - name: Validate JSON, SDDM theme, and session configuration
         run: |
           python3 - <<'PY'

@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# AniTails — siết chặt phiên live lúc khởi động.
+#
+# Chạy một lần từ anitals-hardening.service TRƯỚC khi sddm.service mở phiên đồ
+# hoạ. Bản amnesic chạy hoàn toàn trong RAM nên "không để lại dấu vết" chủ yếu do
+# copytoram=y đảm nhận; script này lo phần còn lại mà ảnh không tự làm được:
+#
+#   1. tắt swap trên đĩa (dữ liệu trong RAM có thể bị đẩy xuống đĩa cứng);
+#   2. ngẫu nhiên hoá MAC bằng macchanger khi card không do NetworkManager quản
+#      lý kịp (lớp phòng thủ thứ hai sau 30-aniterals-mac-random.conf);
+#   3. xoá dấu vết của PHIÊN TRƯỚC còn sót trên USB: nhật ký của lần boot trước
+#      và nội dung phân vùng ANIOS_PERSIST nếu người dùng cắm nhầm USB đã từng
+#      chạy AniOS — chỉ khi được gọi tường minh với --scrub-usb.
+#
+# KHÔNG bao giờ ghi gì xuống đĩa ngoài những gì --scrub-usb được yêu cầu làm.
+# Lệnh nào thiếu công cụ thì bỏ qua kèm cảnh báo, không làm hỏng việc khởi động.
+set -uo pipefail
+
+log() { printf 'anitals-hardening: %s\n' "$*"; }
+warn() { printf 'anitals-hardening: %s\n' "$*" >&2; }
+
+# --- 1. Tắt swap -----------------------------------------------------------
+# Swapfile/swappartition trên đĩa là chỗ dữ liệu phiên live có thể nằm lại sau khi
+# tắt máy. Tắt hết rồi mới mở khoá màn hình, vì từ lúc đó người dùng đã gõ mật
+# khẩu và mở tài liệu.
+swap_off() {
+  local dev
+  while read -r dev _; do
+    [[ "$dev" == /dev/* || "$dev" == /* ]] || continue
+    if swapoff "$dev" 2>/dev/null; then
+      log "swapoff $dev"
+    else
+      warn "không tắt được swap $dev"
+    fi
+  done < <(swapon --show=NAME --noheadings 2>/dev/null || true)
+}
+
+# --- 2. Ngẫu nhiên hoá MAC -------------------------------------------------
+# NetworkManager đã random MAC cho kết nối của nó. Bước này phủ lên những card
+# đang UP nhưng chưa có kết nối nào (cáp cắm sẵn, bridge, VLAN), nơi MAC thật vẫn
+# lộ ra trên đường truyền.
+mac_randomise() {
+  command -v macchanger >/dev/null 2>&1 || { warn "macchanger chưa được cài, bỏ qua bước đổi MAC"; return 0; }
+  local iface state
+  for iface in /sys/class/net/*; do
+    iface="${iface##*/}"
+    [[ "$iface" == lo ]] && continue
+    # Chỉ đụng tới card đang có carrier hoặc đã UP; card DOWN thì đổi MAC có thể
+    # làm NetworkManager bỏ qua nó.
+    state="$(cat "/sys/class/net/$iface/operstate" 2>/dev/null || echo unknown)"
+    [[ "$state" == down ]] && continue
+    if ip link set "$iface" down 2>/dev/null &&
+       macchanger -r "$iface" >/dev/null 2>&1 &&
+       ip link set "$iface" up 2>/dev/null; then
+      log "MAC của $iface đã được đổi sang địa chỉ ngẫu nhiên"
+    else
+      warn "không đổi được MAC của $iface (card đang bận hoặc không hỗ trợ)"
+      ip link set "$iface" up 2>/dev/null || true
+    fi
+  done
+}
+
+# --- 3. Xoá dấu vết phiên trước trên USB (chỉ khi được yêu cầu) -------------
+# Dùng khi người dùng cố ý muốn xoá lớp ghi ANIOS_PERSIST còn sót. KHÔNG chạy
+# tự động: xoá dữ liệu mà không ai yêu cầu là hành vi không chấp nhận được.
+scrub_usb() {
+  command -v wipe >/dev/null 2>&1 || { warn "gói wipe chưa được cài, không xoá an toàn được"; return 1; }
+  local part
+  part="$(lsblk -rno NAME,LABEL 2>/dev/null | awk '$2 == "ANIOS_PERSIST" { print "/dev/" $1; exit }')"
+  if [[ -z "$part" ]]; then
+    log "không tìm thấy phân vùng ANIOS_PERSIST nào đang cắm"
+    return 0
+  fi
+  log "xoá an toàn phân vùng $part (nhiều lượt ghi đè)"
+  wipe -q -s "$part" || warn "wipe báo lỗi trên $part"
+}
+
+case "${1:-}" in
+  --scrub-usb)
+    scrub_usb
+    ;;
+  ""|--boot)
+    swap_off
+    mac_randomise
+    log "phiên amnesic sẵn sàng: ảnh nằm trong RAM, nhật ký volatile, swap đã tắt"
+    ;;
+  -h|--help)
+    cat <<'EOF'
+Usage: anitals-hardening [--boot | --scrub-usb]
+
+  --boot      siết chặt phiên live (tắt swap, ngẫu nhiên MAC). Mặc định.
+  --scrub-usb ghi đè an toàn phân vùng ANIOS_PERSIST đang cắm.
+EOF
+    ;;
+  *)
+    warn "tham số không rõ: $1"
+    exit 2
+    ;;
+esac
+exit 0

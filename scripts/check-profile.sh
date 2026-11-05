@@ -123,7 +123,11 @@ anios_permission_declarations() {
     in_list && /^[[:space:]]*\)/ { in_list = 0; next }
     in_list {
       gsub(/^[[:space:]]*['\''"]|['\''"][[:space:]]*(#.*)?$/, "")
-      if (length($0)) print
+      # Chỉ nhận dòng có đúng dạng <đường dẫn>:<uid>:<gid>:<mode>. Bộ lọc này cần
+      # vì build-iso.sh NỐI THÊM vào mảng bằng một vòng lặp cho overlay của edition,
+      # nên một parser chỉ dò cặp `=(` ... `)` sẽ nuốt cả dòng `done < <(find ...)`
+      # thành một khai báo và báo thiếu file cho đường dẫn không hề tồn tại.
+      if ($0 ~ /^[^:]+:[0-9]+:[0-9]+:[0-9]+$/) print
     }
   ' "$ROOT_DIR/scripts/build-iso.sh"
 }
@@ -1031,5 +1035,170 @@ grep -qF 'exec ./setup install' "$INSTALLER_ROOT/scripts/anios-end4-setup" ||
   fail "end-4 must run only its interactive install command after user consent"
 grep -qF '[[ $EUID -ne 0 ]]' "$INSTALLER_ROOT/scripts/anios-end4-setup" ||
   fail "end-4 setup must never run as root"
+
+# --- Ba bản edition: anios, aniterals, anix --------------------------------
+# scripts/build-iso.sh --edition <tên> dựng từng bản từ cùng một profile nền. Ba
+# bản phải khác nhau đúng chỗ đã định, và mỗi bản phải tự nhất quán: bản amnesic
+# không được mang Steam, bản có Steam thì phải có gói steam.
+EDITIONS_DIR="$ROOT_DIR/profile/editions"
+for edition_id in anios aniterals anix; do
+  edition_conf="$EDITIONS_DIR/$edition_id/edition.conf"
+  [[ -s "$edition_conf" ]] || fail "missing edition definition: profile/editions/$edition_id/edition.conf"
+  bash -n "$edition_conf" || fail "shell syntax error: profile/editions/$edition_id/edition.conf"
+  # Nạp edition.conf trong một shell con để biến của bản này không lẫn sang bản
+  # khác, rồi in lại những biến build-iso.sh thật sự đọc.
+  edition_dump="$(
+    ANIOS_EDITION_ID="" ANIOS_EDITION_NAME="" ANIOS_EDITION_ISO_NAME="" \
+    ANIOS_EDITION_ISO_LABEL="" ANIOS_EDITION_APPLICATION="" ANIOS_EDITION_MENU_NAME="" \
+    ANIOS_EDITION_COPYTORAM="" ANIOS_EDITION_COW_SPACE_SIZE="" ANIOS_EDITION_PERSISTENCE="" \
+    ANIOS_EDITION_AUR="" ANIOS_EDITION_SOBER="" ANIOS_EDITION_STEAM_AUTOSTART="" \
+    ANIOS_EDITION_STEAM_PROVISION="" \
+    bash -c '. "$1"; printf "%s\n" \
+      "ID=$ANIOS_EDITION_ID" "NAME=$ANIOS_EDITION_NAME" "ISO=$ANIOS_EDITION_ISO_NAME" \
+      "LABEL=$ANIOS_EDITION_ISO_LABEL" "APP=$ANIOS_EDITION_APPLICATION" \
+      "MENU=$ANIOS_EDITION_MENU_NAME" "COPYTORAM=$ANIOS_EDITION_COPYTORAM" \
+      "COW=$ANIOS_EDITION_COW_SPACE_SIZE" "PERSIST=$ANIOS_EDITION_PERSISTENCE" \
+      "AUR=$ANIOS_EDITION_AUR" "SOBER=$ANIOS_EDITION_SOBER" \
+      "STEAM_AUTO=$ANIOS_EDITION_STEAM_AUTOSTART" "STEAM_PROV=$ANIOS_EDITION_STEAM_PROVISION"' \
+      _ "$edition_conf"
+  )" || fail "edition.conf of $edition_id could not be sourced"
+  edition_get() { sed -nE "s/^$1=//p" <<<"$edition_dump" | head -n 1; }
+
+  [[ "$(edition_get ID)" == "$edition_id" ]] ||
+    fail "edition $edition_id declares ANIOS_EDITION_ID=$(edition_get ID)"
+  [[ -n "$(edition_get NAME)" && -n "$(edition_get ISO)" && -n "$(edition_get MENU)" ]] ||
+    fail "edition $edition_id is missing a display name, ISO name or boot-menu name"
+  # Tên file ISO phải khác nhau, nếu không ba bản ghi đè nhau trong out/.
+  for other_id in anios aniterals anix; do
+    [[ "$other_id" == "$edition_id" ]] && continue
+    other_conf="$EDITIONS_DIR/$other_id/edition.conf"
+    [[ -s "$other_conf" ]] || continue
+    other_iso="$(sed -nE 's/^ANIOS_EDITION_ISO_NAME="([^"]*)".*/\1/p' "$other_conf" | head -n 1)"
+    [[ "$other_iso" != "$(edition_get ISO)" ]] ||
+      fail "editions $edition_id and $other_id share the ISO name $(edition_get ISO)"
+  done
+
+  case "$(edition_get COPYTORAM)" in
+    y|n) ;;
+    *) fail "edition $edition_id sets ANIOS_EDITION_COPYTORAM=$(edition_get COPYTORAM) (must be y or n)" ;;
+  esac
+
+  # Gói của edition chỉ được là gói kho chính thức, và mỗi dòng phải là một tên gói.
+  for manifest in packages.x86_64 packages.remove; do
+    edition_manifest="$EDITIONS_DIR/$edition_id/$manifest"
+    [[ -s "$edition_manifest" ]] || continue
+    if grep -nEv '^[[:space:]]*($|#|[a-zA-Z0-9@._+-]+([[:space:]]+#.*)?$)' "$edition_manifest" >/dev/null; then
+      fail "invalid line in profile/editions/$edition_id/$manifest"
+    fi
+    if [[ "$manifest" == packages.x86_64 ]]; then
+      for aur_only in calamares yay yay-bin coccoc-browser-stable legacy-launcher \
+        proton-ge-custom proton-ge-custom-bin heroic-games-launcher-bin; do
+        ! grep -qxF "$aur_only" "$edition_manifest" ||
+          fail "$aur_only only exists in the AUR; move it out of profile/editions/$edition_id/packages.x86_64"
+      done
+    fi
+  done
+
+  # remove.paths phải là đường dẫn tuyệt đối của ảnh và phải thật sự có trong
+  # profile nền, nếu không build-iso.sh sẽ dừng giữa lượt dựng hàng chục phút.
+  remove_paths="$EDITIONS_DIR/$edition_id/remove.paths"
+  if [[ -s "$remove_paths" ]]; then
+    while IFS= read -r remove_line; do
+      remove_line="${remove_line%%#*}"
+      remove_line="${remove_line//[$'\t\r\n ']/}"
+      [[ -n "$remove_line" ]] || continue
+      [[ "$remove_line" == /* ]] ||
+        fail "remove.paths of $edition_id must list absolute image paths: $remove_line"
+      [[ -e "$AIROOTFS$remove_line" || -L "$AIROOTFS$remove_line" ]] ||
+        fail "remove.paths of $edition_id names $remove_line, which profile/airootfs does not provide"
+    done <"$remove_paths"
+  fi
+
+  # Script trong overlay của edition phải đúng cú pháp, và build-iso.sh phải suy ra
+  # file_permissions cho chúng (mkarchiso chép airootfs bằng cp --no-preserve=mode).
+  if [[ -d "$EDITIONS_DIR/$edition_id/airootfs" ]]; then
+    while IFS= read -r -d '' edition_script; do
+      bash -n "$edition_script" || fail "shell syntax error: ${edition_script#"$ROOT_DIR"/}"
+    done < <(find "$EDITIONS_DIR/$edition_id/airootfs" -type f -print0 2>/dev/null)
+  fi
+done
+
+grep -qF 'EDITION_DIR/airootfs' "$BUILD_ISO" ||
+  fail "build-iso.sh must derive file_permissions from the edition airootfs overlay"
+grep -qF 'ANIOS_EDITION_PERSISTENCE' "$BUILD_ISO" ||
+  fail "build-iso.sh must gate persistent storage on ANIOS_EDITION_PERSISTENCE"
+
+# Bản amnesic phải thật sự amnesic: copytoram=y, không persistence, không Steam.
+aniterals_conf="$EDITIONS_DIR/aniterals/edition.conf"
+grep -qxF 'ANIOS_EDITION_COPYTORAM="y"' "$aniterals_conf" ||
+  fail "aniterals must boot with copytoram=y (amnesic edition)"
+grep -qxF 'ANIOS_EDITION_PERSISTENCE=0' "$aniterals_conf" ||
+  fail "aniterals must not create the ANIOS_PERSIST partition"
+grep -qxF 'ANIOS_EDITION_STEAM_AUTOSTART=0' "$aniterals_conf" ||
+  fail "aniterals must not autostart Steam"
+grep -qxF 'ANIOS_EDITION_STEAM_PROVISION="off"' "$aniterals_conf" ||
+  fail "aniterals must not bake the Steam runtime"
+grep -qxF 'steam' "$EDITIONS_DIR/aniterals/packages.remove" ||
+  fail "aniterals must remove the steam package"
+grep -qxF 'tor' "$EDITIONS_DIR/aniterals/packages.x86_64" ||
+  fail "aniterals must install tor"
+[[ -L "$EDITIONS_DIR/aniterals/airootfs/etc/systemd/system/multi-user.target.wants/tor.service" ]] ||
+  fail "aniterals must enable tor.service"
+grep -qxF 'Storage=volatile' \
+  "$EDITIONS_DIR/aniterals/airootfs/etc/systemd/journald.conf.d/10-aniterals-ram.conf" ||
+  fail "aniterals must keep the journal in RAM only"
+
+# AniOS chính và Anix phải tự khởi động Steam và nướng runtime.
+for steam_edition in anios anix; do
+  steam_conf="$EDITIONS_DIR/$steam_edition/edition.conf"
+  grep -qxF 'ANIOS_EDITION_STEAM_AUTOSTART=1' "$steam_conf" ||
+    fail "$steam_edition must autostart Steam"
+  provision="$(sed -nE 's/^ANIOS_EDITION_STEAM_PROVISION="([^"]*)".*/\1/p' "$steam_conf" | head -n 1)"
+  [[ "$provision" == standard || "$provision" == full ]] ||
+    fail "$steam_edition must bake the Steam runtime (found: ${provision:-unset})"
+done
+grep -qxF 'ANIOS_EDITION_STEAM_PROVISION="full"' "$EDITIONS_DIR/anix/edition.conf" ||
+  fail "anix is the full edition and must bake Proton GE as well"
+grep -qxF 'steam-native-runtime' "$EDITIONS_DIR/anix/packages.x86_64" ||
+  fail "anix must add steam-native-runtime"
+
+# --- Steam: môi trường, runtime offline và tự khởi động ---------------------
+for steam_script in anios-steam anios-steam-setup anios-steam-autostart; do
+  steam_path="$AIROOTFS/usr/local/bin/$steam_script"
+  [[ -x "$steam_path" ]] || fail "$steam_script must be executable"
+  bash -n "$steam_path" || fail "$steam_script has a syntax error"
+  grep -qxF -- "/usr/local/bin/$steam_script:0:0:755" <<<"$PERMISSION_DECLARATIONS" ||
+    fail "build-iso.sh must declare file_permissions for /usr/local/bin/$steam_script"
+done
+[[ -s "$ROOT_DIR/scripts/anios-steam-provision.sh" ]] || fail "scripts/anios-steam-provision.sh is missing"
+bash -n "$ROOT_DIR/scripts/anios-steam-provision.sh" || fail "anios-steam-provision.sh has a syntax error"
+grep -qF 'anios-steam-provision.sh' "$BUILD_ISO" ||
+  fail "build-iso.sh must run the Steam provisioner inside the chroot"
+# Hai bài tự kiểm tra của phần mới phải được workflow chạy, nếu không chúng mục
+# ruỗng theo thời gian mà không ai biết.
+PROFILE_WORKFLOW="$ROOT_DIR/.github/workflows/profile-check.yml"
+for new_selftest in selftest-editions.sh selftest-anios-steam-setup.sh; do
+  [[ -x "$ROOT_DIR/scripts/$new_selftest" ]] ||
+    fail "missing or not executable: scripts/$new_selftest"
+  grep -qF "$new_selftest" "$PROFILE_WORKFLOW" ||
+    fail "the profile workflow must run scripts/$new_selftest"
+done
+# Steam tự mở phải do file đánh dấu quyết định, nếu không bản amnesic cũng mở Steam.
+grep -qxF 'ConditionPathExists=/etc/anios/steam-autostart' \
+  "$AIROOTFS/etc/systemd/user/anios-steam-autostart.service" ||
+  fail "anios-steam-autostart.service must be gated on /etc/anios/steam-autostart"
+[[ -L "$AIROOTFS/etc/systemd/user/default.target.wants/anios-steam-autostart.service" ]] ||
+  fail "anios-steam-autostart.service is not enabled"
+# Steam không được khởi động lại khi người dùng tắt nó (sẽ thành vòng lặp).
+grep -qxF 'Restart=no' "$AIROOTFS/etc/systemd/user/anios-steam-autostart.service" ||
+  fail "anios-steam-autostart.service must not restart Steam after the user quits it"
+# anios-steam-setup phải offline: nó chỉ được đọc từ cache nướng sẵn trong ảnh.
+grep -qF 'ANIOS_STEAM_CACHE:-/usr/share/anios/steam-cache' "$AIROOTFS/usr/local/bin/anios-steam-setup" ||
+  fail "anios-steam-setup must read the baked cache in /usr/share/anios/steam-cache"
+! grep -qE '\b(curl|wget)\b' "$AIROOTFS/usr/local/bin/anios-steam-setup" ||
+  fail "anios-steam-setup must stay offline; downloading belongs to anios-steam-provision.sh"
+# Setup thất bại không được làm hỏng việc mở Steam.
+grep -qF 'STRICT' "$AIROOTFS/usr/local/bin/anios-steam-setup" ||
+  fail "anios-steam-setup must default to non-strict so a missing cache never blocks Steam"
 
 pass "AniOS profile and installer checks passed (ISO build still requires Arch Linux + archiso)"

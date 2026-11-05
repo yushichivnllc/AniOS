@@ -14,6 +14,52 @@ AniOS là **bản phối lại của Arch Linux**, không phải một hệ đi�
 
 Nói ngắn gọn: mọi thứ người dùng nhìn thấy là AniOS, còn những gì hệ thống cần để chạy là Arch Linux nguyên bản.
 
+## Ba bản ISO
+
+Repository dựng ra **ba file ISO** từ cùng một profile nền. Chi tiết ở
+[`profile/editions/README.md`](profile/editions/README.md).
+
+| Bản | `--edition` | File ISO | Dành cho |
+| --- | --- | --- | --- |
+| **AniOS** | `anios` (mặc định) | `anios-<ngày>-x86_64.iso` | Máy phòng net: Hyprland, **Steam tự khởi động** cùng desktop, Proton nướng sẵn, stack AI, lớp ghi trên USB. |
+| **AniTails** | `aniterals` | `aniterals-<ngày>-x86_64.iso` | Riêng tư kiểu Tails: ảnh chạy trong RAM (`copytoram=y`), Tor, nhật ký chỉ ở RAM, MAC ngẫu nhiên. **Không Steam, không lưu trữ, không AUR.** |
+| **Anix** | `anix` | `anix-<ngày>-x86_64.iso` | Người chơi game muốn hết cỡ: mọi thứ của AniOS cộng `steam-native-runtime`, Proton GE, DXVK/VKD3D, `protontricks`, OpenCL, công cụ theo dõi GPU. |
+
+```bash
+sudo ./scripts/build-all-editions.sh              # cả ba bản, một lần chạy
+sudo ./scripts/build-iso.sh --edition aniterals   # hoặc từng bản riêng
+sudo ./scripts/build-iso.sh --edition all         # cả ba, dùng thẳng build-iso.sh
+```
+
+Ba bản có tên file ISO khác nhau nên cùng nằm trong `out/` không đè nhau. Dựng cả ba
+tuần tự cần khoảng **75 GiB** đĩa trống (mỗi bản một work dir riêng — dùng chung thì bản
+sau kế thừa airootfs của bản trước và ISO ra sai mà không báo lỗi).
+
+CI dựng cả ba trong một lần chạy: job `build` lo bản `anios` kèm toàn bộ kiểm tra sâu
+đã có từ trước, job `build-editions` là matrix `[aniterals, anix]`. Artifact tên
+`anios-iso`, `anios-iso-aniterals`, `anios-iso-anix`.
+
+### Steam được cài sẵn như thế nào
+
+Gồm ba mảnh tách nhau rõ, để không phải chép vài GB mỗi lần khởi động:
+
+1. **Lúc dựng ISO** — `scripts/anios-steam-provision.sh` chạy trong chroot, tải Proton
+   (và Proton GE ở bản Anix) vào `/usr/share/anios/steam-cache`. Tải hỏng chỉ cảnh báo:
+   một lượt dựng hàng chục phút không nên chết vì mạng, và ảnh thiếu runtime vẫn mở được Steam.
+2. **Lần mở Steam đầu tiên** — `anios-steam-setup` giải nén cache vào
+   `~/.local/share/Steam`, hoàn toàn offline, có file đánh dấu nên lần sau không phải chờ.
+   Script **không bao giờ chặn việc mở Steam**: cache thiếu hay hỏng đều chỉ cảnh báo.
+3. **Tự khởi động** — unit `anios-steam-autostart.service` có
+   `ConditionPathExists=/etc/anios/steam-autostart`, nên chỉ AniOS và Anix tự mở Steam;
+   AniTails không. Unit đặt `Restart=no` để người dùng tắt Steam thì nó tắt hẳn.
+
+Mở Steam bằng `anios-steam` (nạp `/etc/anios/steam/steam.env`, cài runtime, rồi gọi Steam).
+Ở bản Anix muốn chạy bằng thư viện hệ thống thay vì runtime Scout: `steam-native-runtime anios-steam`.
+
+Steam Runtime **không được nướng mặc định**: Valve phát hành nó theo snapshot có build-id và
+đường dẫn đổi theo thời gian, nên đoán URL rồi nướng một bản sai vào ảnh tệ hơn là để Steam tự
+tải bản đúng. Muốn nướng thì truyền `--runtime-url` cho `anios-steam-provision.sh`.
+
 ## Tạo ISO Live
 
 Trên máy build Arch Linux x86_64 đã cập nhật đầy đủ:
@@ -460,6 +506,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
 - `profile/branding/` — wallpaper và splash menu khởi động; dựng lại bằng `./scripts/make-branding-assets.sh` (cần ImageMagick).
 - `profile/packages.x86_64` — các gói desktop, kernel, game, firmware, ibus-unikey, theme con trỏ `adwaita-cursors`, Cốc Cốc/Wine/Python/Node.js/Java và tiện ích bổ sung vào Archiso `releng`.
+- `profile/editions/` — ba bản ISO (`anios`, `aniterals`, `anix`). Mỗi thư mục có `edition.conf` (đặc tả), `packages.x86_64` (gói riêng), `packages.remove` (gói cắt khỏi nền), `remove.paths` (đường dẫn trong ảnh phải gỡ) và `airootfs/` (overlay ghi đè lên nền). Xem `profile/editions/README.md`.
+- `profile/airootfs/etc/anios/steam/steam.env` và `usr/local/bin/anios-steam{,-setup,-autostart}` — môi trường Steam, bộ cài Proton/Steam Runtime offline từ cache nướng sẵn, và cơ chế tự khởi động Steam theo edition.
+- `scripts/anios-steam-provision.sh` — chạy **trong chroot lúc dựng ISO**: tải Proton / Proton GE từ GitHub Releases vào `/usr/share/anios/steam-cache` kèm manifest để `anios-steam-setup` đọc.
 - `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR (git AUR → mirror GitHub → snapshot cgit), dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, thử lại gói hỏng, phân loại nguyên nhân hỏng, phát annotation cho GitHub Actions, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
@@ -470,6 +519,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
 - `scripts/selftest-installer.sh` — mô phỏng giao diện Material Live/Install (và nhánh dự phòng KDialog), rồi kiểm tra pacstrap, staging dotfiles, lựa chọn GRUB/SDDM và finalizer trong sandbox.
 - `scripts/selftest-build-iso-sudoers.sh` — tự kiểm tra bước "không có luật sudo `NOPASSWD` nào lọt vào ảnh" ở cuối `build-iso.sh` trên airootfs giả: `/etc/sudoers` mặc định của gói `sudo` phải sạch, luật thật phải bị bắt kèm `file:dòng`; không cần Arch Linux.
+- `scripts/build-all-editions.sh` — dựng cả ba bản ISO trong một lần chạy: chạy `check-profile.sh` đúng một lần, tách work dir theo từng bản, rồi in bảng tổng kết tên file và dung lượng.
+- `scripts/selftest-editions.sh` — nạp đúng hàm `anios_apply_edition_packages()` từ `build-iso.sh` rồi chạy trên manifest thật của repo: bản amnesic không được mang Steam, bản Anix phải có tầng Proton riêng, gói dùng chung không được mất, kèm kiểm tra đường phân giải `--edition`.
+- `scripts/selftest-anios-steam-setup.sh` — chạy đúng `anios-steam-setup` trên một cache giả có tarball thật: giải nén Proton vào `compatibilitytools.d`, đặt Steam Runtime vào `ubuntu12_32`, bỏ qua khi đã cài, cài lại khi manifest đổi, và không bao giờ chặn Steam khi cache thiếu/hỏng.
 - `scripts/selftest-build-iso-permissions.sh` — tự kiểm tra bước khai báo `file_permissions` của `build-iso.sh` (mảng `ANIOS_FILE_PERMISSIONS`, hàm ghi và hàm đối chiếu) trên một profile `releng` giả: mọi mục phải nằm trong mảng mà `mkarchiso` thật sự nạp, còn thiếu khai báo, khai báo đường dẫn không có trong ảnh, `releng` đổi dòng mở mảng và mục sai định dạng đều phải bị chặn; không cần Arch Linux.
 - `scripts/check-live-audio.sh` — kiểm tra dàn âm thanh ngay trong `airootfs.sfs` vừa dựng (tự đi theo symlink tuyệt đối, vì `unsquashfs -cat` không đọc được loại symlink đó).
 - `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.

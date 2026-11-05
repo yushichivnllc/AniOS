@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Tự khởi động Steam khi phiên đồ hoạ AniOS/Anix vừa sẵn sàng.
+#
+# Được gọi từ unit người dùng anios-steam-autostart.service. Unit đó có
+# ConditionPathExists=/etc/anios/steam-autostart nên chỉ bản nào muốn Steam tự mở
+# (AniOS chính và Anix) mới chạy tới đây; AniTails không có file đánh dấu.
+#
+# Hai việc unit không tự làm được và phải nằm ở đây:
+#   1. Chờ socket Wayland tồn tại. systemd chạy unit người dùng sớm hơn Hyprland
+#      mở socket, mà Steam không khởi động được khi thiếu WAYLAND_DISPLAY.
+#   2. Không mở Steam lần thứ hai nếu người dùng đã tự mở nó trước.
+set -uo pipefail
+
+log() { printf 'anios-steam-autostart: %s\n' "$*"; }
+
+marker="${ANIOS_STEAM_AUTOSTART_MARKER:-/etc/anios/steam-autostart}"
+if [[ ! -e "$marker" ]]; then
+  log "bản này không bật Steam tự khởi động (thiếu $marker)"
+  exit 0
+fi
+
+if ! command -v steam >/dev/null 2>&1 && [[ -z "${ANIOS_STEAM_BIN:-}" ]]; then
+  log "gói steam không có trong ảnh; bỏ qua tự khởi động"
+  exit 0
+fi
+
+# --- 1. Chờ phiên Wayland sẵn sàng ------------------------------------------
+# Hyprland tạo /run/user/<uid>/wayland-<n>. Nếu systemd chưa truyền
+# WAYLAND_DISPLAY vào môi trường unit thì tự dò socket và đặt lại.
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+for _ in $(seq 1 60); do
+  if [[ -n "${WAYLAND_DISPLAY:-}" && -S "$runtime_dir/$WAYLAND_DISPLAY" ]]; then
+    break
+  fi
+  probe="$(find "$runtime_dir" -maxdepth 1 -name 'wayland-*' ! -name '*.lock' -print -quit 2>/dev/null || true)"
+  if [[ -n "$probe" && -S "$probe" ]]; then
+    export WAYLAND_DISPLAY="${probe##*/}"
+    export XDG_RUNTIME_DIR="$runtime_dir"
+    export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
+    export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+    break
+  fi
+  sleep 1
+done
+
+if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+  log "không tìm thấy phiên Wayland sau 60 giây; bỏ qua (người dùng vẫn mở Steam được bằng tay)"
+  exit 0
+fi
+
+# --- 2. Không mở trùng -------------------------------------------------------
+if pgrep -u "$(id -u)" -x steam >/dev/null 2>&1; then
+  log "Steam đang chạy rồi, không mở thêm"
+  exit 0
+fi
+
+# Người dùng có thể ghi "silent" vào file đánh dấu để Steam mở thu gọn xuống khay
+# thay vì hiện cửa sổ lớn — tiện khi chỉ muốn vào game đã cài.
+steam_args=()
+if grep -qxF 'silent' "$marker" 2>/dev/null; then
+  steam_args+=(-silent)
+fi
+
+log "khởi động Steam cùng phiên"
+exec /usr/local/bin/anios-steam "${steam_args[@]}"
