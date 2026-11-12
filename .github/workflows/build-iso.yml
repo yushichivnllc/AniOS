@@ -817,10 +817,10 @@ jobs:
 
           # Nhật ký phải ở RAM, không ghi xuống đĩa.
           unsquashfs -cat "$sfs" etc/systemd/journald.conf.d/10-aniterals-ram.conf |
-            grep -qxF 'Storage=volatile'
+            grep -xF 'Storage=volatile'
           # Tor phải được bật sẵn.
           unsquashfs -ll "$sfs" etc/systemd/system/multi-user.target.wants |
-            grep -qF 'tor.service'
+            grep -F 'tor.service'
           # Không còn dấu vết của lớp ghi bền vững.
           if unsquashfs -ll "$sfs" usr/lib/systemd/system 2>/dev/null |
               grep -F 'anios-persist.service' >/dev/null; then
@@ -839,9 +839,9 @@ jobs:
           done
           # Unit siết chặt phiên amnesic phải có và bật sẵn.
           unsquashfs -cat "$sfs" usr/lib/systemd/system/anitals-hardening.service |
-            grep -qF 'anitals-hardening --boot'
+            grep -F 'anitals-hardening --boot'
           unsquashfs -ll "$sfs" etc/systemd/system/multi-user.target.wants |
-            grep -qF 'anitals-hardening.service'
+            grep -F 'anitals-hardening.service'
           echo "OK: bản amnesic đúng đặc tả (journal RAM, Tor bật, không lưu trữ, không Steam)"
           ARCH
 
@@ -855,13 +855,15 @@ jobs:
             -extract /arch/x86_64/airootfs.sfs "$ANIOS_EDITION_OUT/airootfs.sfs"
           sfs="$ANIOS_EDITION_OUT/airootfs.sfs"
 
+          # Không dùng grep -q sau unsquashfs: đóng pipe sớm có thể gây
+          # SIGPIPE (141) dưới pipefail dù đã tìm đúng nội dung.
           # Bộ cài runtime offline và marker tự khởi động phải có trong ảnh.
-          unsquashfs -cat "$sfs" usr/local/bin/anios-steam-setup | grep -qF 'anios-steam-cache'
-          unsquashfs -ll "$sfs" etc/anios | grep -qF 'steam-autostart'
+          unsquashfs -cat "$sfs" usr/local/bin/anios-steam-setup | grep -F '/usr/share/anios/steam-cache'
+          unsquashfs -ll "$sfs" etc/anios | grep -F 'steam-autostart'
           unsquashfs -ll "$sfs" etc/systemd/user/default.target.wants |
-            grep -qF 'anios-steam-autostart.service'
+            grep -F 'anios-steam-autostart.service'
           # Tầng Proton riêng của bản anix.
-          unsquashfs -cat "$sfs" etc/anios/edition | grep -qxF 'anix'
+          unsquashfs -cat "$sfs" etc/anios/edition | grep -xF 'anix'
           echo "OK: bản anix có bộ cài Proton offline và Steam tự khởi động"
           echo "Ghi chú: Proton/Steam Runtime chỉ được nướng khi máy dựng tải được từ GitHub;"
           echo "         nếu bước dựng in 'không nướng được' thì Steam tự tải ở lần mở đầu tiên."

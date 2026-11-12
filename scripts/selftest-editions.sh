@@ -228,4 +228,39 @@ mapfile -t ANIOS_FILE_PERMISSIONS < <(anios_drop_removed_permissions)
   fail "không có remove.paths thì danh sách file_permissions phải giữ nguyên"
 pass "edition không gỡ gì thì file_permissions giữ nguyên"
 
+# --- Regression: AniTails không được yêu cầu gói chỉ có ở AUR ---------------
+! grep -qxF 'secure-delete' "$ANITALS_MANIFEST" ||
+  fail "secure-delete thuộc AUR nhưng AniTails tắt AUR; pacstrap sẽ không tìm thấy gói"
+grep -qxF 'wipe' "$ANITALS_MANIFEST" || fail "AniTails phải giữ công cụ wipe"
+pass "AniTails dùng wipe, không yêu cầu secure-delete từ kho chính thức"
+
+# Chạy ĐÚNG pipeline kiểm tra Steam trong workflow trên script thật. Không dựng
+# ISO: unsquashfs giả chỉ xuất nội dung file, kèm đuôi lớn để bắt grep -q/SIGPIPE.
+steam_check="$(sed -n '/^[[:space:]]*unsquashfs -cat .*usr\/local\/bin\/anios-steam-setup |/p' \
+  "$ROOT_DIR/.github/workflows/build-iso.yml")"
+[[ -n "$steam_check" ]] || fail "không tìm được pipeline kiểm tra Steam của CI"
+steam_fixture="$SANDBOX/steam-setup"
+cp "$ROOT_DIR/profile/airootfs/usr/local/bin/anios-steam-setup" "$steam_fixture"
+unsquashfs() {
+  cat "$steam_fixture" || return
+  # Lớn hơn pipe buffer; grep phải đọc hết thay vì thoát ngay khi tìm được mẫu.
+  printf '%200000s\n' ''
+}
+sfs=unused
+bash_check="$SANDBOX/check-steam.sh"
+{
+  echo 'set -euo pipefail'
+  declare -f unsquashfs
+  declare -p steam_fixture sfs
+  printf '%s\n' "$steam_check"
+} >"$bash_check"
+bash "$bash_check" >"$SANDBOX/steam-check.log" ||
+  fail "pipeline CI từ chối script Steam thật hoặc đóng pipe quá sớm"
+# Đảm bảo phép kiểm tra vẫn phát hiện cache path sai, không chỉ luôn trả về 0.
+sed -i 's|/usr/share/anios/steam-cache|/invalid/cache|g' "$steam_fixture"
+if bash "$bash_check" >"$SANDBOX/steam-check-invalid.log"; then
+  fail "pipeline CI chấp nhận bộ cài Steam không có cache path đúng"
+fi
+pass "pipeline CI nhận đúng cache path, đọc hết pipe và từ chối path sai"
+
 echo "All edition self-tests passed."
