@@ -70,6 +70,13 @@ libpulse
 rtkit
 pavucontrol
 sof-firmware
+
+# systemd-coredump mang `coredumpctl` và bộ ghi core dump: khi một ứng dụng bị
+# segfault (ví dụ một wayland client chết trong libwayland-client), chỉ có nó mới
+# cho biết CHƯƠNG TRÌNH NÀO và vì sao — `dmesg` chỉ in tên ngắn 15 ký tự. Gói rất
+# nhỏ; thiếu nó thì lỗi userspace biến mất không dấu vết.
+systemd-coredump
+
 steam
 
 # GPU NVIDIA: driver nvidia-580xx (proprietary). Các gói này được dựng từ AUR lúc

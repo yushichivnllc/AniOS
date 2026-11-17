@@ -197,6 +197,21 @@ done
 
 # dkms + xorg-server: driver DKMS không tự biên dịch nếu thiếu dkms, và SDDM dùng
 # greeter X11 (cần xorg-server) — nêu tên tường minh trong cả hai manifest.
+# Chẩn đoán dmesg: công cụ phải tồn tại trong ảnh, được chép sang máy đích, và
+# coredumpctl phải có để truy ra chương trình bị segfault (dmesg chỉ in tên 15
+# ký tự: "hyprland-update[25021]: segfault at ... in libwayland-client.so").
+DMESG_CHECK="$AIROOTFS/usr/local/bin/anios-dmesg-check"
+[[ -x "$DMESG_CHECK" ]] || fail "thiếu $DMESG_CHECK (chẩn đoán dmesg cho người dùng)"
+for needle in 'AE_ALREADY_EXISTS' 'coredumpctl' 'segfault'; do
+  grep -qF -- "$needle" "$DMESG_CHECK" || fail "anios-dmesg-check phải xử lý '$needle'"
+done
+grep -qF 'anios-dmesg-check' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+  fail "bộ cài đặt phải chép anios-dmesg-check sang máy đích"
+for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
+  grep -qxF 'systemd-coredump' "$manifest" ||
+    fail "systemd-coredump missing from ${manifest#"$ROOT_DIR"/} (coredumpctl phải có để tra segfault)"
+done
+
 for manifest_package in dkms xorg-server; do
   for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
     grep -qxF "$manifest_package" "$manifest" ||

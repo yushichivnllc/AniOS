@@ -355,6 +355,54 @@ Vài thứ công cụ không tự sửa được, phải làm tay: đăng nhập
 
 Đồng hồ phần cứng (RTC) vẫn theo chuẩn Linux là **UTC**; AniOS không đổi `/etc/adjtime` của phiên live. Kiểm tra nhanh: `timedatectl` — dòng `Time zone` phải là `Asia/Ho_Chi_Minh (+07)`, và `System clock synchronized: yes` sau vài giây có mạng.
 
+### `dmesg` đầy chữ "error" nhưng máy vẫn chạy bình thường
+
+Lệnh quen thuộc `sudo dmesg -T | grep -iE "oom|killed|error"` trên máy thật (ví dụ
+B760 + i5-14600K + RTX 3070) luôn trả về một danh sách trông đáng sợ, nhưng phần
+lớn **không phải lỗi**:
+
+```text
+RAS: Correctable Errors collector initialized.
+ACPI BIOS Error (bug): Failure creating named object [...PEG1.PEGP._DSM.USRG], AE_ALREADY_EXISTS
+ACPI Error: Aborting method \_SB.PC00.PEG1.PEGP._DSM due to previous error (AE_ALREADY_EXISTS)
+hyprland-update[25021]: segfault at cc ip ... error 6 in libwayland-client.so.0.26.0
+```
+
+- **`RAS: Correctable Errors collector initialized`** — dòng khởi tạo bộ đếm lỗi
+  phần cứng sửa được (ECC) của nhân. Chữ "Errors" nằm trong *tên thành phần*,
+  không phải lỗi đã xảy ra.
+- **`ACPI BIOS Error ... AE_ALREADY_EXISTS` trên `PEG1.PEGP._DSM`** — bảng DSDT của
+  BIOS khai báo **cùng một object `_DSM` hai lần**; `PEG1` là khe PCIe cắm card đồ
+  hoạ. Nhân in cảnh báo rồi bỏ qua, card vẫn chạy. Chỉ hãng mainboard sửa được
+  (bản BIOS mới); **không** phải lỗi của AniOS, không phải lỗi driver NVIDIA và
+  không có tùy chọn nào trong hệ điều hành "sửa" được.
+- **`segfault at ... in libwayland-client.so`** — **một ứng dụng** (userspace) bị
+  crash khi nói chuyện với Wayland; nhân chỉ ghi lại giúp. Phiên desktop vẫn
+  chạy tiếp. Tên trong dmesg bị cắt còn 15 ký tự (`comm`), nên muốn biết chương
+  trình nào và vì sao thì phải xem core dump.
+
+**`anios-dmesg-check`** phân loại hộ bạn:
+
+```bash
+anios-dmesg-check            # đọc dmesg hiện tại (thêm sudo nếu kernel.dmesg_restrict=1)
+anios-dmesg-check --boot     # đọc toàn bộ từ lúc khởi động (journalctl -k -b)
+anios-dmesg-check --quiet    # chỉ in nhóm CẦN SỬA
+```
+
+Mỗi nhóm in kèm **vì sao** và **việc cần làm**; mã thoát 1 chỉ khi có nhóm lỗi
+thật (segfault, OOM, GPU treo, lỗi ổ đĩa, lockup). Với segfault, công cụ in luôn
+tên chương trình và lệnh tra cứu:
+
+```bash
+coredumpctl list                 # gói systemd-coredump đã có trong ảnh và bản cài
+coredumpctl info <tên>            # dòng lệnh đầy đủ + backtrace
+pacman -Qo "$(command -v <tên>)"  # rỗng nghĩa là script do người dùng tự thêm
+```
+
+Đó cũng là cách nhận ra một chương trình **không thuộc AniOS** (ví dụ một script
+`hyprland-update` tự thêm vào `~/.local/bin`): nó không nằm trong bất kỳ gói nào,
+nên không bản AniOS nào sửa được — phải sửa hoặc bỏ chính script đó.
+
 ### Con trỏ chuột nhấp nháy hoặc đổi hình liên tục
 
 Con trỏ chỉ ổn định khi **tên theme mà compositor nhận được là một theme có thật trong ảnh**. Lỗi từng xảy ra: ảnh live không khai báo gói theme con trỏ nào, trong khi mặc định của shell Immaterial Impulse là `Bibata-Modern-Classic` (chỉ có trên AUR), còn phiên Minimal và GTK lại nói `Adwaita`. `hyprctl setcursor` với một theme không tồn tại không phải lệnh vô hại: Hyprland đưa tên đó cho libXcursor, không thư mục theme nào khớp nên `XCursorManager::loadTheme()` báo `XCursor failed finding any shapes in theme` rồi giữ danh sách shape rỗng — compositor mất con trỏ của chính nó và cứ đổi qua lại với surface từng ứng dụng tự đặt, nên con trỏ nhấp nháy/đổi hình khi rê giữa các cửa sổ.
@@ -664,6 +712,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf`, `/etc/modprobe.d/anios-nvidia.conf` và `usr/local/lib/anios/gpu-env.sh` — ba lớp cấu hình NVIDIA: module trong initramfs, tham số modprobe (modeset, giữ VRAM qua suspend) và biến môi trường theo loại máy (chỉ-NVIDIA vs hybrid), gồm cả `AQ_DRM_DEVICES` để compositor không mở nhầm card `simpledrm`.
 - `profile/airootfs/etc/mkinitcpio.conf.d/20-anios-vmd.conf` — `MODULES+=(vmd)` cho mainboard Intel bật RST/VMD (B760/H610): ổ NVMe bị giấu sau VMD chỉ hiện khi initramfs có module này, nếu không bản cài đặt không tìm ra root. Dùng `+=` để không ghi đè danh sách module NVIDIA của drop-in `10-`.
 - `profile/airootfs/usr/local/bin/anios-gpu-doctor` — chẩn đoán GPU từ TTY (PCI/driver/modeset, thiết bị `/dev/dri` + ai đang giữ `/dev/fb0`, ổ NVMe sau Intel VMD/RST, cấu hình, nhật ký phiên), `--fix` ghi lại modprobe.d + drop-in mkinitcpio (+ `20-anios-vmd.conf` khi máy bật VMD) + tham số GRUB, rồi dựng lại initramfs.
+- `profile/airootfs/usr/local/bin/anios-dmesg-check` — phân loại `dmesg` thành ba mức VÔ HẠI / CHÚ Ý / CẦN SỬA kèm giải thích và lệnh sửa; nhận diện lỗi firmware ACPI `AE_ALREADY_EXISTS` (BIOS khai báo trùng `_DSM` của khe PCIe card đồ hoạ) là vô hại, và với segfault thì in tên chương trình bị crash + `coredumpctl info <tên>`.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
@@ -679,6 +728,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-apply-saved-cursor.sh` — tự kiểm tra `apply_saved_cursor.sh` (script áp theme con trỏ lúc Hyprland khởi động) với `hyprctl` giả trên cây icon giả: theme đã lưu được giữ, theme không được cài rơi về Adwaita, JSON hỏng/size sai không làm chết phiên, theme hyprcursor vẫn được nhận, và khi ảnh không có theme nào thì không gọi `hyprctl` để compositor giữ con trỏ mặc định.
 - `scripts/selftest-anios-session.sh` — chạy đúng `anios-session` với `dbus-run-session`/`Hyprland` giả: cờ `--safe` tới được cấu hình qua `ANIOS_SAFE`, Hyprland chết ngay được thử lại đúng một lần ở chế độ an toàn, thoát bình thường không chạy lại, nhật ký phiên có mã thoát.
 - `scripts/selftest-anios-gpu-doctor.sh` — chạy `anios-gpu-doctor` trên cây sysfs/`/etc`/`/dev` giả: bắt được `modeset=0`, thiếu modprobe.d/drop-in, `nouveau` đang giữ card, card chỉ còn `/dev/fb0` của `efifb`, Intel VMD/RST đang bật; `--fix` ghi đủ cấu hình, gọi `mkinitcpio`, không làm mất dòng khác của `/etc/default/grub`, và chạy hai lần không nhân đôi dòng.
+- `scripts/selftest-anios-dmesg-check.sh` — chạy `anios-dmesg-check` trên nhật ký giả: dòng ACPI `AE_ALREADY_EXISTS` và `RAS: Correctable Errors collector initialized` phải là VÔ HẠI (và mã thoát 0 khi chỉ có chúng), còn segfault/OOM/GPU treo/lỗi ổ đĩa phải là CẦN SỬA kèm tên chương trình và lệnh tra cứu.
 - `scripts/selftest-build-iso-nvidia-params.sh` — nạp đúng `anios_add_nvidia_kernel_params()` của `build-iso.sh` rồi chạy trên GRUB/Syslinux/systemd-boot giả: mọi mục menu nhận `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` đúng một lần, chạy lại không nhân đôi, profile không có cấu hình khởi động là no-op.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
 - `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh).
@@ -699,6 +749,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-gpu-env.sh             # biến môi trường GPU NVIDIA + AQ_DRM_DEVICES của phiên Hyprland (sysfs giả)
 ./scripts/selftest-anios-session.sh       # phiên an toàn + tự lùi khi Hyprland thoát ngay
 ./scripts/selftest-anios-gpu-doctor.sh    # chẩn đoán GPU và --fix trên cây giả
+./scripts/selftest-anios-dmesg-check.sh     # phân loại dmesg: lỗi firmware vô hại vs lỗi thật
 ./scripts/selftest-build-iso-nvidia-params.sh # tham số kernel NVIDIA trên GRUB/Syslinux/systemd-boot
 ```
 

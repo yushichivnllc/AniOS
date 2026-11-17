@@ -261,7 +261,7 @@ for session in anios.desktop anios-imi.desktop anios-minimal.desktop anios-safe.
     >"$LIVE_ROOT/usr/share/wayland-sessions/$session"
 done
 for binary in anios-session anios-audio-setup anios-audio-check anios-switch-desktop \
-  anios-switch-im anios-update anios-gpu-doctor; do
+  anios-switch-im anios-update anios-gpu-doctor anios-dmesg-check; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$LIVE_ROOT/usr/local/bin/$binary"
 done
 chmod 0755 "$LIVE_ROOT"/usr/local/bin/*
@@ -546,6 +546,8 @@ as_root test -s "$DEFAULT_ROOT/usr/share/wayland-sessions/anios-safe.desktop" ||
   fail "finalizer không cài phiên 'AniOS - Safe' cho máy đích"
 as_root test -x "$DEFAULT_ROOT/usr/local/bin/anios-gpu-doctor" ||
   fail "finalizer không cài anios-gpu-doctor cho máy đích"
+as_root test -x "$DEFAULT_ROOT/usr/local/bin/anios-dmesg-check" ||
+  fail "finalizer không cài anios-dmesg-check cho máy đích"
 grep -qF 'nvidia_drm.modeset=1' "$DEFAULT_ROOT/etc/default/grub" ||
   fail "finalizer không thêm tham số kernel nvidia_drm.modeset=1 vào GRUB của máy đích"
 ! grep -qE '^[[:space:]]*GRUB_(THEME|FONT)[[:space:]]*=' "$DEFAULT_ROOT/etc/default/grub" ||

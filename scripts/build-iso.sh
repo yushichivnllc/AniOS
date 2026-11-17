@@ -1321,6 +1321,7 @@ ANIOS_FILE_PERMISSIONS=(
   '/usr/local/bin/anios-persist:0:0:755'
   '/usr/local/bin/anios-sober:0:0:755'
   '/usr/local/bin/anios-gpu-doctor:0:0:755'
+  '/usr/local/bin/anios-dmesg-check:0:0:755'
   '/usr/local/lib/anios/create-live-user:0:0:755'
   '/usr/local/lib/anios/live-home-setup:0:0:755'
 )

@@ -128,7 +128,7 @@ sed -i 's/live desktop session/desktop session/g' \
 
 for binary in \
   anios-session anios-audio-setup anios-audio-check anios-switch-desktop \
-  anios-switch-im anios-update anios-gpu-doctor; do
+  anios-switch-im anios-update anios-gpu-doctor anios-dmesg-check; do
   source_binary="$LIVE_ROOT/usr/local/bin/$binary"
   [[ -s "$source_binary" ]] || fail "AniOS helper is missing: $source_binary"
   install -D -m 0755 -- "$source_binary" "$TARGET_ROOT/usr/local/bin/$binary"
