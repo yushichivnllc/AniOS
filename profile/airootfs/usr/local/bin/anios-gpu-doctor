@@ -12,16 +12,23 @@
 #   2. nouveau còn nạp, hoặc driver proprietary chưa được nạp cho card đang dùng.
 #   3. máy hybrid bị đặt GBM_BACKEND/LIBVA_DRIVER_NAME của NVIDIA trong khi iGPU
 #      xuất hình — compositor mở card của iGPU bằng backend NVIDIA rồi chết.
+#   4. card có driver nhưng KHÔNG có /dev/dri/card* (framebuffer vẫn do efifb giữ):
+#      đúng trạng thái `lshw` in "/dev/fb0" cho card NVIDIA. Không có KMS device thì
+#      không compositor Wayland nào lên hình được, kể cả khi modeset=1.
+#   5. ổ NVMe nằm sau Intel VMD/RST (mainboard B760/H610 bật RST): nhân không thấy
+#      đĩa nên trình cài đặt không có chỗ để cài, hoặc bản cài không boot được.
 #
 # Các biến ANIOS_* dưới đây tồn tại để bài tự kiểm tra chạy trên cây giả
 # (scripts/selftest-anios-gpu-doctor.sh), không cần GPU hay Arch Linux.
 set -Eeuo pipefail
 
 SYSFS="${ANIOS_SYSFS_ROOT:-/sys}"
+DEV="${ANIOS_DEV_ROOT:-/dev}"
 ETC="${ANIOS_ETC_ROOT:-/etc}"
 CMDLINE_FILE="${ANIOS_PROC_CMDLINE:-/proc/cmdline}"
 MODPROBE_CONF="$ETC/modprobe.d/anios-nvidia.conf"
 MKINITCPIO_DROPIN="$ETC/mkinitcpio.conf.d/10-anios-nvidia.conf"
+VMD_DROPIN="$ETC/mkinitcpio.conf.d/20-anios-vmd.conf"
 GRUB_DEFAULTS="$ETC/default/grub"
 BOOT_DIR="${ANIOS_BOOT_DIR:-/boot}"
 
@@ -211,7 +218,84 @@ else
   fi
 fi
 
-# --- 3. Cấu hình tĩnh trên đĩa ----------------------------------------------
+# --- 3. Thiết bị DRM (KMS) --------------------------------------------------
+# modeset=1 chỉ là điều kiện cần: Wayland cần một node /dev/dri/cardN thật. Khi
+# card vẫn bị efifb giữ framebuffer (đúng như `lshw` in "/dev/fb0" cho card NVIDIA,
+# thay vì "/dev/dri/card1"), compositor không có gì để mở và thoát ngay — nhìn bên
+# ngoài giống hệt "màn hình đen do thiếu driver" nên rất dễ sửa sai hướng.
+drm_cards=()
+drm_render=()
+if [[ -d "$DEV/dri" ]]; then
+  for node in "$DEV"/dri/*; do
+    [[ -e "$node" ]] || continue
+    case "${node##*/}" in
+      card[0-9]*) drm_cards+=("${node##*/}") ;;
+      renderD[0-9]*) drm_render+=("${node##*/}") ;;
+    esac
+  done
+  if (( ${#drm_cards[@]} > 0 )); then
+    ok "thiết bị KMS: ${drm_cards[*]}"
+  elif [[ -n "$nvidia_gpu" ]]; then
+    bad "không có /dev/dri/card* — máy chưa có KMS device, Wayland/Hyprland không thể lên hình"
+    hint "sudo anios-gpu-doctor --fix rồi khởi động lại"
+    hint "vẫn thiếu thì xem 'journalctl -b -k | grep -iE \"nvidia|drm\"' hoặc 'dkms status'"
+  fi
+  if [[ -n "$nvidia_gpu" ]] && (( ${#drm_render[@]} == 0 )); then
+    warn "không có /dev/dri/renderD* — Vulkan/CUDA/VA-API sẽ không dùng được GPU"
+    hint "kiểm tra 'lsmod | grep nvidia_drm' và quyền của nhóm 'render'/'video'"
+  elif (( ${#drm_render[@]} > 0 )); then
+    (( QUIET )) || printf '  [ok]   node render: %s\n' "${drm_render[*]}"
+  fi
+  fb_name=""
+  [[ -r "$SYSFS/class/graphics/fb0/name" ]] && fb_name="$(<"$SYSFS/class/graphics/fb0/name")"
+  case "$fb_name" in
+    "") ;;
+    efifb | vesafb | simple | simplefb)
+      if [[ -n "$nvidia_gpu" ]]; then
+        bad "/dev/fb0 vẫn do '$fb_name' giữ — nvidia-drm chưa nhận framebuffer của card NVIDIA"
+        hint "đây là dấu hiệu 'card chỉ hiện /dev/fb0' trong lshw: nvidia-drm không nhận card"
+        hint "thử thêm 'video=efifb:off' vào GRUB (sau 'sudo anios-gpu-doctor --fix') rồi khởi động lại"
+      else
+        warn "/dev/fb0 đang là '$fb_name' (không phải card NVIDIA)"
+      fi
+      ;;
+    simpledrmdrmfb)
+      warn "/dev/fb0 vẫn là 'simpledrmdrmfb' — KMS của driver thật chưa tiếp quản framebuffer"
+      hint "thường tự hết khi nvidia-drm modeset=1 nằm trong initramfs (--fix lo việc này)"
+      ;;
+    *nvidia*)
+      ok "framebuffer thuộc card NVIDIA: $fb_name"
+      ;;
+    *)
+      (( QUIET )) || printf '  [ok]   framebuffer: %s\n' "$fb_name"
+      ;;
+  esac
+fi
+
+# --- 4. Ổ đĩa và Intel VMD/RST ----------------------------------------------
+# Mainboard B760/H610 (RST bật) giấu ổ NVMe sau một "RAID bus controller" của
+# Intel: chỉ khi module 'vmd' nạp, /dev/nvme* mới xuất hiện. Không thấy đĩa thì
+# trình cài đặt không có chỗ cài, còn bản cài đặt trên đĩa đó cần 'vmd' trong
+# initramfs mới boot được — nên kiểm tra luôn ở đây thay vì để người dùng đoán.
+vmd_pci=""
+for dev in "$SYSFS"/bus/pci/devices/*; do
+  [[ -r "$dev/class" && -r "$dev/vendor" ]] || continue
+  [[ "$(<"$dev/class")" == 0x0104* ]] || continue
+  [[ "$(<"$dev/vendor")" == 0x8086 ]] || continue
+  vmd_pci="${dev##*/}"
+  break
+done
+if [[ -n "$vmd_pci" ]] && [[ "$(driver_of "$SYSFS/bus/pci/devices/$vmd_pci")" == vmd ]]; then
+  warn "Intel VMD/RST đang bật ($vmd_pci): ổ NVMe nằm sau VMD chỉ hiện khi module 'vmd' đã nạp"
+  hint "trình cài đặt không thấy ổ NVMe? tắt VMD/RST trong BIOS (SATA/NVMe = AHCI) rồi boot lại ISO"
+  hint "phải giữ VMD (dual-boot Windows dùng RST)? initramfs phải có module 'vmd': sudo anios-gpu-doctor --fix"
+elif [[ -n "$vmd_pci" ]]; then
+  (( QUIET )) || printf '  [ok]   có cổng VMD/RST (%s) nhưng không dùng (ổ NVMe hiện trực tiếp)\n' "$vmd_pci"
+else
+  (( QUIET )) || printf '  [ok]   không có Intel VMD/RST\n'
+fi
+
+# --- 5. Cấu hình tĩnh trên đĩa ----------------------------------------------
 section "Cấu hình trên đĩa ($ETC)"
 if [[ -r "$MODPROBE_CONF" ]]; then
   missing=0
@@ -242,6 +326,17 @@ if [[ -r "$MKINITCPIO_DROPIN" ]]; then
 else
   bad "thiếu $MKINITCPIO_DROPIN — nvidia-drm chỉ nạp SAU khi SDDM/Hyprland đã khởi động"
   hint "sudo anios-gpu-doctor --fix"
+fi
+
+# Ổ NVMe sau Intel VMD/RST chỉ hiện ra khi initramfs có module 'vmd' — thiếu nó thì
+# bản cài đặt không tìm được root và rơi vào emergency shell.
+if [[ -n "$vmd_pci" ]] && [[ "$(driver_of "$SYSFS/bus/pci/devices/$vmd_pci")" == vmd ]]; then
+  if [[ -r "$VMD_DROPIN" ]] && grep -qE '(^|[[:space:]])MODULES\+?=[^#]*vmd' "$VMD_DROPIN"; then
+    ok "$VMD_DROPIN đưa module 'vmd' vào initramfs"
+  else
+    bad "máy đang dùng Intel VMD/RST nhưng thiếu $VMD_DROPIN (MODULES+=(vmd))"
+    hint "sudo anios-gpu-doctor --fix — nếu không, bản cài đặt sẽ không boot được từ ổ NVMe"
+  fi
 fi
 
 if [[ -r "$CMDLINE_FILE" ]]; then
@@ -376,6 +471,17 @@ if (( DO_FIX )); then
     fixed=1
   else
     ok "$MKINITCPIO_DROPIN đã đúng"
+  fi
+
+  # Chỉ ghi khi máy thật sự đang dùng VMD: máy không bật RST không cần module này
+  # trong initramfs (nạp thêm chỉ tốn vài chục KB).
+  if [[ -n "$vmd_pci" ]] && [[ "$(driver_of "$SYSFS/bus/pci/devices/$vmd_pci")" == vmd ]]; then
+    if write_if_missing "$VMD_DROPIN" "MODULES+=(vmd)"; then
+      ok "đã ghi $VMD_DROPIN (giữ ổ NVMe sau Intel VMD/RST)"
+      fixed=1
+    else
+      ok "$VMD_DROPIN đã đúng"
+    fi
   fi
 
   add_grub_params "$GRUB_DEFAULTS" || true

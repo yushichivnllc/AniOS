@@ -147,7 +147,7 @@ install -D -m 0644 -- "$LIVE_ROOT/etc/systemd/zram-generator.conf" \
 # (chặn nouveau, nvidia-drm modeset=1) và helper biến môi trường mà anios-session
 # nạp. Thiếu hai file này thì card NVIDIA trên máy đã cài sẽ không vào được Hyprland.
 for gpu_file in /etc/modprobe.d/anios-nvidia.conf /usr/local/lib/anios/gpu-env.sh \
-  /etc/mkinitcpio.conf.d/10-anios-nvidia.conf; do
+  /etc/mkinitcpio.conf.d/10-anios-nvidia.conf /etc/mkinitcpio.conf.d/20-anios-vmd.conf; do
   [[ -s "$LIVE_ROOT$gpu_file" ]] || fail "GPU configuration is missing: $LIVE_ROOT$gpu_file"
   install -D -m 0644 -- "$LIVE_ROOT$gpu_file" "$TARGET_ROOT$gpu_file"
 done
@@ -178,6 +178,22 @@ if [[ -x "$TARGET_ROOT/usr/bin/mkinitcpio" ]] && command -v arch-chroot >/dev/nu
       'boots without the proprietary driver. After the first boot run:' \
       '    sudo dkms autoinstall && sudo anios-gpu-doctor --fix' >&2
   fi
+fi
+
+# PreserveVideoMemoryAllocations=1 (xem modprobe.d/anios-nvidia.conf) chỉ có tác dụng
+# khi các unit suspend/resume của NVIDIA được bật: chúng lưu VRAM ra
+# NVreg_TemporaryFilePath trước khi ngủ và nạp lại sau khi dậy. Thiếu chúng, máy có
+# card Ampere (RTX 3060/3070) ngủ xong chỉ còn màn hình đen — lỗi rất hay bị quy oan
+# cho driver. Unit do nvidia-*-utils cung cấp nên phải kiểm tra trước khi enable.
+if command -v arch-chroot >/dev/null 2>&1 && [[ -x "$TARGET_ROOT/usr/bin/systemctl" ]]; then
+  for unit in nvidia-suspend nvidia-resume nvidia-hibernate; do
+    [[ -e "$TARGET_ROOT/usr/lib/systemd/system/${unit}.service" ]] || continue
+    if arch-chroot "$TARGET_ROOT" systemctl enable "${unit}.service" >/dev/null 2>&1; then
+      printf 'AniOS installer: enabled %s.service on the target\n' "$unit"
+    else
+      printf 'AniOS installer: could not enable %s.service on the target\n' "$unit" >&2
+    fi
+  done
 fi
 
 # Kho file cục bộ [anios-aur] chỉ tồn tại trên ảnh live (nơi pacstrap lấy driver NVIDIA

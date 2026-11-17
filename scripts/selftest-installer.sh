@@ -271,6 +271,7 @@ mkdir -p -- "$LIVE_ROOT/etc/modprobe.d" "$LIVE_ROOT/etc/mkinitcpio.conf.d" \
 printf 'options nvidia-drm modeset=1 fbdev=1\n' >"$LIVE_ROOT/etc/modprobe.d/anios-nvidia.conf"
 printf 'MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n' \
   >"$LIVE_ROOT/etc/mkinitcpio.conf.d/10-anios-nvidia.conf"
+printf 'MODULES+=(vmd)\n' >"$LIVE_ROOT/etc/mkinitcpio.conf.d/20-anios-vmd.conf"
 printf 'anios_export_gpu_env() { :; }\n' >"$LIVE_ROOT/usr/local/lib/anios/gpu-env.sh"
 mkdir -p -- "$LIVE_ROOT/usr/share/anios/skel/.config/hypr" "$LIVE_ROOT/usr/share/anios/skel/Desktop"
 cat >"$LIVE_ROOT/usr/share/anios/skel/.config/hypr/hyprlock.conf" <<'HYPRLOCK'
@@ -539,6 +540,8 @@ as_root test -s "$DEFAULT_ROOT/usr/local/lib/anios/gpu-env.sh" ||
   fail "finalizer không chép helper môi trường GPU sang máy đích"
 as_root test -s "$DEFAULT_ROOT/etc/mkinitcpio.conf.d/10-anios-nvidia.conf" ||
   fail "finalizer không chép drop-in mkinitcpio NVIDIA sang máy đích"
+as_root test -s "$DEFAULT_ROOT/etc/mkinitcpio.conf.d/20-anios-vmd.conf" ||
+  fail "finalizer không chép drop-in vmd sang máy đích (ổ NVMe sau Intel VMD/RST sẽ không boot)"
 as_root test -s "$DEFAULT_ROOT/usr/share/wayland-sessions/anios-safe.desktop" ||
   fail "finalizer không cài phiên 'AniOS - Safe' cho máy đích"
 as_root test -x "$DEFAULT_ROOT/usr/local/bin/anios-gpu-doctor" ||

@@ -154,6 +154,33 @@ grep -qF "pacman -Qq nvidia-580xx-dkms" "$ROOT_DIR/scripts/build-iso.sh" ||
 grep -qF '10-anios-nvidia.conf' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
   fail "bộ cài đặt phải chép drop-in mkinitcpio NVIDIA sang máy đích"
 
+# Intel VMD/RST (mainboard B760/H610 bật RST): ổ NVMe bị giấu sau một RAID
+# controller của Intel, chỉ hiện ra khi initramfs có module `vmd`. Drop-in phải
+# dùng MODULES+= để CỘNG DỒN vào danh sách của 10-anios-nvidia.conf — viết
+# MODULES=(vmd) sẽ đẩy module NVIDIA ra khỏi initramfs và Wayland mất KMS.
+VMD_DROPIN="$AIROOTFS/etc/mkinitcpio.conf.d/20-anios-vmd.conf"
+[[ -s "$VMD_DROPIN" ]] ||
+  fail "thiếu $VMD_DROPIN: máy bật Intel VMD/RST sẽ không thấy ổ NVMe khi cài"
+grep -qxF 'MODULES+=(vmd)' "$VMD_DROPIN" ||
+  fail "$VMD_DROPIN phải thêm vmd bằng MODULES+=(vmd), không ghi đè MODULES của NVIDIA"
+grep -qF '20-anios-vmd.conf' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+  fail "bộ cài đặt phải chép drop-in vmd sang máy đích (nếu không máy cài trên ổ VMD không boot)"
+
+# PreserveVideoMemoryAllocations=1 chỉ giữ được VRAM nếu các unit suspend/resume của
+# NVIDIA được bật ở máy đích; thiếu chúng thì ngủ xong chỉ còn màn hình đen.
+for suspend_unit in nvidia-suspend nvidia-resume nvidia-hibernate; do
+  grep -qF "$suspend_unit" "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+    fail "bộ cài đặt phải enable $suspend_unit.service trên máy đích"
+done
+
+# Chẩn đoán phải nhận ra trạng thái 'card chỉ còn /dev/fb0 của efifb' (lshw in
+# "/dev/fb0" cho card NVIDIA) và ổ NVMe sau Intel VMD/RST.
+GPU_DOCTOR="$AIROOTFS/usr/local/bin/anios-gpu-doctor"
+for doctor_needle in '/dev/dri/card*' 'efifb' 'VMD/RST'; do
+  grep -qF -- "$doctor_needle" "$GPU_DOCTOR" ||
+    fail "anios-gpu-doctor phải chẩn đoán '$doctor_needle'"
+done
+
 # dkms + xorg-server: driver DKMS không tự biên dịch nếu thiếu dkms, và SDDM dùng
 # greeter X11 (cần xorg-server) — nêu tên tường minh trong cả hai manifest.
 for manifest_package in dkms xorg-server; do

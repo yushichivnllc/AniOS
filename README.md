@@ -442,7 +442,7 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 ## Phần cứng và hiệu năng
 
 - AniOS nhắm đến máy **x86_64**. Không hệ điều hành nào có thể bảo đảm game tương thích hoặc chạy nhanh trên mọi cấu hình; hiệu năng tùy thuộc CPU, GPU, RAM, tản nhiệt, trò chơi và driver. `linux-zen` được chọn để ưu tiên độ phản hồi, **không bảo đảm FPS cao hơn**.
-- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Card NVIDIA (từ Maxwell/GTX 900 đến Ada/RTX 40 — gồm **RTX 3060/GA106 Ampere**; card RTX 50 Blackwell cần driver mở `nvidia-open`, không dùng được ảnh này) dùng driver proprietary **`nvidia-580xx-dkms`** (nhánh 580xx, dựng từ AUR và đã được cài sẵn trong ảnh), kèm `nouveau` bị chặn, `nvidia-drm modeset=1`, module NVIDIA trong initramfs và tham số kernel `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` trên mọi mục menu khởi động (xem [mục NVIDIA](#card-nvidia-rtx-3060ga106-ampere-không-vào-được-hyprland)). Nhánh 580xx được chọn vì driver 590 trở lên đã bỏ Pascal (GTX 10) và các card cũ hơn, còn 580xx chạy được cả Pascal/Maxwell lẫn Turing trở lên. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
+- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Card NVIDIA (từ Maxwell/GTX 900 đến Ada/RTX 40 — gồm **RTX 3060/GA106 và RTX 3070/GA104, Ampere**; card RTX 50 Blackwell cần driver mở `nvidia-open`, không dùng được ảnh này) dùng driver proprietary **`nvidia-580xx-dkms`** (nhánh 580xx, dựng từ AUR và đã được cài sẵn trong ảnh), kèm `nouveau` bị chặn, `nvidia-drm modeset=1`, module NVIDIA trong initramfs và tham số kernel `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` trên mọi mục menu khởi động (xem [mục NVIDIA](#card-nvidia-rtx-3060ga106-ampere-không-vào-được-hyprland)). Nhánh 580xx được chọn vì driver 590 trở lên đã bỏ Pascal (GTX 10) và các card cũ hơn, còn 580xx chạy được cả Pascal/Maxwell lẫn Turing trở lên. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
 - Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
 - Hệ thống Live đọc ảnh nén trực tiếp từ USB (`copytoram=n`, không chép vào RAM; zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
@@ -540,10 +540,67 @@ Nếu vẫn gặp màn hình đen hoặc quay lại màn hình đăng nhập:
 Kiểm tra cục bộ (không cần GPU):
 `./scripts/selftest-gpu-env.sh` (biến môi trường theo loại máy),
 `./scripts/selftest-anios-session.sh` (cờ `--safe` + tự lùi chế độ an toàn),
-`./scripts/selftest-anios-gpu-doctor.sh` (chẩn đoán/`--fix` trên cây giả),
+`./scripts/selftest-anios-gpu-doctor.sh` (chẩn đoán/`--fix` trên cây giả, gồm cả trạng thái "card chỉ còn `/dev/fb0`" và Intel VMD/RST),
 `./scripts/selftest-build-iso-nvidia-params.sh` (tham số kernel trên grub/syslinux/systemd-boot).
 Việc Hyprland chạy trên phần cứng NVIDIA thật vẫn **cần** kiểm thử trên máy thật
-(GA106/RTX 3060 và một máy hybrid) trước khi đưa vào quán net.
+(GA106/RTX 3060, GA104/RTX 3070 và một máy hybrid) trước khi đưa vào quán net —
+xem [checklist cho máy B760 + RTX 3070](#máy-intel-b760--i5-14600k--rtx-3070-ga104-checklist-trước-khi-triển-khai).
+
+### Máy Intel B760 + i5-14600K + RTX 3070 (GA104): checklist trước khi triển khai
+
+Cấu hình đã gặp thật: **ASUS PRIME B760M-F D4, i5-14600K, 16 GB DDR4, GeForce RTX 3070
+(GA104, Ampere), Intel HDA PCH + HDA NVIDIA HDMI, NIC Realtek RTL8111 (`enp4s0`)**.
+Máy này thuộc nhánh **chỉ NVIDIA** (`gpu-env.sh` đặt `GBM_BACKEND=nvidia-drm`,
+`LIBVA_DRIVER_NAME=nvidia`, `NVD_BACKEND=direct`) vì iGPU Intel đang tắt trong BIOS,
+nên không cần cấu hình hybrid. Bốn điểm dưới đây là chỗ hay hỏng nhất; cả bốn đều
+kiểm tra được bằng một lệnh.
+
+1. **Đọc đúng `lshw` của card NVIDIA.** Nếu dòng card in `/dev/fb0` (thay vì
+   `/dev/dri/card1`), framebuffer vẫn do `efifb` giữ — card **chưa** có KMS device và
+   mọi compositor Wayland sẽ không lên hình, dù `modeset=1`. Kiểm tra:
+   ```bash
+   ls -l /dev/dri/                                  # phải có card0/card1 + renderD128
+   cat /sys/class/graphics/fb0/name                 # phải là nvidia-drmdrmfb
+   cat /sys/module/nvidia_drm/parameters/modeset    # phải là Y
+   sudo anios-gpu-doctor                            # mục "Thiết bị DRM (KMS)"
+   ```
+   `anios-gpu-doctor` nay báo lỗi riêng cho trạng thái "chỉ có `/dev/fb0`" và gợi ý
+   `video=efifb:off` khi `efifb` không chịu nhả card.
+
+2. **Intel VMD/RST (mainboard B760/H610).** BIOS bật RST thì ổ NVMe không hiện ra
+   như `/dev/nvme0n1` mà nằm sau một "RAID bus controller" của Intel; nhân chỉ tạo
+   thiết bị NVMe sau khi module `vmd` nạp. Trình cài đặt không thấy ổ, hoặc bản cài
+   đặt rơi vào emergency shell vì `root=UUID=...` không tồn tại, đều từ đây mà ra:
+   ```bash
+   lsblk -o NAME,SIZE,TYPE,MODEL     # không có nvme0n1 mà có mapper/... -> nghi VMD
+   lspci -k | grep -A3 -i raid       # "RAID bus controller: Intel ... Kernel driver in use: vmd"
+   ```
+   Cách chắc ăn nhất: **tắt VMD/RST trong BIOS** (SATA/NVMe = AHCI) rồi cài lại.
+   Nếu phải giữ VMD (dual-boot Windows đang dùng RST), ảnh live đã có
+   `etc/mkinitcpio.conf.d/20-anios-vmd.conf` với `MODULES+=(vmd)` — drop-in này được
+   chép sang máy đích, dùng `MODULES+=` để **không** ghi đè danh sách module NVIDIA.
+   `sudo anios-gpu-doctor --fix` ghi lại drop-in đó khi phát hiện VMD đang bật.
+
+3. **Âm thanh: ba card, sink mặc định dễ rơi vào HDMI của card đồ hoạ.** Máy có
+   `card0` = Intel PCH (jack 3.5 mm), `card1` = HDMI/DisplayPort của GA104 (4 PCM),
+   `card2` = USB audio. Cắm màn hình bằng DisplayPort/HDMI là WirePlumber có thể đặt
+   sink mặc định là cổng của màn hình, nên loa ngoài im:
+   ```bash
+   wpctl status                                    # xem sink đang là * (mặc định)
+   wpctl set-default <id-sink-analog>              # ví dụ sink của card0
+   anios-audio-check                               # kiểm tra lại, phát thử tiếng bíp
+   ```
+   `anios-audio-setup` **không** tự đổi sink (có máy dùng loa của màn hình), chỉ nhắc.
+
+4. **Suspend: unit NVIDIA phải được bật.** `NVreg_PreserveVideoMemoryAllocations=1`
+   chỉ giữ VRAM qua giấc ngủ khi `nvidia-suspend/resume/hibernate` được enable; thiếu
+   chúng thì ngủ xong chỉ còn màn hình đen. Bộ cài đặt nay enable cả ba unit ở máy
+   đích; kiểm tra bằng `systemctl is-enabled nvidia-suspend`.
+
+Ngoài ra: NIC **RTL8111/RTL8168 (`r8169`)** trên vài mẫu board hay rớt mạng khi bật
+ASPM — thử `r8169.aspm=0` (hoặc `pcie_aspm=off`) nếu mạng chập chờn, và chạy
+`anios-netcheck` trước khi kết luận. Máy chỉ có **một thanh 16 GB** (chạy single
+channel) nên đừng lấy kết quả FPS của máy này làm chuẩn cho máy dual-channel.
 
 ### Sober (Roblox) và GNOME Disks
 
@@ -590,7 +647,8 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
 - `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; chạy mỗi cấu hình với ba hồ sơ GPU (`default`, `ANIOS_GPU=nvidia`, `ANIOS_SAFE=1`); cần Lua 5.4 trở lên, không cần GPU.
 - `profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf`, `/etc/modprobe.d/anios-nvidia.conf` và `usr/local/lib/anios/gpu-env.sh` — ba lớp cấu hình NVIDIA: module trong initramfs, tham số modprobe (modeset, giữ VRAM qua suspend) và biến môi trường theo loại máy (chỉ-NVIDIA vs hybrid).
-- `profile/airootfs/usr/local/bin/anios-gpu-doctor` — chẩn đoán GPU từ TTY (PCI/driver/modeset/cấu hình/nhật ký phiên), `--fix` ghi lại modprobe.d + drop-in mkinitcpio + tham số GRUB và dựng lại initramfs.
+- `profile/airootfs/etc/mkinitcpio.conf.d/20-anios-vmd.conf` — `MODULES+=(vmd)` cho mainboard Intel bật RST/VMD (B760/H610): ổ NVMe bị giấu sau VMD chỉ hiện khi initramfs có module này, nếu không bản cài đặt không tìm ra root. Dùng `+=` để không ghi đè danh sách module NVIDIA của drop-in `10-`.
+- `profile/airootfs/usr/local/bin/anios-gpu-doctor` — chẩn đoán GPU từ TTY (PCI/driver/modeset, thiết bị `/dev/dri` + ai đang giữ `/dev/fb0`, ổ NVMe sau Intel VMD/RST, cấu hình, nhật ký phiên), `--fix` ghi lại modprobe.d + drop-in mkinitcpio (+ `20-anios-vmd.conf` khi máy bật VMD) + tham số GRUB, rồi dựng lại initramfs.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
@@ -605,7 +663,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-anios-netcheck.sh` — tự kiểm tra `anios-netcheck` bằng `getent`/`curl`/`nmcli`/`resolvectl` giả trên cây `/etc` giả: DNS chết hẳn, DNS chỉ sai với tên Valve, IPv6 "nửa sống", captive portal, các bước `--fix`/`--fix-dns` và chế độ `--quiet` dùng cho unit.
 - `scripts/selftest-apply-saved-cursor.sh` — tự kiểm tra `apply_saved_cursor.sh` (script áp theme con trỏ lúc Hyprland khởi động) với `hyprctl` giả trên cây icon giả: theme đã lưu được giữ, theme không được cài rơi về Adwaita, JSON hỏng/size sai không làm chết phiên, theme hyprcursor vẫn được nhận, và khi ảnh không có theme nào thì không gọi `hyprctl` để compositor giữ con trỏ mặc định.
 - `scripts/selftest-anios-session.sh` — chạy đúng `anios-session` với `dbus-run-session`/`Hyprland` giả: cờ `--safe` tới được cấu hình qua `ANIOS_SAFE`, Hyprland chết ngay được thử lại đúng một lần ở chế độ an toàn, thoát bình thường không chạy lại, nhật ký phiên có mã thoát.
-- `scripts/selftest-anios-gpu-doctor.sh` — chạy `anios-gpu-doctor` trên cây sysfs/`/etc` giả: bắt được `modeset=0`, thiếu modprobe.d/drop-in, `nouveau` đang giữ card; `--fix` ghi đủ cấu hình, gọi `mkinitcpio`, không làm mất dòng khác của `/etc/default/grub`, và chạy hai lần không nhân đôi dòng.
+- `scripts/selftest-anios-gpu-doctor.sh` — chạy `anios-gpu-doctor` trên cây sysfs/`/etc`/`/dev` giả: bắt được `modeset=0`, thiếu modprobe.d/drop-in, `nouveau` đang giữ card, card chỉ còn `/dev/fb0` của `efifb`, Intel VMD/RST đang bật; `--fix` ghi đủ cấu hình, gọi `mkinitcpio`, không làm mất dòng khác của `/etc/default/grub`, và chạy hai lần không nhân đôi dòng.
 - `scripts/selftest-build-iso-nvidia-params.sh` — nạp đúng `anios_add_nvidia_kernel_params()` của `build-iso.sh` rồi chạy trên GRUB/Syslinux/systemd-boot giả: mọi mục menu nhận `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` đúng một lần, chạy lại không nhân đôi, profile không có cấu hình khởi động là no-op.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
 - `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh).
