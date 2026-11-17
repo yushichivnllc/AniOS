@@ -51,6 +51,17 @@ make_vmd() {
   ln -sfn ../../drivers/vmd "$dev/driver"
 }
 
+# make_secure_boot <root> <0|1>: biến EFI SecureBoot (4 byte thuộc tính + 1 giá trị).
+make_secure_boot() {
+  local root="$1" value="$2"
+  mkdir -p -- "$root/efivars"
+  if (( value )); then
+    printf '\006\000\000\000\001' >"$root/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+  else
+    printf '\006\000\000\000\000' >"$root/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+  fi
+}
+
 load_modules() {
   local root="$1" modeset="$2"
   mkdir -p -- "$root/sysfs/module/nvidia" "$root/sysfs/module/nvidia_drm/parameters"
@@ -100,6 +111,8 @@ run_doctor() {
     ANIOS_PROC_CMDLINE="$root/etc/cmdline" \
     ANIOS_SESSION_LOG="$root/home/session.log" \
     ANIOS_BOOT_DIR="$root/boot" \
+    ANIOS_EFIVARS_ROOT="$root/efivars" \
+    ANIOS_KERNEL_RELEASE="linux-zen" \
     ANIOS_TEST_CALLS="$ANIOS_TEST_CALLS" \
     "$DOCTOR" "$@"
 }
@@ -182,6 +195,38 @@ grep -qxF 'MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)' \
   "$vmdroot/etc/mkinitcpio.conf.d/10-anios-nvidia.conf" ||
   fail "--fix must keep the NVIDIA module list when adding vmd"
 pass "Intel VMD/RST diagnosis and vmd drop-in"
+
+# --- 3d. Secure Boot bật: nhân từ chối module NVIDIA, phải nói thẳng ---------
+sbroot="$TMP/secureboot"
+mkdir -p "$sbroot/home"
+make_gpu "$sbroot" 0x10de
+load_modules "$sbroot" Y
+make_drm "$sbroot"
+write_good_config "$sbroot/etc"
+make_secure_boot "$sbroot" 1
+status=0
+out="$(run_doctor "$sbroot")" || status=$?
+(( status == 1 )) || fail "Secure Boot host must exit 1, got $status"
+grep -qF 'Secure Boot' <<<"$out" || fail "must name Secure Boot as the blocker"
+grep -qF 'tắt Secure Boot' <<<"$out" || fail "must tell the user to disable Secure Boot"
+pass "Secure Boot diagnosis"
+
+# --- 3e. Initramfs cũ hơn drop-in: phải nhắc mkinitcpio -P -------------------
+staleroot="$TMP/stale-initramfs"
+mkdir -p "$staleroot/home" "$staleroot/boot"
+make_gpu "$staleroot" 0x10de
+load_modules "$staleroot" Y
+make_drm "$staleroot"
+write_good_config "$staleroot/etc"
+make_secure_boot "$staleroot" 0
+: >"$staleroot/boot/initramfs-linux-zen.img"
+touch -t 202001010000 "$staleroot/boot/initramfs-linux-zen.img"
+status=0
+out="$(run_doctor "$staleroot")" || status=$?
+(( status == 1 )) || fail "stale initramfs must exit 1, got $status"
+grep -qF 'initramfs' <<<"$out" || fail "must mention the initramfs"
+grep -qF 'mkinitcpio -P' <<<"$out" || fail "must tell the user to rebuild the initramfs"
+pass "stale initramfs diagnosis"
 
 # --- 4. --fix: ghi modprobe + drop-in + GRUB, gọi mkinitcpio -----------------
 fixroot="$TMP/fixroot"

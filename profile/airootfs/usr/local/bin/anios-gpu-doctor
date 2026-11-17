@@ -29,6 +29,7 @@ CMDLINE_FILE="${ANIOS_PROC_CMDLINE:-/proc/cmdline}"
 MODPROBE_CONF="$ETC/modprobe.d/anios-nvidia.conf"
 MKINITCPIO_DROPIN="$ETC/mkinitcpio.conf.d/10-anios-nvidia.conf"
 VMD_DROPIN="$ETC/mkinitcpio.conf.d/20-anios-vmd.conf"
+EFIVARS="${ANIOS_EFIVARS_ROOT:-/sys/firmware/efi/efivars}"
 GRUB_DEFAULTS="$ETC/default/grub"
 BOOT_DIR="${ANIOS_BOOT_DIR:-/boot}"
 
@@ -392,6 +393,57 @@ if command -v dkms >/dev/null 2>&1; then
     blocking=1
     hint "sudo dkms autoinstall; xem /var/lib/dkms/nvidia/*/build/make.log"
   fi
+fi
+
+# --- Vì sao phiên không lên hình: ba nguyên nhân còn lại --------------------
+# a) Secure Boot. Module NVIDIA của DKMS không được ký bằng khoá của firmware,
+#    nên nhân TỪ CHỐI nạp nó; máy vẫn lên greeter X11 bằng fbdev/vesa nhưng
+#    Hyprland không có KMS device. Đây là lý do số một trên máy mua sẵn Windows
+#    11 (Secure Boot bật mặc định) và không sửa được bằng cấu hình.
+secure_boot=""
+for efivar in "$EFIVARS"/SecureBoot-*; do
+  [[ -r "$efivar" ]] || continue
+  # 4 byte đầu là thuộc tính của biến EFI; byte thứ 5 là giá trị (1 = bật).
+  secure_boot="$(od -An -t u1 -j 4 -N 1 -- "$efivar" 2>/dev/null | tr -d ' \n')"
+  break
+done
+case "$secure_boot" in
+  1)
+    if [[ -n "$nvidia_gpu" ]]; then
+      bad "Secure Boot đang BẬT: nhân sẽ từ chối module NVIDIA (DKMS không ký)"
+      blocking=1
+      hint "tắt Secure Boot trong BIOS/UEFI rồi khởi động lại (AniOS không ký module)"
+    fi
+    ;;
+  0) ok "Secure Boot đang tắt" ;;
+  *) (( QUIET )) || printf '  [--]   không đọc được trạng thái Secure Boot (%s)\n' "$EFIVARS" ;;
+esac
+
+# b) Initramfs cũ hơn drop-in mkinitcpio: cấu hình đúng trên đĩa nhưng initramfs
+#    chưa được dựng lại (hay gặp sau khi nâng cấp kernel hoặc driver), nên
+#    nvidia-drm vẫn chỉ nạp SAU khi SDDM/Hyprland đã khởi động.
+kernel_release="${ANIOS_KERNEL_RELEASE:-$(uname -r 2>/dev/null || true)}"
+initramfs="$BOOT_DIR/initramfs-${kernel_release}.img"
+if [[ -n "$kernel_release" && -f "$initramfs" && -f "$MKINITCPIO_DROPIN" && "$MKINITCPIO_DROPIN" -nt "$initramfs" ]]; then
+  bad "$MKINITCPIO_DROPIN mới hơn $initramfs — initramfs chưa được dựng lại"
+  hint "sudo mkinitcpio -P (hoặc sudo anios-gpu-doctor --fix)"
+elif [[ -f "$initramfs" ]]; then
+  ok "initramfs của kernel $kernel_release đã cập nhật sau cấu hình NVIDIA"
+fi
+
+# c) AQ_DRM_DEVICES. Trên máy UEFI, simpledrm có thể tạo /dev/dri/card0 trước
+#    card1 của NVIDIA; compositor mở nhầm card rồi thoát ngay. anios-session
+#    ghim sẵn node của card NVIDIA khi tìm thấy trong sysfs.
+if [[ -n "${AQ_DRM_DEVICES:-}" ]]; then
+  if [[ -e "${AQ_DRM_DEVICES%%:*}" ]]; then
+    ok "AQ_DRM_DEVICES=$AQ_DRM_DEVICES (compositor chỉ dùng card NVIDIA)"
+  else
+    bad "AQ_DRM_DEVICES=${AQ_DRM_DEVICES%%:*} không tồn tại — Hyprland sẽ thoát ngay"
+    hint "bỏ biến này (đăng nhập lại) hoặc kiểm tra 'ls -l /dev/dri'"
+  fi
+elif [[ "${ANIOS_GPU:-}" == nvidia ]] && [[ -n "$nvidia_gpu" ]]; then
+  warn "AQ_DRM_DEVICES chưa đặt: trên máy UEFI có simpledrm, compositor có thể mở nhầm card"
+  hint "kiểm tra 'ls -l /dev/dri' và 'readlink -f /sys/class/drm/card*/device'"
 fi
 
 # --- 5. Sửa (--fix) ---------------------------------------------------------

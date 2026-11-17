@@ -455,7 +455,7 @@ F như i5-12400F) hoặc laptop hybrid iGPU + NVIDIA. Triệu chứng gặp ph�
 `nvidia` đã nạp (`Kernel driver in use: nvidia`) mà đăng nhập xong quay lại màn hình
 đăng nhập, hoặc màn hình đen, hoặc Hyprland thoát ngay.
 
-Bốn nguyên nhân, và cách ảnh xử lý từng cái:
+Năm nguyên nhân, và cách ảnh xử lý từng cái:
 
 1. **`nvidia-drm` không giữ KMS ngay từ đầu.** `options nvidia-drm modeset=1` trong
    `/etc/modprobe.d/anios-nvidia.conf` chỉ có tác dụng khi module được nạp; trên máy
@@ -483,7 +483,15 @@ Bốn nguyên nhân, và cách ảnh xử lý từng cái:
    (dùng chung cho cả hai desktop) đọc `ANIOS_GPU` rồi tắt con trỏ phần cứng
    (`cursor:no_hardware_cursors`, chống con trỏ nhấp nháy) và tắt VFR
    (`debug:vfr = false`, chống rung hình). Máy Intel/AMD giữ nguyên cấu hình cũ.
-4. **Không có đường thoát hiểm khi driver/hiệu ứng làm compositor chết.**
+4. **Compositor mở nhầm card DRM.** Trên máy UEFI, `simpledrm` có thể đã tạo
+   `/dev/dri/card0` trước khi `nvidia-drm` tạo `card1`. Aquamarine chọn card theo
+   thứ tự liệt kê, nên nó có thể mở card của `simpledrm` — card không có output thật
+   và không dựng được EGL — rồi thoát ngay, đưa người dùng về lại SDDM. Nay
+   `gpu-env.sh` đọc `/sys/class/drm/card*/device`, tìm đúng node của card NVIDIA và
+   đặt `AQ_DRM_DEVICES=/dev/dri/cardN` cho máy chỉ có NVIDIA (không tìm thấy thì
+   không đặt gì, vì một đường dẫn chết còn tệ hơn). `anios-session` ghi
+   `aq_drm=...` vào `session.log`, và `anios-gpu-doctor` kiểm biến này.
+5. **Không có đường thoát hiểm khi driver/hiệu ứng làm compositor chết.**
    - Phiên **`AniOS (Hyprland - Safe)`** ở SDDM chạy `anios-session --safe`: tắt
      blur, shadow, animation và dùng con trỏ phần mềm.
    - `anios-session` tự thử lại **một lần** ở chế độ an toàn nếu Hyprland thoát với
@@ -491,7 +499,10 @@ Bốn nguyên nhân, và cách ảnh xử lý từng cái:
      `~/.local/share/anios/session.log` (hồ sơ GPU, mã thoát).
    - `anios-gpu-doctor` chẩn đoán từ TTY: `anios-gpu-doctor` (chỉ đọc) và
      `sudo anios-gpu-doctor --fix` (ghi modprobe.d + drop-in mkinitcpio + tham số
-     GRUB, bật `nvidia-suspend/resume/hibernate`, rồi `mkinitcpio -P`).
+     GRUB, bật `nvidia-suspend/resume/hibernate`, rồi `mkinitcpio -P`). Công cụ này
+     kiểm cả **Secure Boot** (bật thì nhân từ chối module DKMS chưa ký — lý do số
+     một trên máy mua sẵn Windows 11), **initramfs có cũ hơn drop-in không** (sau khi
+     nâng cấp kernel/driver mà quên `mkinitcpio -P`) và **`AQ_DRM_DEVICES`**.
 
 Chi tiết cài đặt:
 
@@ -538,7 +549,7 @@ Nếu vẫn gặp màn hình đen hoặc quay lại màn hình đăng nhập:
    (`sudo ./scripts/build-iso.sh --clean`) hoặc cài lại từ ảnh mới.
 
 Kiểm tra cục bộ (không cần GPU):
-`./scripts/selftest-gpu-env.sh` (biến môi trường theo loại máy),
+`./scripts/selftest-gpu-env.sh` (biến môi trường theo loại máy, gồm việc ghim `AQ_DRM_DEVICES` khi có card `simpledrm`),
 `./scripts/selftest-anios-session.sh` (cờ `--safe` + tự lùi chế độ an toàn),
 `./scripts/selftest-anios-gpu-doctor.sh` (chẩn đoán/`--fix` trên cây giả, gồm cả trạng thái "card chỉ còn `/dev/fb0`" và Intel VMD/RST),
 `./scripts/selftest-build-iso-nvidia-params.sh` (tham số kernel trên grub/syslinux/systemd-boot).
@@ -565,7 +576,11 @@ kiểm tra được bằng một lệnh.
    sudo anios-gpu-doctor                            # mục "Thiết bị DRM (KMS)"
    ```
    `anios-gpu-doctor` nay báo lỗi riêng cho trạng thái "chỉ có `/dev/fb0`" và gợi ý
-   `video=efifb:off` khi `efifb` không chịu nhả card.
+   `video=efifb:off` khi `efifb` không chịu nhả card. Nếu `ls -l /dev/dri` có **nhiều**
+   card (`card0` của `simpledrm` + `card1` của NVIDIA), compositor phải được ghim:
+   `anios-session` tự đặt `AQ_DRM_DEVICES=/dev/dri/card1`; kiểm lại bằng
+   `grep aq_drm ~/.local/share/anios/session.log`. Và nhớ **tắt Secure Boot** trong
+   BIOS — module DKMS của NVIDIA không được ký nên nhân sẽ từ chối nạp.
 
 2. **Intel VMD/RST (mainboard B760/H610).** BIOS bật RST thì ổ NVMe không hiện ra
    như `/dev/nvme0n1` mà nằm sau một "RAID bus controller" của Intel; nhân chỉ tạo
@@ -646,7 +661,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR (git AUR → mirror GitHub → snapshot cgit), dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, thử lại gói hỏng, phân loại nguyên nhân hỏng, phát annotation cho GitHub Actions, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
 - `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; chạy mỗi cấu hình với ba hồ sơ GPU (`default`, `ANIOS_GPU=nvidia`, `ANIOS_SAFE=1`); cần Lua 5.4 trở lên, không cần GPU.
-- `profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf`, `/etc/modprobe.d/anios-nvidia.conf` và `usr/local/lib/anios/gpu-env.sh` — ba lớp cấu hình NVIDIA: module trong initramfs, tham số modprobe (modeset, giữ VRAM qua suspend) và biến môi trường theo loại máy (chỉ-NVIDIA vs hybrid).
+- `profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf`, `/etc/modprobe.d/anios-nvidia.conf` và `usr/local/lib/anios/gpu-env.sh` — ba lớp cấu hình NVIDIA: module trong initramfs, tham số modprobe (modeset, giữ VRAM qua suspend) và biến môi trường theo loại máy (chỉ-NVIDIA vs hybrid), gồm cả `AQ_DRM_DEVICES` để compositor không mở nhầm card `simpledrm`.
 - `profile/airootfs/etc/mkinitcpio.conf.d/20-anios-vmd.conf` — `MODULES+=(vmd)` cho mainboard Intel bật RST/VMD (B760/H610): ổ NVMe bị giấu sau VMD chỉ hiện khi initramfs có module này, nếu không bản cài đặt không tìm ra root. Dùng `+=` để không ghi đè danh sách module NVIDIA của drop-in `10-`.
 - `profile/airootfs/usr/local/bin/anios-gpu-doctor` — chẩn đoán GPU từ TTY (PCI/driver/modeset, thiết bị `/dev/dri` + ai đang giữ `/dev/fb0`, ổ NVMe sau Intel VMD/RST, cấu hình, nhật ký phiên), `--fix` ghi lại modprobe.d + drop-in mkinitcpio (+ `20-anios-vmd.conf` khi máy bật VMD) + tham số GRUB, rồi dựng lại initramfs.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
@@ -681,7 +696,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-installer.sh           # mô phỏng chọn Live/Install và các bước cài hệ thống
 ./scripts/selftest-build-iso-sudoers.sh   # bước kiểm tra NOPASSWD ở cuối build-iso.sh trên airootfs giả
 ./scripts/selftest-build-iso-permissions.sh # bước khai báo file_permissions (quyền/bit thực thi) của build-iso.sh
-./scripts/selftest-gpu-env.sh             # biến môi trường GPU NVIDIA của phiên Hyprland (sysfs giả)
+./scripts/selftest-gpu-env.sh             # biến môi trường GPU NVIDIA + AQ_DRM_DEVICES của phiên Hyprland (sysfs giả)
 ./scripts/selftest-anios-session.sh       # phiên an toàn + tự lùi khi Hyprland thoát ngay
 ./scripts/selftest-anios-gpu-doctor.sh    # chẩn đoán GPU và --fix trên cây giả
 ./scripts/selftest-build-iso-nvidia-params.sh # tham số kernel NVIDIA trên GRUB/Syslinux/systemd-boot

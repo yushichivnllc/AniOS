@@ -94,6 +94,20 @@ grep -qF 'anios_nvidia_modeset_enabled' "$AIROOTFS/usr/local/lib/anios/gpu-env.s
   fail "gpu-env.sh phải kiểm tra modeset của nvidia-drm"
 grep -qF 'ANIOS_NVIDIA_MODESET' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
   fail "gpu-env.sh phải báo trạng thái modeset cho anios-gpu-doctor"
+# Máy UEFI có simpledrm: compositor phải được ghim vào node của card NVIDIA, nếu
+# không nó mở card0 (không có output) rồi thoát ngay -> quay về SDDM.
+grep -qF 'AQ_DRM_DEVICES' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải đặt AQ_DRM_DEVICES cho máy chỉ có NVIDIA (tránh mở nhầm card simpledrm)"
+grep -qF '_anios_drm_card_for_pci' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải tìm node /dev/dri của đúng card NVIDIA theo sysfs"
+grep -qF 'aq_drm=' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải ghi AQ_DRM_DEVICES vào nhật ký phiên"
+
+# Ba nguyên nhân khiến Hyprland không lên hình dù modeset=1 mà chẩn đoán phải nêu.
+for doctor_needle in 'Secure Boot' 'AQ_DRM_DEVICES' 'mkinitcpio -P'; do
+  grep -qF -- "$doctor_needle" "$AIROOTFS/usr/local/bin/anios-gpu-doctor" ||
+    fail "anios-gpu-doctor phải chẩn đoán được '$doctor_needle'"
+done
 
 # Hồ sơ GPU dùng chung cho hai desktop; cả hai bản skel đều phải nạp nó.
 NVIDIA_PROFILE="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/nvidia.lua"
