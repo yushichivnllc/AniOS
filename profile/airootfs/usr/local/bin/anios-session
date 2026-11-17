@@ -81,7 +81,7 @@ else
   log_file=""
   anios_log() { :; }
 fi
-anios_log "session start: desktop=${ANIOS_DESKTOP:-default} safe=${ANIOS_SAFE:-0} gpu=${ANIOS_GPU:-none} nvidia_modeset=${ANIOS_NVIDIA_MODESET:-unknown}"
+anios_log "session start: desktop=${ANIOS_DESKTOP:-default} safe=${ANIOS_SAFE:-0} gpu=${ANIOS_GPU:-none} nvidia_modeset=${ANIOS_NVIDIA_MODESET:-unknown} aq_drm=${AQ_DRM_DEVICES:-none}"
 
 # Không dùng `exec`: cần đọc mã thoát của Hyprland để biết phiên có lên hình hay
 # không, rồi ghi lại và (một lần) thử chế độ an toàn.

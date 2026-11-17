@@ -68,6 +68,33 @@ _anios_nvidia_is_boot_vga() {
   return 1
 }
 
+# _anios_drm_card_for_pci <pci-id>: in ra node /dev/dri/cardN của đúng thiết bị PCI
+# đó, nếu nhân đã tạo node ấy. Trả về 1 khi không tìm thấy.
+#
+# Dùng để đặt AQ_DRM_DEVICES: trên máy UEFI, `simpledrm` có thể đã tạo
+# /dev/dri/card0 TRƯỚC khi nvidia-drm tạo card1. Aquamarine (compositor của
+# Hyprland) chọn card theo thứ tự liệt kê, nên nó có thể mở card của simpledrm —
+# card không có output thật và không dựng được EGL — rồi thoát ngay, đưa người
+# dùng về lại SDDM. Chỉ định thẳng node của card NVIDIA loại bỏ hoàn toàn khả năng
+# đó, và cũng là cách Hyprland khuyến nghị cho máy nhiều card.
+# ANIOS_DEV_ROOT chỉ để bài tự kiểm tra trỏ tới cây /dev giả.
+_anios_drm_card_for_pci() {
+  local wanted="$1" sysfs dev_root card name target
+  sysfs="$(_anios_sysfs_root)"
+  dev_root="${ANIOS_DEV_ROOT:-/dev}"
+  for card in "$sysfs"/class/drm/*; do
+    name="${card##*/}"
+    [[ "$name" =~ ^card[0-9]+$ ]] || continue
+    [[ -e "$card/device" ]] || continue
+    target="$(readlink -f -- "$card/device" 2>/dev/null || true)"
+    [[ "${target##*/}" == "$wanted" ]] || continue
+    [[ -e "$dev_root/dri/$name" ]] || continue
+    printf '%s\n' "$dev_root/dri/$name"
+    return 0
+  done
+  return 1
+}
+
 # nvidia-drm đã bật kernel mode-setting chưa? Wayland (Hyprland) KHÔNG chạy được
 # nếu modeset=0: nvidia-drm không cung cấp KMS device nên Aquamarine không mở
 # được GPU. Trả về 1 khi chưa bật hoặc không đọc được.
@@ -115,4 +142,19 @@ anios_export_gpu_env() {
   export __GLX_VENDOR_LIBRARY_NAME=nvidia
   export LIBVA_DRIVER_NAME=nvidia
   export NVD_BACKEND=direct
+
+  # Ghim compositor vào đúng card của NVIDIA. Không tìm ra node (sysfs bị giới
+  # hạn, hoặc driver chưa tạo node) thì KHÔNG đặt gì để compositor tự chọn như
+  # trước — đặt bừa một đường dẫn không tồn tại sẽ làm Hyprland chết ngay.
+  local pci nvidia_card=""
+  while read -r pci; do
+    [[ -n "$pci" ]] || continue
+    if nvidia_card="$(_anios_drm_card_for_pci "${pci##*/}")"; then
+      break
+    fi
+    nvidia_card=""
+  done < <(_anios_display_devices 0x10de)
+  if [[ -n "$nvidia_card" ]]; then
+    export AQ_DRM_DEVICES="$nvidia_card"
+  fi
 }

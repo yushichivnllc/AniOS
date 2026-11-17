@@ -32,6 +32,36 @@ make_gpu() {
   ln -sfn ../../drivers/nvidia "$dev/driver"
 }
 
+# make_drm <root> <fb-name>: card đã có KMS device thật (card1/renderD128) và
+# framebuffer do nvidia-drm giữ, tức trạng thái khoẻ mạnh.
+make_drm() {
+  local root="$1" fb="${2:-nvidia-drmdrmfb}"
+  mkdir -p -- "$root/dev/dri" "$root/sysfs/class/graphics/fb0"
+  : >"$root/dev/dri/card1"
+  : >"$root/dev/dri/renderD128"
+  printf '%s\n' "$fb" >"$root/sysfs/class/graphics/fb0/name"
+}
+
+# make_vmd <root>: "RAID bus controller" Intel đang dùng driver vmd (RST bật).
+make_vmd() {
+  local dev="$1/sysfs/bus/pci/devices/0000:00:0e.0"
+  mkdir -p -- "$dev" "$1/sysfs/bus/pci/drivers/vmd"
+  printf '0x8086\n' >"$dev/vendor"
+  printf '0x010400\n' >"$dev/class"
+  ln -sfn ../../drivers/vmd "$dev/driver"
+}
+
+# make_secure_boot <root> <0|1>: biến EFI SecureBoot (4 byte thuộc tính + 1 giá trị).
+make_secure_boot() {
+  local root="$1" value="$2"
+  mkdir -p -- "$root/efivars"
+  if (( value )); then
+    printf '\006\000\000\000\001' >"$root/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+  else
+    printf '\006\000\000\000\000' >"$root/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+  fi
+}
+
 load_modules() {
   local root="$1" modeset="$2"
   mkdir -p -- "$root/sysfs/module/nvidia" "$root/sysfs/module/nvidia_drm/parameters"
@@ -76,10 +106,13 @@ run_doctor() {
   shift
   env -i PATH="$SHIMS:/usr/local/bin:/usr/bin:/bin" HOME="$root/home" \
     ANIOS_SYSFS_ROOT="$root/sysfs" \
+    ANIOS_DEV_ROOT="$root/dev" \
     ANIOS_ETC_ROOT="$root/etc" \
     ANIOS_PROC_CMDLINE="$root/etc/cmdline" \
     ANIOS_SESSION_LOG="$root/home/session.log" \
     ANIOS_BOOT_DIR="$root/boot" \
+    ANIOS_EFIVARS_ROOT="$root/efivars" \
+    ANIOS_KERNEL_RELEASE="linux-zen" \
     ANIOS_TEST_CALLS="$ANIOS_TEST_CALLS" \
     "$DOCTOR" "$@"
 }
@@ -89,6 +122,7 @@ healthy="$TMP/healthy"
 mkdir -p "$healthy/home"
 make_gpu "$healthy" 0x10de
 load_modules "$healthy" Y
+make_drm "$healthy"
 write_good_config "$healthy/etc"
 out="$(run_doctor "$healthy")" || fail "healthy NVIDIA host must exit 0 (output: $out)"
 grep -qF 'modeset=1' <<<"$out" || fail "healthy host must report modeset=1"
@@ -122,6 +156,77 @@ out="$(run_doctor "$nouveau")" || status=$?
 (( status == 1 )) || fail "nouveau host must exit 1, got $status"
 grep -qF "nouveau" <<<"$out" || fail "must name nouveau"
 pass "nouveau host diagnostics"
+
+# --- 3b. Card chỉ còn /dev/fb0 của efifb (đúng như lshw của máy B760) ---------
+# Đây là trạng thái người dùng hay gặp nhất: modeset=1 nhưng driver chưa nhận card,
+# nên lshw in "/dev/fb0" thay vì "/dev/dri/card1". Chẩn đoán phải nói ra điều đó.
+fbroot="$TMP/fbonly"
+mkdir -p "$fbroot/home" "$fbroot/dev/dri"
+make_gpu "$fbroot" 0x10de
+load_modules "$fbroot" Y
+write_good_config "$fbroot/etc"
+mkdir -p "$fbroot/sysfs/class/graphics/fb0"
+printf 'efifb\n' >"$fbroot/sysfs/class/graphics/fb0/name"
+status=0
+out="$(run_doctor "$fbroot")" || status=$?
+(( status == 1 )) || fail "a host with only efifb must exit 1, got $status"
+grep -qF '/dev/dri/card*' <<<"$out" || fail "must report the missing KMS device"
+grep -qF "efifb" <<<"$out" || fail "must name efifb as the framebuffer owner"
+grep -qF 'video=efifb:off' <<<"$out" || fail "must explain how to take the framebuffer from efifb"
+pass "host with only efifb gets a KMS diagnosis"
+
+# --- 3c. Intel VMD/RST: cảnh báo ổ NVMe bị giấu, và --fix ghi drop-in vmd -----
+vmdroot="$TMP/vmd"
+mkdir -p "$vmdroot/home" "$vmdroot/dev/dri"
+make_gpu "$vmdroot" 0x10de
+load_modules "$vmdroot" Y
+make_drm "$vmdroot"
+make_vmd "$vmdroot"
+write_good_config "$vmdroot/etc"
+status=0
+out="$(run_doctor "$vmdroot")" || status=$?
+(( status == 1 )) || fail "a VMD host without the vmd drop-in must exit 1, got $status"
+grep -qF 'VMD' <<<"$out" || fail "must warn about Intel VMD/RST"
+grep -qF '20-anios-vmd.conf' <<<"$out" || fail "must name the missing vmd drop-in"
+run_doctor "$vmdroot" --fix >/dev/null || fail "--fix must fix the VMD configuration"
+grep -qxF 'MODULES+=(vmd)' "$vmdroot/etc/mkinitcpio.conf.d/20-anios-vmd.conf" ||
+  fail "--fix must append vmd with MODULES+= (not overwrite the NVIDIA list)"
+grep -qxF 'MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)' \
+  "$vmdroot/etc/mkinitcpio.conf.d/10-anios-nvidia.conf" ||
+  fail "--fix must keep the NVIDIA module list when adding vmd"
+pass "Intel VMD/RST diagnosis and vmd drop-in"
+
+# --- 3d. Secure Boot bật: nhân từ chối module NVIDIA, phải nói thẳng ---------
+sbroot="$TMP/secureboot"
+mkdir -p "$sbroot/home"
+make_gpu "$sbroot" 0x10de
+load_modules "$sbroot" Y
+make_drm "$sbroot"
+write_good_config "$sbroot/etc"
+make_secure_boot "$sbroot" 1
+status=0
+out="$(run_doctor "$sbroot")" || status=$?
+(( status == 1 )) || fail "Secure Boot host must exit 1, got $status"
+grep -qF 'Secure Boot' <<<"$out" || fail "must name Secure Boot as the blocker"
+grep -qF 'tắt Secure Boot' <<<"$out" || fail "must tell the user to disable Secure Boot"
+pass "Secure Boot diagnosis"
+
+# --- 3e. Initramfs cũ hơn drop-in: phải nhắc mkinitcpio -P -------------------
+staleroot="$TMP/stale-initramfs"
+mkdir -p "$staleroot/home" "$staleroot/boot"
+make_gpu "$staleroot" 0x10de
+load_modules "$staleroot" Y
+make_drm "$staleroot"
+write_good_config "$staleroot/etc"
+make_secure_boot "$staleroot" 0
+: >"$staleroot/boot/initramfs-linux-zen.img"
+touch -t 202001010000 "$staleroot/boot/initramfs-linux-zen.img"
+status=0
+out="$(run_doctor "$staleroot")" || status=$?
+(( status == 1 )) || fail "stale initramfs must exit 1, got $status"
+grep -qF 'initramfs' <<<"$out" || fail "must mention the initramfs"
+grep -qF 'mkinitcpio -P' <<<"$out" || fail "must tell the user to rebuild the initramfs"
+pass "stale initramfs diagnosis"
 
 # --- 4. --fix: ghi modprobe + drop-in + GRUB, gọi mkinitcpio -----------------
 fixroot="$TMP/fixroot"

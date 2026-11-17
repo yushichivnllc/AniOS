@@ -94,6 +94,20 @@ grep -qF 'anios_nvidia_modeset_enabled' "$AIROOTFS/usr/local/lib/anios/gpu-env.s
   fail "gpu-env.sh phải kiểm tra modeset của nvidia-drm"
 grep -qF 'ANIOS_NVIDIA_MODESET' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
   fail "gpu-env.sh phải báo trạng thái modeset cho anios-gpu-doctor"
+# Máy UEFI có simpledrm: compositor phải được ghim vào node của card NVIDIA, nếu
+# không nó mở card0 (không có output) rồi thoát ngay -> quay về SDDM.
+grep -qF 'AQ_DRM_DEVICES' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải đặt AQ_DRM_DEVICES cho máy chỉ có NVIDIA (tránh mở nhầm card simpledrm)"
+grep -qF '_anios_drm_card_for_pci' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải tìm node /dev/dri của đúng card NVIDIA theo sysfs"
+grep -qF 'aq_drm=' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải ghi AQ_DRM_DEVICES vào nhật ký phiên"
+
+# Ba nguyên nhân khiến Hyprland không lên hình dù modeset=1 mà chẩn đoán phải nêu.
+for doctor_needle in 'Secure Boot' 'AQ_DRM_DEVICES' 'mkinitcpio -P'; do
+  grep -qF -- "$doctor_needle" "$AIROOTFS/usr/local/bin/anios-gpu-doctor" ||
+    fail "anios-gpu-doctor phải chẩn đoán được '$doctor_needle'"
+done
 
 # Hồ sơ GPU dùng chung cho hai desktop; cả hai bản skel đều phải nạp nó.
 NVIDIA_PROFILE="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/nvidia.lua"
@@ -154,8 +168,53 @@ grep -qF "pacman -Qq nvidia-580xx-dkms" "$ROOT_DIR/scripts/build-iso.sh" ||
 grep -qF '10-anios-nvidia.conf' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
   fail "bộ cài đặt phải chép drop-in mkinitcpio NVIDIA sang máy đích"
 
+# Intel VMD/RST (mainboard B760/H610 bật RST): ổ NVMe bị giấu sau một RAID
+# controller của Intel, chỉ hiện ra khi initramfs có module `vmd`. Drop-in phải
+# dùng MODULES+= để CỘNG DỒN vào danh sách của 10-anios-nvidia.conf — viết
+# MODULES=(vmd) sẽ đẩy module NVIDIA ra khỏi initramfs và Wayland mất KMS.
+VMD_DROPIN="$AIROOTFS/etc/mkinitcpio.conf.d/20-anios-vmd.conf"
+[[ -s "$VMD_DROPIN" ]] ||
+  fail "thiếu $VMD_DROPIN: máy bật Intel VMD/RST sẽ không thấy ổ NVMe khi cài"
+grep -qxF 'MODULES+=(vmd)' "$VMD_DROPIN" ||
+  fail "$VMD_DROPIN phải thêm vmd bằng MODULES+=(vmd), không ghi đè MODULES của NVIDIA"
+grep -qF '20-anios-vmd.conf' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+  fail "bộ cài đặt phải chép drop-in vmd sang máy đích (nếu không máy cài trên ổ VMD không boot)"
+
+# PreserveVideoMemoryAllocations=1 chỉ giữ được VRAM nếu các unit suspend/resume của
+# NVIDIA được bật ở máy đích; thiếu chúng thì ngủ xong chỉ còn màn hình đen.
+for suspend_unit in nvidia-suspend nvidia-resume nvidia-hibernate; do
+  grep -qF "$suspend_unit" "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+    fail "bộ cài đặt phải enable $suspend_unit.service trên máy đích"
+done
+
+# Chẩn đoán phải nhận ra trạng thái 'card chỉ còn /dev/fb0 của efifb' (lshw in
+# "/dev/fb0" cho card NVIDIA) và ổ NVMe sau Intel VMD/RST.
+GPU_DOCTOR="$AIROOTFS/usr/local/bin/anios-gpu-doctor"
+for doctor_needle in '/dev/dri/card*' 'efifb' 'VMD/RST'; do
+  grep -qF -- "$doctor_needle" "$GPU_DOCTOR" ||
+    fail "anios-gpu-doctor phải chẩn đoán '$doctor_needle'"
+done
+
 # dkms + xorg-server: driver DKMS không tự biên dịch nếu thiếu dkms, và SDDM dùng
 # greeter X11 (cần xorg-server) — nêu tên tường minh trong cả hai manifest.
+# Chẩn đoán dmesg: công cụ phải tồn tại trong ảnh, được chép sang máy đích, và
+# coredumpctl phải có để truy ra chương trình bị segfault (dmesg chỉ in tên 15
+# ký tự: "hyprland-update[25021]: segfault at ... in libwayland-client.so").
+DMESG_CHECK="$AIROOTFS/usr/local/bin/anios-dmesg-check"
+[[ -x "$DMESG_CHECK" ]] || fail "thiếu $DMESG_CHECK (chẩn đoán dmesg cho người dùng)"
+for needle in 'AE_ALREADY_EXISTS' 'coredumpctl' 'segfault'; do
+  grep -qF -- "$needle" "$DMESG_CHECK" || fail "anios-dmesg-check phải xử lý '$needle'"
+done
+grep -qF 'anios-dmesg-check' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+  fail "bộ cài đặt phải chép anios-dmesg-check sang máy đích"
+# `coredumpctl` nằm trong gói `systemd`; gói `systemd-coredump` riêng đã bị gộp và
+# biến mất khỏi kho Arch. Khai báo lại nó sẽ làm bản dựng ISO dừng ở
+# anios_verify_manifest_resolvable ("target not found: systemd-coredump").
+for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
+  ! grep -qxF 'systemd-coredump' "$manifest" ||
+    fail "systemd-coredump không còn trong kho Arch (coredumpctl thuộc gói systemd): bỏ khỏi ${manifest#"$ROOT_DIR"/}"
+done
+
 for manifest_package in dkms xorg-server; do
   for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
     grep -qxF "$manifest_package" "$manifest" ||

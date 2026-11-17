@@ -93,6 +93,10 @@ rtkit
 pavucontrol
 sof-firmware
 
+# Ghi chú: `coredumpctl` (tra core dump khi ứng dụng segfault) nằm ngay trong gói
+# `systemd` — gói `systemd-coredump` riêng đã bị gộp và biến mất khỏi kho Arch, nên
+# khai báo nó ở đây sẽ làm `anios_verify_manifest_resolvable` dừng bản dựng với
+# "target not found". `base` đã kéo `systemd` theo.
 # Steam và hỗ trợ chơi game (kèm thư viện 32-bit của Steam)
 steam
 

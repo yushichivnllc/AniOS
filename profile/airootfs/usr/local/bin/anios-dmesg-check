@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+# anios-dmesg-check — đọc `dmesg` và nói rõ: dòng nào là lỗi firmware VÔ HẠI,
+# dòng nào là lỗi thật của hệ thống, kèm việc cần làm.
+#
+# Vì sao cần công cụ này: `sudo dmesg -T | grep -iE "oom|killed|error"` là cách
+# mọi người kiểm tra "máy có lỗi gì", nhưng kết quả gần như luôn gây hoang mang
+# trên máy để nguyên BIOS:
+#
+#   * ACPI BIOS Error (bug): Failure creating named object [...PEG1.PEGP._DSM.USRG],
+#     AE_ALREADY_EXISTS / ACPI Error: Aborting method ...\_SB.PC00.PEG1.PEGP._DSM
+#     — bảng DSDT của BIOS khai báo CÙNG một object _DSM hai lần (PEG1 = khe PCIe
+#     cắm card đồ hoạ). Nhân in cảnh báo rồi bỏ qua, card vẫn chạy bình thường.
+#     Không hệ điều hành nào sửa được: chỉ ASUS sửa được bằng bản BIOS mới.
+#   * "RAS: Correctable Errors collector initialized." — chỉ là dòng khởi tạo bộ
+#     đếm lỗi ECC sửa được của nhân, không phải lỗi.
+#   * "... segfault at cc ip ... error 6 in libwayland-client.so" — đây là MỘT
+#     chương trình người dùng bị crash (lỗi ở ứng dụng, không phải nhân, không
+#     phải driver GPU). Nhân chỉ ghi lại giúp; muốn biết chương trình nào và vì
+#     sao thì phải xem core dump: `coredumpctl info <tên>`.
+#
+# Công cụ phân loại từng dòng theo bảng dưới đây, in nhóm "VÔ HẠI" (kèm giải
+# thích để không phải đi mò nữa) và nhóm "CẦN SỬA" (kèm lệnh cụ thể), rồi trả mã
+# thoát 1 nếu có lỗi thật.
+#
+#   anios-dmesg-check            # đọc dmesg hiện tại
+#   anios-dmesg-check --boot     # đọc toàn bộ từ lúc khởi động (journalctl -k -b)
+#   anios-dmesg-check --quiet    # chỉ in nhóm cần sửa
+#   anios-dmesg-check --pause    # đợi Enter trước khi thoát (chạy từ menu)
+#
+# ANIOS_DMESG_FILE chỉ dùng cho bài tự kiểm tra: đọc từ tệp thay vì gọi dmesg.
+set -Eeuo pipefail
+
+if [[ -t 1 ]]; then
+  bold=$'\033[1m'
+  green=$'\033[32m'
+  yellow=$'\033[33m'
+  red=$'\033[31m'
+  dim=$'\033[2m'
+  reset=$'\033[0m'
+else
+  bold= green= yellow= red= dim= reset=
+fi
+
+usage() {
+  cat <<'EOF'
+Cách dùng: anios-dmesg-check [--boot] [--quiet] [--pause]
+
+  --boot    đọc toàn bộ nhật ký nhân từ lúc khởi động (journalctl -k -b)
+  --quiet   chỉ in những nhóm cần sửa
+  --pause   đợi Enter trước khi thoát (dùng khi mở từ menu/phím tắt)
+  -h|--help in trợ giúp này
+
+Mã thoát: 0 = không có lỗi thật, 1 = có ít nhất một nhóm lỗi cần xử lý.
+EOF
+}
+
+FROM_BOOT=0
+QUIET=0
+DO_PAUSE=0
+for arg in "$@"; do
+  case "$arg" in
+    --boot) FROM_BOOT=1 ;;
+    --quiet | -q) QUIET=1 ;;
+    --pause) DO_PAUSE=1 ;;
+    -h | --help | help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'anios-dmesg-check: tuỳ chọn không hợp lệ: %s\n' "$arg" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+# --- Nguồn dữ liệu ----------------------------------------------------------
+# dmesg có thể bị chặn bởi kernel.dmesg_restrict=1; khi đó đọc qua journal của
+# nhân (chỉ cần quyền đọc journal, thường đã có với tài khoản trong nhóm
+# systemd-journal) hoặc báo người dùng chạy bằng sudo.
+read_log() {
+  if [[ -n "${ANIOS_DMESG_FILE:-}" ]]; then
+    [[ -r "$ANIOS_DMESG_FILE" ]] || {
+      printf 'anios-dmesg-check: không đọc được %s\n' "$ANIOS_DMESG_FILE" >&2
+      return 1
+    }
+    cat -- "$ANIOS_DMESG_FILE"
+    return 0
+  fi
+  if (( FROM_BOOT )); then
+    if command -v journalctl >/dev/null 2>&1 && journalctl -k -b --no-pager -o cat 2>/dev/null; then
+      return 0
+    fi
+    printf 'anios-dmesg-check: không đọc được journal của nhân, thử lại bằng sudo\n' >&2
+    return 1
+  fi
+  if dmesg 2>/dev/null; then
+    return 0
+  fi
+  if command -v journalctl >/dev/null 2>&1 && journalctl -k -b --no-pager -o cat 2>/dev/null; then
+    return 0
+  fi
+  printf 'anios-dmesg-check: không đọc được dmesg (kernel.dmesg_restrict=1). Chạy: sudo anios-dmesg-check\n' >&2
+  return 1
+}
+
+# --- Bảng phân loại ---------------------------------------------------------
+# Mỗi nhóm: mã, mức (harmless|warn|fail), tiêu đề, giải thích, việc cần làm.
+# Thứ tự kiểm tra quan trọng: dòng nào khớp mẫu đầu tiên thì thuộc nhóm đó, nên
+# các mẫu hẹp (AE_ALREADY_EXISTS) phải đứng trước mẫu rộng (ACPI Error).
+declare -A LEVEL=() TITLE=() WHY=() ACTION=() COUNT=() EXAMPLES=()
+
+set_group() {
+  local code="$1" level="$2" title="$3" why="$4" action="$5"
+  LEVEL[$code]="$level"
+  TITLE[$code]="$title"
+  WHY[$code]="$why"
+  ACTION[$code]="$action"
+  COUNT[$code]=0
+  EXAMPLES[$code]=""
+}
+
+set_group acpi_bios harmless \
+  'Lỗi firmware ACPI (_DSM khai báo trùng) — BIOS, không phải AniOS' \
+  'Bảng DSDT của BIOS khai báo cùng một object _DSM hai lần (PEG1 = khe PCIe của card đồ hoạ). Nhân in cảnh báo rồi BỎ QUA; card và các thiết bị vẫn hoạt động bình thường. Chỉ hãng mainboard sửa được, bằng bản BIOS mới.' \
+  'Không cần làm gì. Muốn hết dòng này thì cập nhật BIOS cho mainboard, hoặc để nguyên — vô hại.'
+
+set_group ras_noise harmless \
+  'Dòng khởi tạo bộ đếm lỗi RAS (không phải lỗi)' \
+  '"RAS: Correctable Errors collector initialized" chỉ nói rằng nhân đã bật bộ đếm lỗi phần cứng sửa được (ECC). Chữ "Errors" nằm trong tên thành phần, không phải lỗi xảy ra.' \
+  'Không cần làm gì.'
+
+set_group segfault fail \
+  'Chương trình người dùng bị crash (segfault)' \
+  'Đây là lỗi của MỘT ứng dụng (userspace) khi nói chuyện với Wayland/X11 hoặc với thư viện của nó — không phải lỗi nhân, không phải lỗi driver GPU. Nhân chỉ ghi lại giúp. Phiên desktop vẫn chạy tiếp; chỉ chương trình đó chết.' \
+  'Xem chương trình nào và vì sao: `coredumpctl list` rồi `coredumpctl info <tên>` (coredumpctl nằm trong gói `systemd`, không phải gói riêng). Nếu chương trình lạ (không do gói nào cung cấp), kiểm tra `pacman -Qo "$(command -v <tên>)"` và các script tự thêm trong ~/.local/bin.'
+
+set_group oom fail \
+  'Hết RAM — nhân phải kill tiến trình' \
+  'Nhân chọn tiến trình ngốn nhiều RAM nhất và kill để máy khỏi treo (OOM killer). Trên máy 16 GB vừa chơi game vừa mở nhiều tab trình duyệt thì rất dễ gặp.' \
+  'Đóng bớt ứng dụng; kiểm tra `zramctl` (AniOS bật zram swap) và cân nhắc thêm RAM. Xem tiến trình bị kill trong dòng "Out of memory: Killed process".'
+
+set_group gpu_hang fail \
+  'GPU treo hoặc bị nhân reset' \
+  'Card đồ hoạ không trả lời trong thời gian cho phép (NVRM Xid / "fallen off the bus" / ring timeout) nên nhân phải reset. Thường do driver, ép xung quá cao, dây nguồn PCIe lỏng, hoặc card quá nóng.' \
+  'Chạy `anios-gpu-doctor`; bỏ ép xung (MSI Afterburner/GreenWithEnvy); kiểm tra dây nguồn 8-pin của card và nhiệt độ bằng `nvidia-smi`.'
+
+set_group disk_error fail \
+  'Lỗi đọc/ghi ổ đĩa' \
+  'Nhân không đọc/ghi được sector (I/O error, EXT4-fs error, blk_update_request). Dữ liệu có thể mất nếu bỏ qua, và trên USB live rẻ tiền thì đây là dấu hiệu USB hỏng.' \
+  'Sao lưu dữ liệu ngay; kiểm tra SMART (`sudo smartctl -a /dev/nvme0` hoặc `/dev/sda`); thử USB/ổ khác. Với USB live: dựng lại USB bằng `dd` và một ổ khác.'
+
+set_group lockup fail \
+  'Nhân bị treo (soft lockup / hard LOCKUP / watchdog)' \
+  'Một CPU bị kẹt trong nhân quá lâu. Thường do driver hoặc phần cứng (RAM, PCIe), đôi khi do ép xung.' \
+  'Cập nhật BIOS, tắt ép xung, chạy memtest (`memtest86+`) nếu lặp lại; ghi lại nội dung dòng lockup khi báo lỗi.'
+
+set_group pcie warn \
+  'Lỗi PCIe (AER / link down)' \
+  'Đường PCIe báo lỗi truyền nhận hoặc mất link. Với máy có card đồ hoạ cắm qua riser/dây nối, đây là dấu hiệu tiếp xúc kém.' \
+  'Cắm lại card, kiểm tra riser/dây, tránh ép xung PCIe. Nếu chỉ xuất hiện một lần lúc khởi động thì có thể bỏ qua.'
+
+set_group acpi_other warn \
+  'Lỗi ACPI khác (firmware)' \
+  'Bảng ACPI của BIOS có chỗ không chuẩn. Phần lớn vô hại; chỉ đáng lo nếu kèm theo thiết bị không nhận (bàn phím, cảm biến nhiệt, quạt).' \
+  'Cập nhật BIOS nếu có; nếu thiết bị cụ thể không hoạt động, ghi lại nguyên dòng lỗi khi báo cáo.'
+
+set_group usb warn \
+  'Lỗi thiết bị USB (reset / descriptor)' \
+  'Thiết bị USB bị ngắt kết nối hoặc không đọc được descriptor — hay gặp với hub rẻ tiền, dây dài, hoặc chuột/bàn phím lỏng chân.' \
+  'Cắm thẳng vào cổng sau mainboard, bỏ hub, thử cáp khác. Nếu là USB live đang chạy thì kiểm tra luôn ổ USB đó.'
+
+set_group net_noise warn \
+  'Card mạng báo link lên/xuống' \
+  'RTL8111/8168 (`r8169`) thường in vài dòng link không ổn định khi bật/tắt máy hoặc khi tiết kiệm điện (ASPM).' \
+  'Nếu mạng thật sự chập chờn: thêm `r8169.aspm=0` (hoặc `pcie_aspm=off`) vào GRUB và chạy `anios-netcheck`.'
+
+# classify <line> -> in ra mã nhóm (hoặc rỗng nếu không thuộc nhóm nào)
+classify() {
+  local line="$1"
+  [[ "$line" =~ AE_ALREADY_EXISTS ]] && { printf 'acpi_bios\n'; return 0; }
+  [[ "$line" =~ Correctable\ Errors\ collector\ initialized ]] && { printf 'ras_noise\n'; return 0; }
+  [[ "$line" =~ (segfault|trap\ int3|general\ protection\ fault)\ at ]] && { printf 'segfault\n'; return 0; }
+  [[ "$line" =~ (Out\ of\ memory|oom-kill|Killed\ process|invoked\ oom-killer) ]] && { printf 'oom\n'; return 0; }
+  [[ "$line" =~ (NVRM|nvidia-modeset).*(Xid|fallen\ off\ the\ bus|GPU\ has\ fallen) ]] && { printf 'gpu_hang\n'; return 0; }
+  [[ "$line" =~ (amdgpu|i915).*(ring\ .*timeout|GPU\ HANG|Resetting) ]] && { printf 'gpu_hang\n'; return 0; }
+  [[ "$line" =~ (I/O\ error|EXT4-fs\ error|blk_update_request|Buffer\ I/O\ error) ]] && { printf 'disk_error\n'; return 0; }
+  [[ "$line" =~ (soft\ lockup|hard\ LOCKUP|BUG:\ .*stuck|watchdog:.*lockup) ]] && { printf 'lockup\n'; return 0; }
+  [[ "$line" =~ (AER:|Corrected\ error|Uncorrected\ error|link\ is\ down) ]] && { printf 'pcie\n'; return 0; }
+  [[ "$line" =~ (usb\ [0-9-]+.*(error\ -[0-9]+|reset|not\ accepting)) ]] && { printf 'usb\n'; return 0; }
+  [[ "$line" =~ (r8169|r8168).*(link|Link) ]] && { printf 'net_noise\n'; return 0; }
+  [[ "$line" =~ ACPI ]] && { printf 'acpi_other\n'; return 0; }
+  printf '\n'
+}
+
+# --- Đọc và phân loại -------------------------------------------------------
+log="$(read_log)" || exit 2
+total=0
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  total=$((total + 1))
+  code="$(classify "$line")"
+  [[ -n "$code" ]] || continue
+  COUNT[$code]=$(( ${COUNT[$code]:-0} + 1 ))
+  # Giữ tối đa 3 ví dụ mỗi nhóm: đủ để nhận ra triệu chứng, không ngập màn hình.
+  examples="${EXAMPLES[$code]:-}"
+  if [[ "$(printf '%s' "$examples" | grep -c '' || true)" -lt 3 ]]; then
+    # Bỏ tiền tố thời gian của `dmesg -T`/journal cho gọn.
+    trimmed="$(sed -E 's/^\[[^]]+\][[:space:]]*//' <<<"$line")"
+    EXAMPLES[$code]="${examples}${trimmed}"$'\n'
+  fi
+done < <(printf '%s\n' "$log")
+
+printf '%sAniOS — đọc nhật ký nhân%s\n' "$bold" "$reset"
+printf 'Đã quét %d dòng%s\n' "$total" "$( (( FROM_BOOT )) && printf ' (từ lúc khởi động)' || true)"
+
+order=(acpi_bios ras_noise segfault oom gpu_hang disk_error lockup pcie acpi_other usb net_noise)
+harmless_total=0
+warn_total=0
+fail_total=0
+fail_groups=0
+
+print_group() {
+  local code="$1" level="${LEVEL[$1]}" count="${COUNT[$1]:-0}"
+  (( count > 0 )) || return 0
+  local label color
+  case "$level" in
+    harmless) label='VÔ HẠI'; color="$green" ;;
+    warn) label='CHÚ Ý'; color="$yellow" ;;
+    *) label='CẦN SỬA'; color="$red" ;;
+  esac
+  if (( QUIET )) && [[ "$level" != fail ]]; then
+    return 0
+  fi
+  printf '\n%s[%s]%s %s (%d dòng)\n' "$color" "$label" "$reset" "${TITLE[$code]}" "$count"
+  printf '  %sVì sao:%s %s\n' "$dim" "$reset" "${WHY[$code]}"
+  printf '  %sViệc cần làm:%s %s\n' "$dim" "$reset" "${ACTION[$code]}"
+  while IFS= read -r example; do
+    [[ -n "$example" ]] || continue
+    printf '  %s• %s%s\n' "$dim" "$example" "$reset"
+  done <<<"${EXAMPLES[$code]:-}"
+
+  # Segfault: in sẵn tên chương trình và lệnh tra cứu core dump, vì "segfault
+  # at ... in libwayland-client.so" không cho biết ứng dụng NÀO đã chết.
+  if [[ "$code" == segfault ]]; then
+    local name first=""
+    while IFS= read -r example; do
+      [[ "$example" =~ ^([^][]+)\[[0-9]+\]: ]] || continue
+      name="${BASH_REMATCH[1]}"
+      [[ -n "$name" ]] || continue
+      [[ -n "$first" ]] || first="$name"
+    done <<<"${EXAMPLES[$code]:-}"
+    if [[ -n "$first" ]]; then
+      printf '  %sChương trình bị crash:%s %s\n' "$dim" "$reset" "$first"
+      if command -v coredumpctl >/dev/null 2>&1; then
+        printf '  %sTra cứu core dump:%s coredumpctl info %s\n' "$dim" "$reset" "$first"
+      else
+        # coredumpctl thuộc gói `systemd`; máy thiếu nó nghĩa là systemd bị thay bằng
+        # bản khác, chứ không phải thiếu một gói riêng để cài thêm.
+        printf '  %sTra cứu:%s journalctl -b | grep -i %s (máy này không có coredumpctl)\n' \
+          "$dim" "$reset" "$first"
+      fi
+      printf '  %sNếu tên này không phải gói của AniOS:%s pacman -Qo "$(command -v %s)" (rỗng nghĩa là script tự thêm)\n' \
+        "$dim" "$reset" "$first"
+    fi
+  fi
+}
+
+for code in "${order[@]}"; do
+  count="${COUNT[$code]:-0}"
+  case "${LEVEL[$code]}" in
+    harmless) harmless_total=$((harmless_total + count)) ;;
+    warn) warn_total=$((warn_total + count)) ;;
+    *)
+      fail_total=$((fail_total + count))
+      (( count > 0 )) && fail_groups=$((fail_groups + 1))
+      ;;
+  esac
+done
+
+for code in "${order[@]}"; do
+  print_group "$code"
+done
+
+printf '\n'
+if (( fail_groups > 0 )); then
+  printf '%sKết luận:%s %d dòng thuộc %d nhóm lỗi THẬT cần xử lý (%d dòng lỗi firmware/bình thường đã bỏ qua).\n' \
+    "$bold" "$reset" "$fail_total" "$fail_groups" "$((harmless_total + warn_total))"
+  if (( DO_PAUSE )); then
+    read -r -p 'Nhấn Enter để thoát...' _ || true
+  fi
+  exit 1
+fi
+printf '%sKết luận:%s không có lỗi thật. %d dòng còn lại là cảnh báo/firmware (đã giải thích ở trên).\n' \
+  "$bold" "$reset" "$((harmless_total + warn_total))"
+if (( DO_PAUSE )); then
+  read -r -p 'Nhấn Enter để thoát...' _ || true
+fi
+exit 0
