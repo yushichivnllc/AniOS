@@ -133,7 +133,7 @@ set_group ras_noise harmless \
 set_group segfault fail \
   'Chương trình người dùng bị crash (segfault)' \
   'Đây là lỗi của MỘT ứng dụng (userspace) khi nói chuyện với Wayland/X11 hoặc với thư viện của nó — không phải lỗi nhân, không phải lỗi driver GPU. Nhân chỉ ghi lại giúp. Phiên desktop vẫn chạy tiếp; chỉ chương trình đó chết.' \
-  'Xem chương trình nào và vì sao: `coredumpctl list` rồi `coredumpctl info <tên>`. Nếu `coredumpctl` không có, cài `systemd-coredump`. Nếu chương trình lạ (không do gói nào cung cấp), kiểm tra `pacman -Qo "$(command -v <tên>)"` và các script tự thêm trong ~/.local/bin.'
+  'Xem chương trình nào và vì sao: `coredumpctl list` rồi `coredumpctl info <tên>` (coredumpctl nằm trong gói `systemd`, không phải gói riêng). Nếu chương trình lạ (không do gói nào cung cấp), kiểm tra `pacman -Qo "$(command -v <tên>)"` và các script tự thêm trong ~/.local/bin.'
 
 set_group oom fail \
   'Hết RAM — nhân phải kill tiến trình' \
@@ -255,7 +255,9 @@ print_group() {
       if command -v coredumpctl >/dev/null 2>&1; then
         printf '  %sTra cứu core dump:%s coredumpctl info %s\n' "$dim" "$reset" "$first"
       else
-        printf '  %sTra cứu:%s sudo pacman -S systemd-coredump, sau đó: coredumpctl info %s\n' \
+        # coredumpctl thuộc gói `systemd`; máy thiếu nó nghĩa là systemd bị thay bằng
+        # bản khác, chứ không phải thiếu một gói riêng để cài thêm.
+        printf '  %sTra cứu:%s journalctl -b | grep -i %s (máy này không có coredumpctl)\n' \
           "$dim" "$reset" "$first"
       fi
       printf '  %sNếu tên này không phải gói của AniOS:%s pacman -Qo "$(command -v %s)" (rỗng nghĩa là script tự thêm)\n' \

@@ -394,7 +394,7 @@ thật (segfault, OOM, GPU treo, lỗi ổ đĩa, lockup). Với segfault, công
 tên chương trình và lệnh tra cứu:
 
 ```bash
-coredumpctl list                 # gói systemd-coredump đã có trong ảnh và bản cài
+coredumpctl list                 # coredumpctl nằm trong gói systemd (đã có sẵn trong ảnh)
 coredumpctl info <tên>            # dòng lệnh đầy đủ + backtrace
 pacman -Qo "$(command -v <tên>)"  # rỗng nghĩa là script do người dùng tự thêm
 ```

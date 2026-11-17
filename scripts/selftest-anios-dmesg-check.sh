@@ -22,6 +22,14 @@ bash -n "$CHECK" || fail "anios-dmesg-check has a syntax error"
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT
 
+# coredumpctl không có trên mọi máy chạy test: tạo một stub để khẳng định đúng
+# nhánh "có coredumpctl" (nhánh chính trên ảnh AniOS, vì coredumpctl thuộc gói
+# systemd). Nhánh còn lại được kiểm bằng bài riêng bên dưới.
+mkdir -p "$TMP/bin"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$TMP/bin/coredumpctl"
+chmod 0755 "$TMP/bin/coredumpctl"
+PATH="$TMP/bin:$PATH"
+
 # run_check <file> [args...]: chạy công cụ trên tệp giả, in stdout, trả mã thoát.
 run_check() {
   local file="$1"
@@ -50,6 +58,11 @@ grep -qF 'Chương trình bị crash: hyprland-update' <<<"$out" ||
   fail "must name the crashin program (hyprland-update)"
 grep -qF 'coredumpctl info hyprland-update' <<<"$out" ||
   fail "must give the exact coredumpctl command"
+
+# Máy không có coredumpctl: phải chỉ đường khác, không được im lặng.
+no_cd_out="$(PATH=/usr/local/bin:/usr/bin:/bin ANIOS_DMESG_FILE="$user_log" "$CHECK" 2>&1 || true)"
+grep -qE 'coredumpctl info hyprland-update|journalctl -b \| grep -i hyprland-update' <<<"$no_cd_out" ||
+  fail "without coredumpctl the tool must still point at a way to inspect the crash"
 grep -qF 'libwayland-client' <<<"$out" || fail "must show the crashing line as an example"
 pass "the user's dmesg: ACPI noise explained, segfault reported"
 

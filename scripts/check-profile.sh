@@ -207,9 +207,12 @@ for needle in 'AE_ALREADY_EXISTS' 'coredumpctl' 'segfault'; do
 done
 grep -qF 'anios-dmesg-check' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
   fail "bộ cài đặt phải chép anios-dmesg-check sang máy đích"
+# `coredumpctl` nằm trong gói `systemd`; gói `systemd-coredump` riêng đã bị gộp và
+# biến mất khỏi kho Arch. Khai báo lại nó sẽ làm bản dựng ISO dừng ở
+# anios_verify_manifest_resolvable ("target not found: systemd-coredump").
 for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
-  grep -qxF 'systemd-coredump' "$manifest" ||
-    fail "systemd-coredump missing from ${manifest#"$ROOT_DIR"/} (coredumpctl phải có để tra segfault)"
+  ! grep -qxF 'systemd-coredump' "$manifest" ||
+    fail "systemd-coredump không còn trong kho Arch (coredumpctl thuộc gói systemd): bỏ khỏi ${manifest#"$ROOT_DIR"/}"
 done
 
 for manifest_package in dkms xorg-server; do
