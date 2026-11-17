@@ -82,6 +82,12 @@ lib32-nvidia-580xx-utils
 nvidia-580xx-settings
 nvidia-580xx-dkms
 egl-wayland
+# dkms phải có trên máy đích: nvidia-580xx-dkms chỉ là mã nguồn module, dkms biên
+# dịch nó cho kernel đang chạy VÀ biên dịch lại mỗi lần linux-zen được nâng cấp.
+# Thiếu dkms, máy cài đặt sẽ mất driver NVIDIA sau lần `pacman -Syu` đầu tiên.
+dkms
+# Greeter X11 của SDDM (và driver X11 cho app cũ qua XWayland).
+xorg-server
 
 # XWayland và driver màn hình cơ bản cho SDDM / fallback
 xorg-xwayland

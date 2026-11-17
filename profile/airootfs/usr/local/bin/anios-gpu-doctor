@@ -1,0 +1,443 @@
+#!/usr/bin/env bash
+# anios-gpu-doctor — chẩn đoán vì sao Hyprland không lên hình trên máy có GPU rời,
+# và (với --fix) sửa những thiết lập cần quyền root.
+#
+# Chạy được từ TTY cứu hộ (Ctrl+Alt+F2) khi màn hình đồ hoạ đen:
+#     anios-gpu-doctor            # chỉ đọc, in chẩn đoán + cách sửa
+#     sudo anios-gpu-doctor --fix # ghi modprobe/mkinitcpio/GRUB rồi dựng lại initramfs
+#
+# Ba nguyên nhân hay gặp nhất mà công cụ này kiểm tra:
+#   1. nvidia-drm chạy mà modeset=0 (thiếu tham số kernel / thiếu module trong
+#      initramfs) — Wayland không có KMS device nên Hyprland thoát ngay.
+#   2. nouveau còn nạp, hoặc driver proprietary chưa được nạp cho card đang dùng.
+#   3. máy hybrid bị đặt GBM_BACKEND/LIBVA_DRIVER_NAME của NVIDIA trong khi iGPU
+#      xuất hình — compositor mở card của iGPU bằng backend NVIDIA rồi chết.
+#
+# Các biến ANIOS_* dưới đây tồn tại để bài tự kiểm tra chạy trên cây giả
+# (scripts/selftest-anios-gpu-doctor.sh), không cần GPU hay Arch Linux.
+set -Eeuo pipefail
+
+SYSFS="${ANIOS_SYSFS_ROOT:-/sys}"
+ETC="${ANIOS_ETC_ROOT:-/etc}"
+CMDLINE_FILE="${ANIOS_PROC_CMDLINE:-/proc/cmdline}"
+MODPROBE_CONF="$ETC/modprobe.d/anios-nvidia.conf"
+MKINITCPIO_DROPIN="$ETC/mkinitcpio.conf.d/10-anios-nvidia.conf"
+GRUB_DEFAULTS="$ETC/default/grub"
+BOOT_DIR="${ANIOS_BOOT_DIR:-/boot}"
+
+# Nhật ký phiên của NGƯỜI DÙNG, không phải của root: công cụ này thường được chạy
+# bằng sudo từ TTY, khi đó $HOME là /root và nhật ký của tài khoản thật sẽ bị bỏ sót.
+anios_session_log() {
+  local candidate
+  if [[ -n "${ANIOS_SESSION_LOG:-}" ]]; then
+    printf '%s\n' "$ANIOS_SESSION_LOG"
+    return 0
+  fi
+  if [[ -n "${SUDO_USER:-}" ]] && [[ "${SUDO_USER}" != root ]]; then
+    candidate="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+    if [[ -n "$candidate" ]]; then
+      printf '%s\n' "$candidate/.local/share/anios/session.log"
+      return 0
+    fi
+  fi
+  candidate="${XDG_STATE_HOME:-${HOME:-/root}/.local/share}/anios/session.log"
+  if [[ ! -r "$candidate" ]] && (( EUID == 0 )); then
+    # Không biết tài khoản nào: lấy nhật ký mới nhất trong /home.
+    local newest=""
+    for candidate in /home/*/.local/share/anios/session.log; do
+      [[ -r "$candidate" ]] || continue
+      if [[ -z "$newest" || "$candidate" -nt "$newest" ]]; then
+        newest="$candidate"
+      fi
+    done
+    [[ -n "$newest" ]] && candidate="$newest"
+  fi
+  printf '%s\n' "$candidate"
+}
+SESSION_LOG="$(anios_session_log)"
+NVIDIA_MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)
+KERNEL_PARAMS=(nvidia_drm.modeset=1 nvidia_drm.fbdev=1)
+
+problems=0
+fixed=0
+# Vấn đề mà --fix KHÔNG sửa được bằng cấu hình (phải cài/gỡ driver). Dùng để chọn
+# mã thoát sau khi --fix đã ghi xong file: sửa được thì trả 0, còn driver hỏng thì
+# vẫn phải báo lỗi.
+blocking=0
+
+usage() {
+  cat <<'EOF'
+Cách dùng: anios-gpu-doctor [--fix] [--quiet]
+
+  --fix     Ghi lại cấu hình NVIDIA (modprobe.d, mkinitcpio, GRUB) và dựng lại
+            initramfs. Cần quyền root. Khởi động lại sau khi chạy.
+  --quiet   Chỉ in cảnh báo/lỗi, không in các mục đã đạt.
+  -h|--help In trợ giúp này.
+EOF
+}
+
+QUIET=0
+DO_FIX=0
+for arg in "$@"; do
+  case "$arg" in
+    --fix) DO_FIX=1 ;;
+    --quiet|-q) QUIET=1 ;;
+    -h|--help|help) usage; exit 0 ;;
+    *) echo "anios-gpu-doctor: tuỳ chọn không hợp lệ: $arg" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+ok() { (( QUIET )) || printf '  [ok]   %s\n' "$*"; }
+warn() { printf '  [warn] %s\n' "$*"; }
+bad() { printf '  [fail] %s\n' "$*"; problems=$((problems + 1)); }
+hint() { printf '         → %s\n' "$*"; }
+section() { (( QUIET )) || printf '\n%s\n' "$*"; }
+
+# --- 1. Card đồ hoạ nhìn thấy từ sysfs --------------------------------------
+gpu_devices() {
+  local dev vendor class
+  for dev in "$SYSFS"/bus/pci/devices/*; do
+    [[ -r "$dev/vendor" && -r "$dev/class" ]] || continue
+    vendor="$(<"$dev/vendor")"
+    class="$(<"$dev/class")"
+    [[ "$class" == 0x03* ]] || continue
+    printf '%s %s\n' "${dev##*/}" "$vendor"
+  done
+}
+
+driver_of() {
+  local dev="$1" link
+  link="$(readlink -f -- "$dev/driver" 2>/dev/null || true)"
+  printf '%s\n' "${link##*/}"
+}
+
+nvidia_loaded() { [[ -d "$SYSFS/module/nvidia" ]]; }
+nvidia_drm_loaded() { [[ -d "$SYSFS/module/nvidia_drm" ]]; }
+modeset_value() {
+  local param="$SYSFS/module/nvidia_drm/parameters/modeset"
+  [[ -r "$param" ]] && printf '%s\n' "$(<"$param")"
+}
+
+section "GPU"
+gpu_found=0
+nvidia_gpu=""
+dev=""
+drv=""
+name=""
+while read -r pci_id vendor; do
+  [[ -n "$pci_id" ]] || continue
+  gpu_found=1
+  dev="$SYSFS/bus/pci/devices/$pci_id"
+  drv="$(driver_of "$dev")"
+  case "$vendor" in
+    0x10de) name="NVIDIA" ;;
+    0x8086) name="Intel" ;;
+    0x1002) name="AMD" ;;
+    *) name="PCI $vendor" ;;
+  esac
+  boot_vga=""
+  [[ -r "$dev/boot_vga" ]] && boot_vga="$(<"$dev/boot_vga")"
+  primary=""
+  [[ "$boot_vga" == 1 ]] && primary=" (card chính của firmware)"
+  ok "$name $pci_id: driver '${drv:-không có}'$primary"
+  case "$vendor" in
+    0x10de)
+      nvidia_gpu="$pci_id"
+      case "$drv" in
+        nvidia) ;;
+        nouveau)
+          bad "card NVIDIA đang dùng 'nouveau' — Hyprland cần driver proprietary"
+          blocking=1
+          hint "gỡ nouveau: thêm 'blacklist nouveau' vào $MODPROBE_CONF rồi 'sudo anios-gpu-doctor --fix' (hoặc chạy lại bản ISO có sẵn driver)"
+          ;;
+        "")
+          warn "card NVIDIA chưa có driver kernel nào gắn vào"
+          blocking=1
+          hint "kiểm tra 'dkms status', 'journalctl -b -k | grep -i nvidia'"
+          ;;
+        *)
+          warn "card NVIDIA dùng driver '$drv' thay vì 'nvidia'"
+          ;;
+      esac
+      ;;
+  esac
+done < <(gpu_devices)
+
+(( gpu_found )) || warn "không thấy thiết bị hiển thị PCI nào (máy ảo? hoặc sysfs bị giới hạn)"
+
+if [[ -n "$nvidia_gpu" ]]; then
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    ok "nvidia-smi: $(nvidia-smi -L 2>/dev/null | head -n1)"
+  elif command -v nvidia-smi >/dev/null 2>&1; then
+    warn "nvidia-smi có nhưng không trả lời (driver chưa nạp?)"
+  fi
+  if [[ -r /proc/driver/nvidia/version ]]; then
+    ok "$(head -n1 /proc/driver/nvidia/version)"
+  fi
+fi
+
+# --- 2. Module kernel và modeset --------------------------------------------
+section "Module kernel và KMS"
+if [[ -z "$nvidia_gpu" ]]; then
+  ok "không có card NVIDIA: không cần kiểm tra driver nvidia"
+else
+  if nvidia_loaded; then
+    ok "module 'nvidia' đã nạp"
+  else
+    bad "module 'nvidia' CHƯA nạp — không có driver đồ hoạ NVIDIA"
+    blocking=1
+    hint "sudo modprobe nvidia_drm; nếu báo lỗi, xem 'dkms status' và 'journalctl -b -k'"
+  fi
+  if nvidia_drm_loaded; then
+    modeset="$(modeset_value)"
+    case "$modeset" in
+      Y|y|1) ok "nvidia-drm modeset=1 (Wayland dùng được)" ;;
+      "")
+        warn "không đọc được /sys/module/nvidia_drm/parameters/modeset"
+        ;;
+      *)
+        bad "nvidia-drm modeset=${modeset} — Hyprland sẽ KHÔNG khởi động được"
+        hint "sudo anios-gpu-doctor --fix   (thêm tham số kernel + module vào initramfs)"
+        ;;
+    esac
+  else
+    bad "module 'nvidia_drm' chưa nạp — Wayland không có KMS device"
+    hint "sudo anios-gpu-doctor --fix rồi khởi động lại"
+  fi
+
+  # nouveau đang giữ card là lý do kinh điển khiến nvidia không nạp được.
+  if [[ -d "$SYSFS/module/nouveau" ]] && nvidia_loaded; then
+    warn "cả 'nouveau' và 'nvidia' đều đang nạp (nên chỉ có một)"
+  fi
+fi
+
+# --- 3. Cấu hình tĩnh trên đĩa ----------------------------------------------
+section "Cấu hình trên đĩa ($ETC)"
+if [[ -r "$MODPROBE_CONF" ]]; then
+  missing=0
+  grep -qE '^[[:space:]]*blacklist[[:space:]]+nouveau[[:space:]]*$' "$MODPROBE_CONF" || missing=1
+  grep -qE '^[[:space:]]*options[[:space:]]+nvidia-drm[[:space:]]+.*modeset=1' "$MODPROBE_CONF" || missing=1
+  if (( missing )); then
+    bad "$MODPROBE_CONF thiếu 'blacklist nouveau' hoặc 'options nvidia-drm modeset=1 fbdev=1'"
+    hint "sudo anios-gpu-doctor --fix"
+  else
+    ok "$MODPROBE_CONF chặn nouveau và bật nvidia-drm modeset"
+  fi
+else
+  bad "thiếu $MODPROBE_CONF (nouveau không bị chặn, modeset không được bật)"
+  hint "sudo anios-gpu-doctor --fix"
+fi
+
+if [[ -r "$MKINITCPIO_DROPIN" ]]; then
+  missing_modules=""
+  for module in "${NVIDIA_MODULES[@]}"; do
+    grep -qE "(^|[[:space:](])${module}([[:space:])]|$)" "$MKINITCPIO_DROPIN" || missing_modules+=" $module"
+  done
+  if [[ -n "$missing_modules" ]]; then
+    bad "$MKINITCPIO_DROPIN thiếu module:$missing_modules"
+    hint "sudo anios-gpu-doctor --fix"
+  else
+    ok "$MKINITCPIO_DROPIN đưa nvidia* vào initramfs"
+  fi
+else
+  bad "thiếu $MKINITCPIO_DROPIN — nvidia-drm chỉ nạp SAU khi SDDM/Hyprland đã khởi động"
+  hint "sudo anios-gpu-doctor --fix"
+fi
+
+if [[ -r "$CMDLINE_FILE" ]]; then
+  cmdline="$(<"$CMDLINE_FILE")"
+  missing_params=""
+  for param in "${KERNEL_PARAMS[@]}"; do
+    [[ " $cmdline " == *" $param "* ]] || missing_params+=" $param"
+  done
+  if [[ -n "$missing_params" ]]; then
+    warn "kernel cmdline đang thiếu:$missing_params"
+    hint "không bắt buộc nếu initramfs đã có module + options nvidia-drm; --fix thêm vào GRUB"
+  else
+    ok "kernel cmdline có ${KERNEL_PARAMS[*]}"
+  fi
+fi
+
+# --- 4. Biến môi trường của phiên -------------------------------------------
+section "Phiên Hyprland"
+if [[ -n "${ANIOS_GPU:-}" ]]; then
+  ok "ANIOS_GPU=$ANIOS_GPU (do anios-session đặt)"
+  case "${ANIOS_GPU}" in
+    nvidia-hybrid)
+      ok "máy hybrid: iGPU lo xuất hình, không đặt GBM_BACKEND/LIBVA của NVIDIA"
+      ;;
+    nvidia)
+      [[ "${NVD_BACKEND:-}" == direct ]] ||
+        warn "NVD_BACKEND chưa phải 'direct' — giải mã video sẽ chạy bằng CPU"
+      ;;
+  esac
+else
+  warn "ANIOS_GPU chưa đặt: đang chạy ngoài phiên anios-session (hoặc máy không có NVIDIA)"
+fi
+if [[ "${ANIOS_NVIDIA_MODESET:-}" == 0 ]]; then
+  bad "phiên này khởi động với nvidia-drm modeset=0"
+  hint "sudo anios-gpu-doctor --fix rồi khởi động lại"
+fi
+if [[ -r "$SESSION_LOG" ]]; then
+  ok "nhật ký phiên: $SESSION_LOG"
+  (( QUIET )) || tail -n 5 -- "$SESSION_LOG" | sed 's/^/         /'
+  if grep -q 'retrying in safe mode' "$SESSION_LOG" 2>/dev/null; then
+    warn "phiên trước đã phải lùi về chế độ an toàn (Hyprland thoát ngay)"
+    hint "chọn phiên 'AniOS - Safe' ở SDDM để vào desktop bằng con trỏ phần mềm, không blur"
+  fi
+else
+  (( QUIET )) || printf '  [--]   chưa có nhật ký phiên (%s)\n' "$SESSION_LOG"
+fi
+if command -v dkms >/dev/null 2>&1; then
+  dkms_out="$(dkms status 2>/dev/null || true)"
+  if grep -qE '^nvidia.*(installed)' <<<"$dkms_out"; then
+    ok "dkms: $(grep -E '^nvidia' <<<"$dkms_out" | head -n2 | tr '\n' ';' | sed 's/;$//')"
+  elif [[ -n "$nvidia_gpu" ]]; then
+    bad "dkms không báo module nvidia nào 'installed' cho kernel đang chạy"
+    blocking=1
+    hint "sudo dkms autoinstall; xem /var/lib/dkms/nvidia/*/build/make.log"
+  fi
+fi
+
+# --- 5. Sửa (--fix) ---------------------------------------------------------
+write_if_missing() {
+  local path="$1" content="$2" tmp
+  install -d -m 0755 -- "$(dirname -- "$path")"
+  if [[ -f "$path" ]] && [[ "$(<"$path")" == *"$content"* ]]; then
+    return 1
+  fi
+  tmp="$(mktemp "$(dirname -- "$path")/.anios-gpu.XXXXXX")"
+  if [[ -f "$path" ]]; then
+    { cat -- "$path"; [[ -s "$path" && -n "$(tail -c1 -- "$path" || true)" ]] && printf '\n'; } >"$tmp"
+  fi
+  printf '%s\n' "$content" >>"$tmp"
+  install -m 0644 -- "$tmp" "$path"
+  rm -f -- "$tmp"
+  return 0
+}
+
+add_grub_params() {
+  local file="$1" current new tmp
+  [[ -f "$file" ]] || { warn "không thấy $file (bỏ qua tham số GRUB)"; return 0; }
+  current="$(sed -nE 's/^[[:space:]]*GRUB_CMDLINE_LINUX_DEFAULT="(.*)"[[:space:]]*$/\1/p' "$file" | tail -n1)"
+  new="$current"
+  for param in "${KERNEL_PARAMS[@]}"; do
+    [[ " $new " == *" $param "* ]] || new="${new:+$new }$param"
+  done
+  if [[ "$new" == "$current" ]]; then
+    ok "GRUB đã có ${KERNEL_PARAMS[*]}"
+    return 0
+  fi
+  tmp="$(mktemp "$(dirname -- "$file")/.anios-grub.XXXXXX")"
+  if grep -qE '^[[:space:]]*GRUB_CMDLINE_LINUX_DEFAULT=' "$file"; then
+    awk -v value="GRUB_CMDLINE_LINUX_DEFAULT=\"$new\"" '
+      BEGIN { done = 0 }
+      /^[[:space:]]*GRUB_CMDLINE_LINUX_DEFAULT=/ { if (!done) print value; done = 1; next }
+      { print }
+    ' "$file" >"$tmp"
+  else
+    cat -- "$file" >"$tmp"
+    printf 'GRUB_CMDLINE_LINUX_DEFAULT="%s"\n' "$new" >>"$tmp"
+  fi
+  install -m 0644 -- "$tmp" "$file"
+  rm -f -- "$tmp"
+  ok "đã thêm ${KERNEL_PARAMS[*]} vào $file"
+  return 0
+}
+
+if (( DO_FIX )); then
+  section "Sửa (--fix)"
+  # ANIOS_ETC_ROOT chỉ được bài tự kiểm tra đặt: khi đó mọi file ghi ra đều nằm
+  # trong cây giả nên không cần root thật.
+  if (( EUID != 0 )) && [[ -z "${ANIOS_ETC_ROOT:-}" ]]; then
+    echo "anios-gpu-doctor: --fix cần quyền root (sudo anios-gpu-doctor --fix)" >&2
+    exit 2
+  fi
+  if write_if_missing "$MODPROBE_CONF" "blacklist nouveau"; then
+    printf '%s\n' "options nvidia-drm modeset=1 fbdev=1" >>"$MODPROBE_CONF"
+    printf '%s\n' "options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp" >>"$MODPROBE_CONF"
+    ok "đã ghi $MODPROBE_CONF"
+    fixed=1
+  else
+    # File đã có nhưng có thể thiếu dòng options: bổ sung từng dòng cần thiết.
+    for line in "options nvidia-drm modeset=1 fbdev=1" \
+                "options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp"; do
+      if ! grep -qxF "$line" "$MODPROBE_CONF"; then
+        printf '%s\n' "$line" >>"$MODPROBE_CONF"
+        ok "đã thêm '$line' vào $MODPROBE_CONF"
+        fixed=1
+      fi
+    done
+  fi
+
+  dropin="MODULES=(${NVIDIA_MODULES[*]})"
+  if write_if_missing "$MKINITCPIO_DROPIN" "$dropin"; then
+    ok "đã ghi $MKINITCPIO_DROPIN"
+    fixed=1
+  else
+    ok "$MKINITCPIO_DROPIN đã đúng"
+  fi
+
+  add_grub_params "$GRUB_DEFAULTS" || true
+
+  if (( fixed )); then
+    if command -v mkinitcpio >/dev/null 2>&1; then
+      if mkinitcpio -P; then
+        ok "đã dựng lại initramfs cho mọi kernel"
+      else
+        bad "mkinitcpio -P thất bại — xem thông báo phía trên"
+      fi
+    else
+      warn "không có mkinitcpio: hãy tự chạy 'mkinitcpio -P'"
+    fi
+    if command -v grub-mkconfig >/dev/null 2>&1 && [[ -d "$BOOT_DIR/grub" ]]; then
+      if grub-mkconfig -o "$BOOT_DIR/grub/grub.cfg" >/dev/null 2>&1; then
+        ok "đã cập nhật $BOOT_DIR/grub/grub.cfg"
+      else
+        warn "grub-mkconfig thất bại — kiểm tra /etc/default/grub"
+      fi
+    elif command -v bootctl >/dev/null 2>&1 && [[ -d "$BOOT_DIR/loader" ]]; then
+      warn "máy dùng systemd-boot: thêm '${KERNEL_PARAMS[*]}' vào mục options của $BOOT_DIR/loader/entries/*.conf"
+    fi
+    # Suspend trên card 12GB cần PreserveVideoMemoryAllocations + các unit này,
+    # nếu không thì sau khi ngủ dậy Hyprland chỉ còn màn hình đen.
+    if command -v systemctl >/dev/null 2>&1; then
+      for unit in nvidia-suspend nvidia-resume nvidia-hibernate; do
+        if systemctl list-unit-files "${unit}.service" >/dev/null 2>&1 &&
+          systemctl list-unit-files "${unit}.service" | grep -q "^${unit}.service"; then
+          systemctl enable "${unit}.service" >/dev/null 2>&1 &&
+            ok "bật ${unit}.service" || warn "không bật được ${unit}.service"
+        fi
+      done
+    fi
+    printf '\nKhởi động lại để áp dụng: sudo reboot\n'
+  fi
+fi
+
+# --- 6. Kết luận ------------------------------------------------------------
+# Sau khi --fix đã ghi đủ cấu hình, các mục "modeset=0 / thiếu file" ở trên không
+# còn là lỗi nữa — chúng chỉ chờ lần khởi động lại. Chỉ những vấn đề về driver
+# (nouveau, module/dkms hỏng) mới giữ mã thoát 1.
+if (( DO_FIX )) && (( blocking == 0 )); then
+  if (( fixed > 0 )); then
+    printf '\nĐã ghi cấu hình NVIDIA. KHỞI ĐỘNG LẠI để áp dụng.\n'
+  else
+    printf '\nKhông có gì cần sửa. Nếu vừa chạy --fix thì hãy khởi động lại.\n'
+  fi
+  exit 0
+fi
+
+if (( problems > 0 )); then
+  printf '\nCòn %d vấn đề. Xem gợi ý "→" ở trên' "$problems"
+  (( DO_FIX )) || printf ', hoặc chạy: sudo anios-gpu-doctor --fix'
+  printf '.\n'
+  if [[ -x /usr/local/bin/anios-session ]]; then
+    printf 'Muốn vào desktop ngay: ở SDDM chọn phiên "AniOS - Safe".\n'
+  fi
+  exit 1
+fi
+printf '\nKhông phát hiện lỗi cấu hình GPU.\n'
+if [[ -r "$SESSION_LOG" ]] && grep -q 'retrying in safe mode' "$SESSION_LOG" 2>/dev/null; then
+  printf 'Hyprland từng thoát ngay: thử phiên "AniOS - Safe" để loại trừ hiệu ứng đồ hoạ.\n'
+fi
+exit 0

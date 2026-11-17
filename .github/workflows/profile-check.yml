@@ -69,6 +69,24 @@ jobs:
         # anios-session chỉ đặt biến GBM/GLX/VA-API của NVIDIA khi có card NVIDIA và
         # nvidia-drm đang nạp. Bài này chạy gpu-env.sh trên cây sysfs giả.
         run: ./scripts/selftest-gpu-env.sh
+      - name: Self-test the session launcher (safe mode / fallback)
+        # anios-session là lớp giữa SDDM và Hyprland: cờ --safe phải tới cấu hình
+        # qua ANIOS_SAFE, Hyprland chết ngay phải được thử lại đúng MỘT lần ở chế
+        # độ an toàn, và lần chạy lỗi phải để lại nhật ký cho anios-gpu-doctor.
+        run: ./scripts/selftest-anios-session.sh
+      - name: Self-test the NVIDIA kernel parameters of the ISO boot entries
+        # Card NVIDIA rời (RTX 3060/GA106...) chỉ lên được Hyprland khi nvidia-drm
+        # giữ KMS ngay từ đầu: modprobe.d + initramfs + tham số kernel. Bài này nạp
+        # ĐÚNG hàm anios_add_nvidia_kernel_params() của build-iso.sh và chạy trên
+        # grub.cfg/syslinux/systemd-boot giả, để một lần sửa sed sai không làm ISO
+        # phát hành mà mục menu BIOS thiếu nvidia_drm.modeset=1.
+        run: ./scripts/selftest-build-iso-nvidia-params.sh
+      - name: Self-test the NVIDIA/GPU doctor
+        # anios-gpu-doctor là thứ người dùng chạy từ TTY khi màn hình đen, nên nó
+        # phải bắt được modeset=0 / thiếu modprobe.d / thiếu drop-in mkinitcpio,
+        # không báo động giả trên máy đã đúng, và --fix phải ghi đủ cấu hình, gọi
+        # mkinitcpio, giữ nguyên các dòng khác của /etc/default/grub.
+        run: ./scripts/selftest-anios-gpu-doctor.sh
       - name: Self-test the startup cursor theme script
         # scripts/.../apply_saved_cursor.sh chạy lúc Hyprland khởi động để áp theme
         # con trỏ người dùng chọn. Ảnh live từng không cài theme nào trong khi mặc

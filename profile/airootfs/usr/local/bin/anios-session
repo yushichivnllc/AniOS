@@ -53,4 +53,61 @@ elif [[ "$mode" == "--minimal" || "$mode" == "minimal" ]]; then
   shift || true
 fi
 
-exec dbus-run-session -- Hyprland "$@"
+# Phiên "AniOS - Safe": tắt blur/shadow/animation và con trỏ phần cứng ngay từ cấu
+# hình Hyprland (xem ~/.config/hypr/hyprland/nvidia.lua). Đây là đường vào desktop
+# khi driver GPU mới làm compositor chết, và cũng là chế độ mà script này tự lùi về
+# khi Hyprland thoát ngay sau khi khởi động (bên dưới).
+if [[ "${1:-}" == "--safe" || "${1:-}" == "safe" ]]; then
+  export ANIOS_SAFE=1
+  shift || true
+fi
+
+# Nhật ký phiên: khi Hyprland không lên hình, người dùng chỉ còn TTY để xem
+# `cat ~/.local/share/anios/session.log` hoặc chạy `anios-gpu-doctor`. Ghi cả hồ sơ
+# GPU/modeset để câu "không vào được giao diện" có ngay dữ kiện chẩn đoán.
+log_dir="${XDG_STATE_HOME:-${HOME:-/tmp}/.local/share}/anios"
+log_file="$log_dir/session.log"
+if mkdir -p -- "$log_dir" 2>/dev/null; then
+  # Giữ nhật ký nhỏ: mỗi lần đăng nhập chỉ thêm vài dòng, nhưng máy quán net đăng
+  # nhập hàng trăm lần mỗi ngày nên vẫn phải chặn phình to.
+  if [[ -f "$log_file" ]] && (( $(stat -c %s -- "$log_file" 2>/dev/null || echo 0) > 262144 )); then
+    tail -c 65536 -- "$log_file" >"$log_file.tmp" 2>/dev/null &&
+      mv -f -- "$log_file.tmp" "$log_file" 2>/dev/null || true
+  fi
+  anios_log() {
+    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$log_file" 2>/dev/null || true
+  }
+else
+  log_file=""
+  anios_log() { :; }
+fi
+anios_log "session start: desktop=${ANIOS_DESKTOP:-default} safe=${ANIOS_SAFE:-0} gpu=${ANIOS_GPU:-none} nvidia_modeset=${ANIOS_NVIDIA_MODESET:-unknown}"
+
+# Không dùng `exec`: cần đọc mã thoát của Hyprland để biết phiên có lên hình hay
+# không, rồi ghi lại và (một lần) thử chế độ an toàn.
+started_at="$(date +%s)"
+status=0
+set +e
+dbus-run-session -- Hyprland "$@"
+status=$?
+set -euo pipefail
+elapsed=$(( $(date +%s) - started_at ))
+anios_log "Hyprland exited with status $status after ${elapsed}s"
+
+# Hyprland chết trong vài giây đầu là dấu hiệu driver/hiệu ứng, không phải người
+# dùng thoát (thoát bằng Super+Shift+E trả mã 0). Thử lại đúng một lần ở chế độ an
+# toàn để người dùng vẫn có desktop, và ghi lý do vào nhật ký.
+if (( status != 0 )) && [[ "${ANIOS_SAFE:-0}" != 1 ]] && (( elapsed < 20 )); then
+  anios_log "retrying in safe mode after a fast failure"
+  printf '%s\n' \
+    "AniOS: Hyprland thoát với mã $status sau ${elapsed}s — thử lại ở chế độ an toàn." \
+    "       Chi tiết: ${log_file:-~/.local/share/anios/session.log}" >&2
+  export ANIOS_SAFE=1
+  set +e
+  dbus-run-session -- Hyprland "$@"
+  status=$?
+  set -euo pipefail
+  anios_log "safe-mode Hyprland exited with status $status"
+fi
+
+exit "$status"

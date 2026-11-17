@@ -1,3 +1,7 @@
+-- Hồ sơ GPU/mức hiệu ứng: xem hyprland/nvidia.lua. anios-session đặt ANIOS_GPU
+-- (nvidia / nvidia-hybrid) và ANIOS_SAFE=1 cho phiên "AniOS - Safe".
+local gpu = require("hyprland.nvidia")
+
 -- MONITOR CONFIG
 hl.monitor({
     output = "",
@@ -75,7 +79,7 @@ hl.config({
         rounding = 18,
 
         blur = {
-            enabled = true,
+            enabled = not gpu.safe, -- phiên an toàn tắt blur (nghi phạm số một khi GPU mới crash)
             xray = true, -- bỏ qua cửa sổ phía sau khi blur: rẻ hơn nhiều, nhìn gần như không đổi
             special = false,
             new_optimizations = true,
@@ -92,7 +96,7 @@ hl.config({
             input_methods_ignorealpha = 0.8
         },
         shadow = {
-            enabled = true,
+            enabled = not gpu.safe,
             range = 10,
             offset = {0, 2},
             render_power = 3, -- Hyprland accepts integers from 1 to 4
@@ -106,7 +110,7 @@ hl.config({
         dim_special = 0.2
     },
     animations = {
-        enabled = true
+        enabled = not gpu.safe
     },
     dwindle = {
         preserve_split = true,
@@ -302,5 +306,18 @@ hl.config({
 
     xwayland = {
         force_zero_scaling = true
+    },
+
+    -- VFR (variable frame rate): trên NVIDIA hình rung khi có app vẽ liên tục, và ở
+    -- phiên an toàn ta tắt mọi tối ưu vẽ để loại trừ nguyên nhân. Cấu hình AniOS
+    -- theo Hyprland 0.56 nên khoá này nằm trong debug (trước đây là misc).
+    debug = {
+        vfr = gpu.vfr
+    },
+
+    -- Con trỏ phần cứng của NVIDIA không ổn định dưới Hyprland (con trỏ nhấp nháy/
+    -- lệch vị trí); phiên an toàn cũng dùng con trỏ phần mềm.
+    cursor = {
+        no_hardware_cursors = gpu.software_cursors
     }
 })
