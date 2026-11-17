@@ -128,6 +128,9 @@ anios_cafe_clean() {
       if (( dry )); then
         printf 'SẼ XOÁ %s\n' "$rel"
       else
+        # --one-file-system: nếu quán gắn ổ riêng (hoặc symlink) cho thư viện game
+        # thì KHÔNG xoá vào ổ đó. Mất dữ liệu khách còn cứu được, xoá game của quán
+        # thì phải tải lại từ đầu.
         rm -rf --one-file-system -- "$path" 2>/dev/null || true
         printf 'ĐÃ XOÁ %s\n' "$rel"
       fi

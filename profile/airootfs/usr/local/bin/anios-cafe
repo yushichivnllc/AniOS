@@ -134,6 +134,11 @@ cmd_status() {
     "$([[ "${ANIOS_CAFE_REBOOT_ON_CRASH:-0}" == 1 ]] && echo bật || echo tắt)" \
     "$ANIOS_CAFE_MAX_FAST_FAILURES" "$((ANIOS_CAFE_FAILURE_WINDOW / 60))"
   printf '  Phiên chết nhanh gần đây: %s\n' "$(anios_cafe_failure_count)"
+  if command -v systemctl >/dev/null 2>&1 &&
+    systemctl --quiet is-enabled anios-cafe-watchdog.timer >/dev/null 2>&1; then
+    printf '  Watchdog (root): %s\n' \
+      "$(systemctl --quiet is-active anios-cafe-watchdog.timer >/dev/null 2>&1 && echo đang chạy || echo đã bật, chưa chạy)"
+  fi
 
   printf '\n  %sSẽ dọn ở phiên sau:%s\n' "$dim" "$reset"
   local rel path found=0
