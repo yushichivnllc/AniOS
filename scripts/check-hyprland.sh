@@ -21,15 +21,25 @@ for skel in etc/skel usr/share/anios/skel; do
   home="$TMP_DIR/$skel"
   mkdir -p "$home/.config/anios"
   cp -a "$source_config/hypr" "$home/.config/"
-  for case in 'hyprland.lua minimal' 'hyprland.lua imi' \
-              'hyprland-minimal.lua minimal' 'hyprland-imi.lua imi'; do
-    read -r entry mode <<< "$case"
-    printf '%s\n' "$mode" > "$home/.config/anios/desktop-mode"
-    HOME="$home" ANIOS_DESKTOP="$mode" "$LUA" "$ROOT_DIR/tests/hyprland-config.lua" \
-      "$home/.config/hypr" "$entry" "$mode" \
-      "$source_config/matugen/templates/hyprland/colors.lua"
+  # Chạy mỗi cấu hình với ba hồ sơ GPU mà anios-session có thể đặt:
+  #   * mặc định (Intel/AMD hoặc chưa nạp driver NVIDIA) — cấu hình cũ phải y nguyên;
+  #   * ANIOS_GPU=nvidia — tắt con trỏ phần cứng + VFR cho driver proprietary;
+  #   * ANIOS_SAFE=1 — phiên "AniOS - Safe" (cũng là chế độ tự lùi khi Hyprland chết).
+  for profile in 'default|' 'nvidia|ANIOS_GPU=nvidia' 'safe|ANIOS_SAFE=1'; do
+    profile_name="${profile%%|*}"
+    profile_env="${profile#*|}"
+    for case in 'hyprland.lua minimal' 'hyprland.lua imi' \
+                'hyprland-minimal.lua minimal' 'hyprland-imi.lua imi'; do
+      read -r entry mode <<< "$case"
+      printf '%s\n' "$mode" > "$home/.config/anios/desktop-mode"
+      # shellcheck disable=SC2086 # profile_env chỉ chứa các phép gán NAME=value
+      env HOME="$home" ANIOS_DESKTOP="$mode" $profile_env \
+        "$LUA" "$ROOT_DIR/tests/hyprland-config.lua" \
+        "$home/.config/hypr" "$entry" "$mode" \
+        "$source_config/matugen/templates/hyprland/colors.lua"
+    done
+    echo "OK: Hyprland Lua syntax and smoke tests ($skel, hồ sơ $profile_name)"
   done
-  echo "OK: Hyprland Lua syntax and smoke tests ($skel)"
 done
 
 for dir in hypr matugen/templates/hyprland quickshell; do

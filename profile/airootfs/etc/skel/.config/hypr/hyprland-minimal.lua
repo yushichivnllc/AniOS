@@ -16,6 +16,19 @@ local mainMod  = "SUPER"
 local terminal = "foot"
 local menu     = "fuzzel"
 
+-- Hồ sơ GPU: anios-session đặt ANIOS_GPU (nvidia / nvidia-hybrid) và, với phiên
+-- "AniOS - Safe", ANIOS_SAFE=1. Module này quyết định tắt bớt hiệu ứng và tắt con
+-- trỏ phần cứng trên driver NVIDIA.
+local home = os.getenv("HOME") or ""
+local gpu = {
+    nvidia = false, hybrid = false, safe = false,
+    software_cursors = false, animations = true, blur = true, shadow = true, vfr = true,
+}
+local gpu_chunk = loadfile(home .. "/.config/hypr/hyprland/nvidia.lua")
+if gpu_chunk then
+    gpu = gpu_chunk() or gpu
+end
+
 -- Màn hình: để Hyprland tự chọn độ phân giải ưu tiên của từng máy quán net.
 hl.monitor({
     output   = "",
@@ -91,7 +104,9 @@ hl.config({
         -- chỉ các layer phủ (waybar, fuzzel, mako) nhận blur qua layerrule,
         -- nên chi phí GPU chỉ bằng vài dải hẹp chứ không phải toàn màn hình.
         blur = {
-            enabled           = true,
+            -- Phiên an toàn tắt blur: đây là thứ hay bị nghi đầu tiên khi driver GPU
+            -- mới làm Hyprland crash hoặc ra màn hình đen.
+            enabled           = gpu.blur,
             size              = 6,
             passes            = 1,
             new_optimizations = true,
@@ -104,7 +119,7 @@ hl.config({
 
         -- Shadow mềm chỉ dành cho cửa sổ nổi (xem window_rule bên dưới).
         shadow = {
-            enabled      = true,
+            enabled      = gpu.shadow,
             range        = 10,
             render_power = 3,
             offset       = { 0, 4 },
@@ -117,7 +132,7 @@ hl.config({
     },
 
     animations = {
-        enabled = true,
+        enabled = gpu.animations,
     },
 
     dwindle = {
@@ -134,9 +149,18 @@ hl.config({
     },
 
     -- VFR giúp giảm công việc render khi không có gì thay đổi; từ bản 0.56 khoá
-    -- này nằm trong mục debug thay vì misc như trước.
+    -- này nằm trong mục debug thay vì misc như trước. Trên NVIDIA, VFR làm hình
+    -- rung khi có app vẽ liên tục nên tắt (xem hyprland/nvidia.lua).
     debug = {
-        vfr = true,
+        vfr = gpu.vfr,
+    },
+})
+
+-- Con trỏ: card NVIDIA dưới Hyprland hay làm con trỏ nhấp nháy/lệch vị trí; phiên
+-- an toàn cũng dùng con trỏ phần mềm. Máy Intel/AMD không đổi gì.
+hl.config({
+    cursor = {
+        no_hardware_cursors = gpu.software_cursors,
     },
 })
 

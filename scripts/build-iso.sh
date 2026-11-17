@@ -410,6 +410,52 @@ printf 'Edition %s boots with copytoram=%s cow_spacesize=%s persistence=%s\n' \
   "$ANIOS_EDITION_ID" "$ANIOS_EDITION_COPYTORAM" "$ANIOS_EDITION_COW_SPACE_SIZE" \
   "$([[ $ANIOS_EDITION_PERSISTENCE == 1 ]] && echo on || echo off)"
 
+# --- Tham số kernel cho NVIDIA (modeset sớm) -------------------------------
+# /etc/modprobe.d/anios-nvidia.conf đặt `options nvidia-drm modeset=1`, nhưng tham
+# số kernel mới là thứ bảo đảm nvidia-drm giữ KMS ngay từ đầu, trước khi simpledrm
+# kịp chiếm màn hình. Trên card rời đời mới (RTX 3060/GA106, Ampere) thiếu bước này
+# là nguyên nhân quen thuộc của "đăng nhập xong quay lại màn hình đăng nhập" hoặc
+# màn hình đen: greeter/Hyprland không có KMS device để mở.
+#
+# Hàm này được bài tự kiểm tra (scripts/selftest-build-iso-nvidia-params.sh) trích
+# ra và chạy trên profile giả, nên nó không được phụ thuộc biến nào ngoài tham số.
+anios_add_nvidia_kernel_params() {
+  local profile_dir="$1"
+  local params="nvidia_drm.modeset=1 nvidia_drm.fbdev=1"
+  local file before after changed=0
+  [[ -d "$profile_dir" ]] || return 1
+
+  # Vá TỪNG dòng: một số mục menu có thể đã có tham số (ví dụ mục do archiso sinh
+  # sẵn), nên không được bỏ qua cả file chỉ vì đã thấy chuỗi đó ở đâu đó.
+  _anios_add_nvidia_params_to() {
+    local target="$1" pattern="$2" before_sum after_sum
+    [[ -f "$target" ]] || return 0
+    before_sum="$(cksum <"$target")"
+    sed -i -E "/${pattern}/ { /nvidia_drm\.modeset=1/! s/[[:space:]]*$/ ${params}/ }" "$target"
+    after_sum="$(cksum <"$target")"
+    [[ "$before_sum" != "$after_sum" ]] && return 0
+    return 1
+  }
+
+  # GRUB (UEFI và BIOS dùng chung grub.cfg của archiso): mọi dòng `linux`.
+  _anios_add_nvidia_params_to "$profile_dir/grub/grub.cfg" '^[[:space:]]*linux[[:space:]].*archisobasedir=' &&
+    changed=1
+
+  # Syslinux (BIOS): mọi dòng APPEND.
+  for file in "$profile_dir"/syslinux/*.cfg; do
+    _anios_add_nvidia_params_to "$file" '^[[:space:]]*APPEND[[:space:]]' && changed=1
+  done
+
+  # systemd-boot: các mục trong loader/entries/*.conf dùng dòng `options`.
+  for file in "$profile_dir"/efiboot/loader/entries/*.conf; do
+    _anios_add_nvidia_params_to "$file" '^[[:space:]]*options[[:space:]]' && changed=1
+  done
+
+  unset -f _anios_add_nvidia_params_to
+  (( changed )) || return 0
+  return 0
+}
+
 # --- Lưu trữ bền vững trên phần trống của USB ------------------------------
 # Ghi ISO ra USB chỉ dùng phần đầu đĩa (chỉ đọc). Lần boot đầu tiên,
 # anios-persist.service (`anios-persist auto`) tạo phân vùng ext4 nhãn
@@ -487,6 +533,22 @@ APPEND archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_label=A
 SYSLINUX_PERSIST
 fi
 fi
+
+# Gọi SAU khối lưu trữ bền vững: khối đó sinh thêm hai mục menu GRUB/Syslinux, và
+# chúng cũng phải mang tham số NVIDIA thì máy NVIDIA mới vào được desktop khi người
+# dùng chọn mục có ổ lưu dữ liệu.
+anios_add_nvidia_kernel_params "$BUILD_PROFILE"
+nvidia_param_seen=0
+for boot_file in "$BUILD_PROFILE"/grub/grub.cfg "$BUILD_PROFILE"/syslinux/*.cfg \
+                 "$BUILD_PROFILE"/efiboot/loader/entries/*.conf; do
+  [[ -f "$boot_file" ]] || continue
+  grep -qF 'nvidia_drm.modeset=1' "$boot_file" && nvidia_param_seen=1
+done
+if (( ! nvidia_param_seen )); then
+  echo "No boot entry carries nvidia_drm.modeset=1; NVIDIA card would not be able to start Hyprland" >&2
+  exit 1
+fi
+printf 'Boot entries carry nvidia_drm.modeset=1 nvidia_drm.fbdev=1 for NVIDIA KMS\n'
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
@@ -965,6 +1027,43 @@ else
   printf 'Skipping the AUR packages (--no-aur): the ISO will have no Calamares/yay/Coc Coc/Legacy Launcher\n'
 fi
 
+# --- NVIDIA trong initramfs: chỉ khai báo khi ảnh thật sự có driver ---------
+# profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf khai báo
+# MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm). mkinitcpio coi module
+# không tồn tại là LỖI, nên file đó chỉ được nằm trong ảnh khi driver đã được cài
+# (gói AUR) — nếu không, mọi bản dựng không có AUR (--no-aur, edition amnesic)
+# sẽ chết ở bước initramfs với thông báo "module not found: nvidia", rất khó lần ra.
+ANIOS_NVIDIA_DROPIN="$BUILD_PROFILE/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf"
+if [[ -s "$ANIOS_NVIDIA_DROPIN" ]]; then
+  if (( WITH_AUR )); then
+    # Trong chroot, SAU khi gói AUR đã cài: pacman DB có nvidia-580xx-dkms thì bắt
+    # buộc phải có file module cho kernel trong ảnh. Thiếu module nghĩa là ISO sẽ
+    # phát hành mà không có driver NVIDIA — đúng lỗi "không vào được Hyprland" mà
+    # người dùng gặp, nên dừng bản dựng ngay tại đây thay vì phát hành ảnh hỏng.
+    AUR_HOOK="${AUR_HOOK:?AUR hook must exist when WITH_AUR is set}"
+    cat >>"$AUR_HOOK" <<'HOOK_NVIDIA'
+
+# --- AniOS: xác nhận module NVIDIA đã được DKMS dựng cho kernel trong ảnh ----
+if command -v pacman >/dev/null 2>&1 && pacman -Qq nvidia-580xx-dkms >/dev/null 2>&1; then
+  anios_nvidia_module="$(find /usr/lib/modules -type f -name 'nvidia.ko*' -print -quit 2>/dev/null || true)"
+  if [[ -z "$anios_nvidia_module" ]]; then
+    echo "AniOS: nvidia-580xx-dkms đã cài nhưng KHÔNG có file nvidia.ko cho kernel trong ảnh." >&2
+    echo "       ISO sẽ không có driver NVIDIA và Hyprland không lên hình trên card NVIDIA." >&2
+    echo "       Xem /var/lib/dkms/*/build/make.log và 'dkms status'." >&2
+    if [[ "${anios_github_actions:-false}" == "true" ]]; then
+      echo "::error title=AniOS NVIDIA::DKMS không dựng được module nvidia cho kernel linux-zen trong ảnh."
+    fi
+    exit 1
+  fi
+  echo "AniOS: đã có module NVIDIA cho initramfs: $anios_nvidia_module"
+fi
+HOOK_NVIDIA
+  else
+    rm -f -- "$ANIOS_NVIDIA_DROPIN"
+    printf 'Skipping the NVIDIA initramfs module list: this build has no NVIDIA driver\n'
+  fi
+fi
+
 # --- Sober (Roblox) từ Flathub, cài sẵn vào ảnh ---------------------------
 # Sober chỉ phát hành dạng Flatpak (org.vinegarhq.Sober), nên cài trong chroot airootfs
 # bằng hook customize_airootfs.sh (cùng cơ chế với gói AUR ở trên) vào /var/lib/flatpak.
@@ -1221,6 +1320,7 @@ ANIOS_FILE_PERMISSIONS=(
   '/usr/local/bin/anios-steam-autostart:0:0:755'
   '/usr/local/bin/anios-persist:0:0:755'
   '/usr/local/bin/anios-sober:0:0:755'
+  '/usr/local/bin/anios-gpu-doctor:0:0:755'
   '/usr/local/lib/anios/create-live-user:0:0:755'
   '/usr/local/lib/anios/live-home-setup:0:0:755'
 )

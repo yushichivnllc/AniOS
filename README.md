@@ -426,6 +426,7 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 1. **Chọn phiên tại màn hình đăng nhập SDDM**:
    - `AniOS (Hyprland - Minimal)`: Phiên bản nhẹ mặc định với Waybar + Mako + Fuzzel, tiết kiệm tài nguyên cho GPU yếu hoặc máy quán net đời cũ.
    - `AniOS (Immaterial Impulse)`: Phiên bản đầy đủ tính năng với Quickshell, widget Material 3, Matugen tự đổi màu theo hình nền và phím tắt thông minh.
+   - `AniOS (Hyprland - Safe)`: phiên dự phòng cho máy có driver GPU "khó tính" (thường là NVIDIA): tắt blur/shadow/animation và dùng con trỏ phần mềm. Đây là đường vào desktop khi phiên thường ra màn hình đen; xem [mục NVIDIA](#card-nvidia-rtx-3060ga106-ampere-không-vào-được-hyprland).
 
 2. **Chuyển đổi giao diện trực tiếp trong desktop (không cần khởi động lại máy)**:
    - Sử dụng lệnh:
@@ -441,34 +442,108 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 ## Phần cứng và hiệu năng
 
 - AniOS nhắm đến máy **x86_64**. Không hệ điều hành nào có thể bảo đảm game tương thích hoặc chạy nhanh trên mọi cấu hình; hiệu năng tùy thuộc CPU, GPU, RAM, tản nhiệt, trò chơi và driver. `linux-zen` được chọn để ưu tiên độ phản hồi, **không bảo đảm FPS cao hơn**.
-- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Card NVIDIA (từ Maxwell/GTX 900 đến Ada/RTX 40; card RTX 50 Blackwell cần driver mở `nvidia-open`, không dùng được ảnh này) dùng driver proprietary **`nvidia-580xx-dkms`** (nhánh 580xx, dựng từ AUR và đã được cài sẵn trong ảnh), kèm `nouveau` bị chặn và `nvidia-drm modeset=1` (xem [mục NVIDIA](#máy-chỉ-có-card-nvidia-không-vào-được-hyprland)). Nhánh 580xx được chọn vì driver 590 trở lên đã bỏ Pascal (GTX 10) và các card cũ hơn, còn 580xx chạy được cả Pascal/Maxwell lẫn Turing trở lên. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
+- ISO có Mesa/OpenGL/Vulkan cho Intel và AMD, cùng các thư viện 32-bit Steam và XWayland để game chỉ có bản X11 vẫn chạy trong phiên Hyprland. Card NVIDIA (từ Maxwell/GTX 900 đến Ada/RTX 40 — gồm **RTX 3060/GA106 Ampere**; card RTX 50 Blackwell cần driver mở `nvidia-open`, không dùng được ảnh này) dùng driver proprietary **`nvidia-580xx-dkms`** (nhánh 580xx, dựng từ AUR và đã được cài sẵn trong ảnh), kèm `nouveau` bị chặn, `nvidia-drm modeset=1`, module NVIDIA trong initramfs và tham số kernel `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` trên mọi mục menu khởi động (xem [mục NVIDIA](#card-nvidia-rtx-3060ga106-ampere-không-vào-được-hyprland)). Nhánh 580xx được chọn vì driver 590 trở lên đã bỏ Pascal (GTX 10) và các card cũ hơn, còn 580xx chạy được cả Pascal/Maxwell lẫn Turing trở lên. Hãy kiểm tra từng model GPU trước khi triển khai cho quán net.
 - Hyprland là compositor Wayland. GPU quá cũ, không có DRM/KMS hoạt động tốt có thể không phù hợp. Nếu giao diện đồ họa không chạy, chuyển TTY khác bằng `Ctrl+Alt+F2` và xem `journalctl -b -u sddm` hoặc `~/.local/share/hyprland/hyprland.log`.
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
 - Hệ thống Live đọc ảnh nén trực tiếp từ USB (`copytoram=n`, không chép vào RAM; zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
 
-### Máy chỉ có card NVIDIA không vào được Hyprland
+### Card NVIDIA (RTX 3060/GA106, Ampere) không vào được Hyprland
 
-Máy chỉ có GPU NVIDIA rời (ví dụ CPU Intel dòng F như i5-12400F không có iGPU, card RTX 2060 SUPER) trước đây không có driver nào dùng được cho Hyprland: ảnh chỉ có Mesa cho Intel/AMD, còn `nouveau` không đủ ổn định trên Turing. Bản ảnh hiện tại xử lý như sau:
+Toàn bộ phần này là cấu hình chuẩn cho máy dùng card NVIDIA rời — tiêu biểu là
+**GeForce RTX 3060 (GA106, Ampere)**, cũng như các máy chỉ có NVIDIA (CPU Intel dòng
+F như i5-12400F) hoặc laptop hybrid iGPU + NVIDIA. Triệu chứng gặp phải: driver
+`nvidia` đã nạp (`Kernel driver in use: nvidia`) mà đăng nhập xong quay lại màn hình
+đăng nhập, hoặc màn hình đen, hoặc Hyprland thoát ngay.
 
-- Driver `nvidia-580xx-dkms` (kèm `nvidia-580xx-utils`, `lib32-nvidia-580xx-utils`, `nvidia-580xx-settings`) được dựng từ AUR lúc build ISO và nướng vào ảnh live. Hệ thống cài đặt không tải lại từ AUR: bộ cài đọc các gói này từ kho file cục bộ `[anios-aur]` trong ảnh, và khai báo kho đó trong `pacman.conf` của máy đích. `egl-wayland` vẫn là gói official và được giữ. Gói official `nvidia-open-dkms`, `nvidia-utils`, `nvidia-settings`, `libva-nvidia-driver` **không** được dùng nữa vì xung đột với 580xx. `dkms` biên dịch module theo `linux-zen-headers` nên không cần cài tay.
-- `/etc/modprobe.d/anios-nvidia.conf`: chặn `nouveau` và đặt `nvidia-drm modeset=1 fbdev=1` (bắt buộc cho Wayland).
-- `anios-session` nạp `/usr/local/lib/anios/gpu-env.sh`: khi có card NVIDIA và `nvidia-drm` đang chạy, đặt `GBM_BACKEND=nvidia-drm`, `__GLX_VENDOR_LIBRARY_NAME=nvidia`, `LIBVA_DRIVER_NAME=nvidia`. Không có NVIDIA thì không đặt gì nên máy Intel/AMD không đổi.
+Bốn nguyên nhân, và cách ảnh xử lý từng cái:
+
+1. **`nvidia-drm` không giữ KMS ngay từ đầu.** `options nvidia-drm modeset=1` trong
+   `/etc/modprobe.d/anios-nvidia.conf` chỉ có tác dụng khi module được nạp; trên máy
+   UEFI, `simpledrm`/`efifb` thường giữ màn hình trước, và nếu `nvidia-drm` chỉ nạp
+   sau khi SDDM đã dựng greeter thì greeter/Hyprland không có KMS device để mở.
+   Ảnh xử lý bằng ba lớp:
+   - `etc/mkinitcpio.conf.d/10-anios-nvidia.conf` —
+     `MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)` để module nằm trong initramfs;
+   - tham số kernel `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` trên **mọi** mục menu
+     khởi động (GRUB UEFI, Syslinux BIOS, systemd-boot). `scripts/build-iso.sh` vá
+     sau khi khối lưu trữ bền vững sinh thêm mục menu, để mục "persistent storage"
+     cũng có tham số;
+   - modprobe.d giữ nguyên `modeset=1 fbdev=1` làm lớp cuối.
+2. **Máy hybrid bị ép backend của NVIDIA.** `gpu-env.sh` giờ phân biệt hai loại máy:
+   - chỉ NVIDIA, hoặc NVIDIA là card `boot_vga` của firmware → đặt đủ
+     `GBM_BACKEND=nvidia-drm`, `__GLX_VENDOR_LIBRARY_NAME=nvidia`,
+     `LIBVA_DRIVER_NAME=nvidia`, `NVD_BACKEND=direct` (thiếu `NVD_BACKEND` là
+     Firefox/mpv giải mã video bằng CPU) và `XDG_SESSION_TYPE=wayland`;
+   - hybrid (iGPU xuất hình) → **không** đặt GBM/VA-API của NVIDIA, chỉ đặt PRIME
+     (`__NV_PRIME_RENDER_OFFLOAD=1`, `__VK_LAYER_NV_optimus=NVIDIA_only`). Trước đây
+     biến NVIDIA được đặt cho mọi máy có card này, và đó chính là lỗi "màn hình
+     đen/không vào được Hyprland" trên máy có iGPU: compositor mở card của iGPU
+     bằng GBM backend của NVIDIA rồi thoát.
+3. **Driver NVIDIA + Wayland cần tinh chỉnh hiệu ứng.** `~/.config/hypr/hyprland/nvidia.lua`
+   (dùng chung cho cả hai desktop) đọc `ANIOS_GPU` rồi tắt con trỏ phần cứng
+   (`cursor:no_hardware_cursors`, chống con trỏ nhấp nháy) và tắt VFR
+   (`debug:vfr = false`, chống rung hình). Máy Intel/AMD giữ nguyên cấu hình cũ.
+4. **Không có đường thoát hiểm khi driver/hiệu ứng làm compositor chết.**
+   - Phiên **`AniOS (Hyprland - Safe)`** ở SDDM chạy `anios-session --safe`: tắt
+     blur, shadow, animation và dùng con trỏ phần mềm.
+   - `anios-session` tự thử lại **một lần** ở chế độ an toàn nếu Hyprland thoát với
+     mã lỗi trong 20 giây đầu, và ghi mọi thứ vào
+     `~/.local/share/anios/session.log` (hồ sơ GPU, mã thoát).
+   - `anios-gpu-doctor` chẩn đoán từ TTY: `anios-gpu-doctor` (chỉ đọc) và
+     `sudo anios-gpu-doctor --fix` (ghi modprobe.d + drop-in mkinitcpio + tham số
+     GRUB, bật `nvidia-suspend/resume/hibernate`, rồi `mkinitcpio -P`).
+
+Chi tiết cài đặt:
+
+- Driver `nvidia-580xx-dkms` (kèm `nvidia-580xx-utils`, `lib32-nvidia-580xx-utils`,
+  `nvidia-580xx-settings`) được dựng từ AUR lúc build ISO và nướng vào ảnh live. Hệ
+  thống cài đặt không tải lại từ AUR: bộ cài đọc các gói này từ kho file cục bộ
+  `[anios-aur]` trong ảnh. `egl-wayland` vẫn là gói official và được giữ. Gói official
+  `nvidia-open-dkms`, `nvidia-utils`, `nvidia-settings`, `libva-nvidia-driver`
+  **không** được dùng nữa vì xung đột với 580xx. `dkms` được khai báo tường minh vì
+  module chỉ tồn tại nếu DKMS biên dịch nó cho từng kernel (`linux-zen-headers`).
+- `/etc/modprobe.d/anios-nvidia.conf`: chặn `nouveau`, `options nvidia-drm modeset=1 fbdev=1`,
+  và `NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp` để
+  suspend không làm mất driver (VRAM 12 GB của RTX 3060 không vừa một `/tmp` là tmpfs).
+- `xorg-server` được khai báo tường minh: SDDM dùng greeter X11, thiếu nó là không
+  có màn hình đăng nhập nào cả.
+- Lúc dựng ISO, `scripts/build-iso.sh` gỡ drop-in mkinitcpio NVIDIA khi ảnh không có
+  driver (`--no-aur`, edition amnesic) — nếu không `mkinitcpio` sẽ chết vì module
+  không tồn tại; và xác nhận trong chroot rằng DKMS đã sinh `nvidia.ko`, thay vì
+  phát hành một ISO "có driver" trên danh nghĩa.
 
 Nếu vẫn gặp màn hình đen hoặc quay lại màn hình đăng nhập:
 
-1. **Tắt Secure Boot** trong BIOS/UEFI (Win 11 thường bật sẵn). Ảnh AniOS hiện không hỗ trợ Secure Boot nên có thể bị chặn khi bật; dùng chế độ UEFI (không CSM/Legacy).
-2. Sau khi vào TTY (`Ctrl+Alt+F2`), kiểm tra:
+1. **Tắt Secure Boot** trong BIOS/UEFI (Win 11 thường bật sẵn). Ảnh AniOS hiện không
+   hỗ trợ Secure Boot nên có thể bị chặn khi bật; dùng chế độ UEFI (không CSM/Legacy).
+2. Ở màn hình SDDM, chọn phiên **`AniOS (Hyprland - Safe)`** để vào desktop ngay.
+3. Hoặc vào TTY (`Ctrl+Alt+F2`), chạy:
    ```bash
-   lsmod | grep nvidia                       # phải có nvidia, nvidia_drm, nvidia_modeset
-   cat /sys/module/nvidia_drm/parameters/modeset   # phải là Y
-   dkms status                               # module nvidia (tên nvidia hoặc nvidia-580xx) phải là "installed"
-   journalctl -b -u sddm
-   less ~/.local/share/hyprland/hyprland.log
+   anios-gpu-doctor            # chẩn đoán: card, driver, modeset, cấu hình, nhật ký phiên
+   sudo anios-gpu-doctor --fix # sửa cấu hình thiếu rồi khởi động lại
    ```
-3. Nếu `dkms status` không báo `installed`, module chưa biên dịch được cho kernel `linux-zen` hiện tại. Gửi kèm `/var/lib/dkms/nvidia/*/build/make.log` khi báo lỗi.
-4. Ảnh đã dựng trước thay đổi này **không có** driver NVIDIA; cần dựng lại ISO (`sudo ./scripts/build-iso.sh --clean`) hoặc cài lại từ ảnh mới.
+   Kiểm tra tay:
+   ```bash
+   lsmod | grep nvidia                             # phải có nvidia, nvidia_drm, nvidia_modeset
+   cat /sys/module/nvidia_drm/parameters/modeset   # phải là Y
+   dkms status                                     # nvidia-580xx phải "installed"
+   cat ~/.local/share/anios/session.log            # mã thoát của Hyprland
+   less ~/.local/share/hyprland/hyprland.log
+   journalctl -b -u sddm
+   ```
+4. Nếu `dkms status` không báo `installed`, module chưa biên dịch được cho kernel
+   `linux-zen` hiện tại: `sudo dkms autoinstall`, rồi gửi kèm
+   `/var/lib/dkms/nvidia/*/build/make.log` khi báo lỗi.
+5. Ảnh đã dựng trước thay đổi này **không có** driver NVIDIA; cần dựng lại ISO
+   (`sudo ./scripts/build-iso.sh --clean`) hoặc cài lại từ ảnh mới.
 
-Kiểm tra cục bộ: `./scripts/selftest-gpu-env.sh` (logic chọn biến môi trường trên cây sysfs giả). Việc Hyprland thực sự chạy trên RTX 2060 SUPER **chưa được kiểm thử trên phần cứng thật** trong repo này.
+Kiểm tra cục bộ (không cần GPU):
+`./scripts/selftest-gpu-env.sh` (biến môi trường theo loại máy),
+`./scripts/selftest-anios-session.sh` (cờ `--safe` + tự lùi chế độ an toàn),
+`./scripts/selftest-anios-gpu-doctor.sh` (chẩn đoán/`--fix` trên cây giả),
+`./scripts/selftest-build-iso-nvidia-params.sh` (tham số kernel trên grub/syslinux/systemd-boot).
+Việc Hyprland chạy trên phần cứng NVIDIA thật vẫn **cần** kiểm thử trên máy thật
+(GA106/RTX 3060 và một máy hybrid) trước khi đưa vào quán net.
 
 ### Sober (Roblox) và GNOME Disks
 
@@ -513,7 +588,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR (git AUR → mirror GitHub → snapshot cgit), dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, thử lại gói hỏng, phân loại nguyên nhân hỏng, phát annotation cho GitHub Actions, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
-- `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; cần Lua 5.4 trở lên, không cần GPU.
+- `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; chạy mỗi cấu hình với ba hồ sơ GPU (`default`, `ANIOS_GPU=nvidia`, `ANIOS_SAFE=1`); cần Lua 5.4 trở lên, không cần GPU.
+- `profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf`, `/etc/modprobe.d/anios-nvidia.conf` và `usr/local/lib/anios/gpu-env.sh` — ba lớp cấu hình NVIDIA: module trong initramfs, tham số modprobe (modeset, giữ VRAM qua suspend) và biến môi trường theo loại máy (chỉ-NVIDIA vs hybrid).
+- `profile/airootfs/usr/local/bin/anios-gpu-doctor` — chẩn đoán GPU từ TTY (PCI/driver/modeset/cấu hình/nhật ký phiên), `--fix` ghi lại modprobe.d + drop-in mkinitcpio + tham số GRUB và dựng lại initramfs.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
 - `scripts/selftest-check-live-aur.sh` — tự kiểm tra `check-live-aur.sh` trên ảnh live giả cùng `unsquashfs` giả.
@@ -527,6 +604,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-check-live-audio.sh` — tự kiểm tra script trên một ảnh live giả, chạy trên mọi push/PR mà không cần Arch Linux.
 - `scripts/selftest-anios-netcheck.sh` — tự kiểm tra `anios-netcheck` bằng `getent`/`curl`/`nmcli`/`resolvectl` giả trên cây `/etc` giả: DNS chết hẳn, DNS chỉ sai với tên Valve, IPv6 "nửa sống", captive portal, các bước `--fix`/`--fix-dns` và chế độ `--quiet` dùng cho unit.
 - `scripts/selftest-apply-saved-cursor.sh` — tự kiểm tra `apply_saved_cursor.sh` (script áp theme con trỏ lúc Hyprland khởi động) với `hyprctl` giả trên cây icon giả: theme đã lưu được giữ, theme không được cài rơi về Adwaita, JSON hỏng/size sai không làm chết phiên, theme hyprcursor vẫn được nhận, và khi ảnh không có theme nào thì không gọi `hyprctl` để compositor giữ con trỏ mặc định.
+- `scripts/selftest-anios-session.sh` — chạy đúng `anios-session` với `dbus-run-session`/`Hyprland` giả: cờ `--safe` tới được cấu hình qua `ANIOS_SAFE`, Hyprland chết ngay được thử lại đúng một lần ở chế độ an toàn, thoát bình thường không chạy lại, nhật ký phiên có mã thoát.
+- `scripts/selftest-anios-gpu-doctor.sh` — chạy `anios-gpu-doctor` trên cây sysfs/`/etc` giả: bắt được `modeset=0`, thiếu modprobe.d/drop-in, `nouveau` đang giữ card; `--fix` ghi đủ cấu hình, gọi `mkinitcpio`, không làm mất dòng khác của `/etc/default/grub`, và chạy hai lần không nhân đôi dòng.
+- `scripts/selftest-build-iso-nvidia-params.sh` — nạp đúng `anios_add_nvidia_kernel_params()` của `build-iso.sh` rồi chạy trên GRUB/Syslinux/systemd-boot giả: mọi mục menu nhận `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` đúng một lần, chạy lại không nhân đôi, profile không có cấu hình khởi động là no-op.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
 - `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh).
 
@@ -544,6 +624,9 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-build-iso-sudoers.sh   # bước kiểm tra NOPASSWD ở cuối build-iso.sh trên airootfs giả
 ./scripts/selftest-build-iso-permissions.sh # bước khai báo file_permissions (quyền/bit thực thi) của build-iso.sh
 ./scripts/selftest-gpu-env.sh             # biến môi trường GPU NVIDIA của phiên Hyprland (sysfs giả)
+./scripts/selftest-anios-session.sh       # phiên an toàn + tự lùi khi Hyprland thoát ngay
+./scripts/selftest-anios-gpu-doctor.sh    # chẩn đoán GPU và --fix trên cây giả
+./scripts/selftest-build-iso-nvidia-params.sh # tham số kernel NVIDIA trên GRUB/Syslinux/systemd-boot
 ```
 
 Các bài kiểm tra chạy nhanh, không cần dựng ISO. Có thể đặt `LUA=lua5.4` nếu

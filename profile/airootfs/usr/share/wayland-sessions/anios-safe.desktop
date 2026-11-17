@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=AniOS (Hyprland - Safe)
+Comment=Start the AniOS desktop session with blur, animations and hardware cursors off (use this when the normal session stays black)
+Exec=/usr/local/bin/anios-session --safe
+TryExec=/usr/local/bin/anios-session
+Type=Application
+DesktopNames=Hyprland

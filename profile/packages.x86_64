@@ -102,6 +102,15 @@ steam
 # bao phủ cả GPU Maxwell/Pascal/Volta (GTX 9/10) lẫn Turing trở lên (RTX 20/30/40).
 # egl-wayland không xung đột và cần cho EGL trên Wayland.
 egl-wayland
+# dkms: driver 580xx là gói DKMS — module kernel chỉ tồn tại nếu có dkms biên dịch
+# nó cho từng kernel. nvidia-580xx-dkms phụ thuộc dkms nên gói này cũng được kéo
+# vào, nhưng khai báo tường minh giữ cho ảnh live và máy đích cùng có công cụ mà
+# `anios-gpu-doctor` dùng để chẩn đoán ("dkms status").
+dkms
+# xorg-server: SDDM mặc định chạy greeter X11 (sddm-greeter-qt6), và XWayland cần
+# driver X11 để chạy app cũ. Gói sddm của Arch khai báo phụ thuộc này, nhưng nêu
+# tên ra đây để một bản edition rút gọn không thể âm thầm mất màn hình đăng nhập.
+xorg-server
 
 # XWayland và driver màn hình cơ bản cho SDDM / fallback
 xorg-xwayland

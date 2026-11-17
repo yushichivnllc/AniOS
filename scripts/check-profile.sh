@@ -68,6 +68,100 @@ grep -qxF 'options nvidia-drm modeset=1 fbdev=1' "$AIROOTFS/etc/modprobe.d/anios
 [[ -s "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ]] || fail "usr/local/lib/anios/gpu-env.sh is missing"
 grep -qF '. /usr/local/lib/anios/gpu-env.sh' "$AIROOTFS/usr/local/bin/anios-session" ||
   fail "anios-session must source the GPU environment helper"
+
+# --- NVIDIA: đủ cấu hình để Hyprland khởi động trên card rời ---------------
+# Ba lớp phải cùng có mặt, thiếu một lớp là "không vào được giao diện":
+#   1. tham số kernel / module trong initramfs  -> nvidia-drm giữ KMS từ đầu;
+#   2. biến môi trường đúng loại máy (chỉ-NVIDIA vs hybrid);
+#   3. đường thoát hiểm: phiên Safe + công cụ chẩn đoán cho TTY.
+# Toàn bộ nhóm này khoá lại lỗi đã gặp trên RTX 3060 (GA106, Ampere): driver nạp
+# nhưng compositor không mở được KMS device, hoặc máy hybrid bị ép GBM của NVIDIA.
+NVIDIA_MKINITCPIO_DROPIN="$AIROOTFS/etc/mkinitcpio.conf.d/10-anios-nvidia.conf"
+[[ -s "$NVIDIA_MKINITCPIO_DROPIN" ]] ||
+  fail "thiếu $NVIDIA_MKINITCPIO_DROPIN: nvidia-drm sẽ chỉ nạp SAU khi SDDM đã khởi động"
+for nvidia_module in nvidia nvidia_modeset nvidia_uvm nvidia_drm; do
+  grep -qE "(^|[[:space:]=(])${nvidia_module}([[:space:])]|$)" "$NVIDIA_MKINITCPIO_DROPIN" ||
+    fail "drop-in mkinitcpio thiếu module $nvidia_module"
+done
+grep -qxF 'options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp' \
+  "$AIROOTFS/etc/modprobe.d/anios-nvidia.conf" ||
+  fail "modprobe.d phải giữ nội dung VRAM qua suspend (nvidia-drm mất driver sau khi ngủ)"
+grep -qF 'NVD_BACKEND' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải đặt NVD_BACKEND=direct để giải mã video bằng GPU NVIDIA"
+grep -qF 'nvidia-hybrid' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải phân biệt máy hybrid: ép GBM_BACKEND của NVIDIA lên iGPU làm Hyprland chết"
+grep -qF 'anios_nvidia_modeset_enabled' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải kiểm tra modeset của nvidia-drm"
+grep -qF 'ANIOS_NVIDIA_MODESET' "$AIROOTFS/usr/local/lib/anios/gpu-env.sh" ||
+  fail "gpu-env.sh phải báo trạng thái modeset cho anios-gpu-doctor"
+
+# Hồ sơ GPU dùng chung cho hai desktop; cả hai bản skel đều phải nạp nó.
+NVIDIA_PROFILE="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/nvidia.lua"
+[[ -s "$NVIDIA_PROFILE" ]] || fail "thiếu hồ sơ GPU .config/hypr/hyprland/nvidia.lua"
+grep -qF 'software_cursors' "$NVIDIA_PROFILE" ||
+  fail "hồ sơ GPU phải quyết định dùng con trỏ phần mềm (driver NVIDIA)"
+for hypr_entry in "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" \
+                  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland-minimal.lua" \
+                  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/general.lua"; do
+  grep -qF 'nvidia.lua' "$hypr_entry" ||
+    fail "${hypr_entry#"$AIROOTFS/"} không nạp hồ sơ GPU: cờ NVIDIA/phiên an toàn sẽ bị bỏ qua"
+done
+for cursor_entry in \
+  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" \
+  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland-minimal.lua" \
+  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/general.lua"; do
+  grep -qF 'no_hardware_cursors = gpu.software_cursors' "$cursor_entry" ||
+    fail "${cursor_entry#"$AIROOTFS/"} phải chuyển hồ sơ GPU sang cursor:no_hardware_cursors"
+done
+
+# Phiên "AniOS - Safe": lối vào desktop khi driver/hiệu ứng làm Hyprland chết.
+SAFE_SESSION="$AIROOTFS/usr/share/wayland-sessions/anios-safe.desktop"
+[[ -s "$SAFE_SESSION" ]] || fail "thiếu phiên dự phòng $SAFE_SESSION"
+grep -qF 'Exec=/usr/local/bin/anios-session --safe' "$SAFE_SESSION" ||
+  fail "phiên dự phòng phải chạy 'anios-session --safe'"
+grep -qF 'anios-safe.desktop' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+  fail "bộ cài đặt phải chép phiên an toàn sang máy đích"
+grep -qF -- '--safe' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải nhận tham số --safe"
+grep -qF 'ANIOS_SAFE' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải xuất ANIOS_SAFE cho cấu hình Hyprland"
+grep -qF 'session.log' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải ghi nhật ký phiên để chẩn đoán khi màn hình đen"
+grep -qF 'retrying in safe mode' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải tự lùi về chế độ an toàn khi Hyprland thoát ngay"
+
+GPU_DOCTOR="$AIROOTFS/usr/local/bin/anios-gpu-doctor"
+[[ -s "$GPU_DOCTOR" ]] || fail "thiếu công cụ chẩn đoán $GPU_DOCTOR"
+bash -n "$GPU_DOCTOR" || fail "anios-gpu-doctor có lỗi cú pháp"
+[[ "$(stat -c '%a' "$GPU_DOCTOR")" == 755 ]] ||
+  fail "anios-gpu-doctor phải có quyền 755 (mkarchiso chép airootfs bằng cp --no-preserve=mode)"
+grep -qF "'/usr/local/bin/anios-gpu-doctor:0:0:755'" "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh phải khai báo anios-gpu-doctor trong ANIOS_FILE_PERMISSIONS"
+grep -qF 'anios-gpu-doctor' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+  fail "bộ cài đặt phải chép anios-gpu-doctor sang máy đích"
+
+# Tham số kernel NVIDIA phải được vá vào mọi cấu hình khởi động của ISO.
+grep -qF 'anios_add_nvidia_kernel_params() {' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh phải có hàm anios_add_nvidia_kernel_params()"
+grep -qF 'anios_add_nvidia_kernel_params "$BUILD_PROFILE"' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh phải gọi anios_add_nvidia_kernel_params cho profile đang dựng"
+# Drop-in MODULES=(nvidia ...) hỏng cả bản dựng nếu module không tồn tại, nên bản
+# dựng không có driver (--no-aur, edition amnesic) phải gỡ nó ra.
+grep -qF 'rm -f -- "$ANIOS_NVIDIA_DROPIN"' "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh phải gỡ drop-in mkinitcpio NVIDIA khi ảnh không có driver"
+grep -qF "pacman -Qq nvidia-580xx-dkms" "$ROOT_DIR/scripts/build-iso.sh" ||
+  fail "build-iso.sh phải xác nhận module NVIDIA đã được DKMS dựng trong ảnh"
+grep -qF '10-anios-nvidia.conf' "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+  fail "bộ cài đặt phải chép drop-in mkinitcpio NVIDIA sang máy đích"
+
+# dkms + xorg-server: driver DKMS không tự biên dịch nếu thiếu dkms, và SDDM dùng
+# greeter X11 (cần xorg-server) — nêu tên tường minh trong cả hai manifest.
+for manifest_package in dkms xorg-server; do
+  for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
+    grep -qxF "$manifest_package" "$manifest" ||
+      fail "$manifest_package missing from ${manifest#"$ROOT_DIR"/} (NVIDIA driver / SDDM greeter)"
+  done
+done
 # packages.x86_64 được pacstrap đọc trực tiếp nên CHỈ được chứa gói của kho chính
 # thức. Gói AUR phải nằm trong profile/packages.aur.x86_64, nơi
 # scripts/anios-aur-build.sh dựng chúng bằng makepkg bên trong chroot.

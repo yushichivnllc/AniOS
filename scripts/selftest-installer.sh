@@ -256,18 +256,21 @@ printf '[General]\nbackground=bg.mp4\n' >"$LIVE_ROOT/usr/share/sddm/themes/wuwa/
 printf 'import QtQuick\n' >"$LIVE_ROOT/usr/share/sddm/themes/anios/Main.qml"
 printf 'ANIOS · ARCH LINUX LIVE\n' >"$LIVE_ROOT/usr/share/sddm/themes/wuwa/Main.qml"
 printf 'Name=AniOS live SDDM theme\n' >"$LIVE_ROOT/usr/share/sddm/themes/anios/metadata.desktop"
-for session in anios.desktop anios-imi.desktop anios-minimal.desktop; do
+for session in anios.desktop anios-imi.desktop anios-minimal.desktop anios-safe.desktop; do
   printf '[Desktop Entry]\nExec=/usr/local/bin/anios-session\nTryExec=/usr/local/bin/anios-session\n' \
     >"$LIVE_ROOT/usr/share/wayland-sessions/$session"
 done
 for binary in anios-session anios-audio-setup anios-audio-check anios-switch-desktop \
-  anios-switch-im anios-update; do
+  anios-switch-im anios-update anios-gpu-doctor; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$LIVE_ROOT/usr/local/bin/$binary"
 done
 chmod 0755 "$LIVE_ROOT"/usr/local/bin/*
 printf 'zram-size = min(ram / 2, 4096)\n' >"$LIVE_ROOT/etc/systemd/zram-generator.conf"
-mkdir -p -- "$LIVE_ROOT/etc/modprobe.d" "$LIVE_ROOT/usr/local/lib/anios"
+mkdir -p -- "$LIVE_ROOT/etc/modprobe.d" "$LIVE_ROOT/etc/mkinitcpio.conf.d" \
+  "$LIVE_ROOT/usr/local/lib/anios"
 printf 'options nvidia-drm modeset=1 fbdev=1\n' >"$LIVE_ROOT/etc/modprobe.d/anios-nvidia.conf"
+printf 'MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n' \
+  >"$LIVE_ROOT/etc/mkinitcpio.conf.d/10-anios-nvidia.conf"
 printf 'anios_export_gpu_env() { :; }\n' >"$LIVE_ROOT/usr/local/lib/anios/gpu-env.sh"
 mkdir -p -- "$LIVE_ROOT/usr/share/anios/skel/.config/hypr" "$LIVE_ROOT/usr/share/anios/skel/Desktop"
 cat >"$LIVE_ROOT/usr/share/anios/skel/.config/hypr/hyprlock.conf" <<'HYPRLOCK'
@@ -345,7 +348,7 @@ mkdir -p -- "$REAL_LIVE/usr/share/anios" "$REAL_LIVE/usr/share/wayland-sessions"
 [[ -d "$REAL_SKEL_SRC/.config/hypr" ]] ||
   fail "profile/airootfs/usr/share/anios/skel is missing from the repository"
 cp -a -- "$REAL_SKEL_SRC" "$REAL_LIVE/usr/share/anios/skel"
-for session in anios.desktop anios-imi.desktop anios-minimal.desktop; do
+for session in anios.desktop anios-imi.desktop anios-minimal.desktop anios-safe.desktop; do
   cp -- "$ROOT_DIR/profile/airootfs/usr/share/wayland-sessions/$session" \
     "$REAL_LIVE/usr/share/wayland-sessions/$session"
 done
@@ -534,6 +537,14 @@ as_root test -s "$DEFAULT_ROOT/etc/modprobe.d/anios-nvidia.conf" ||
   fail "finalizer không chép cấu hình modprobe NVIDIA sang máy đích"
 as_root test -s "$DEFAULT_ROOT/usr/local/lib/anios/gpu-env.sh" ||
   fail "finalizer không chép helper môi trường GPU sang máy đích"
+as_root test -s "$DEFAULT_ROOT/etc/mkinitcpio.conf.d/10-anios-nvidia.conf" ||
+  fail "finalizer không chép drop-in mkinitcpio NVIDIA sang máy đích"
+as_root test -s "$DEFAULT_ROOT/usr/share/wayland-sessions/anios-safe.desktop" ||
+  fail "finalizer không cài phiên 'AniOS - Safe' cho máy đích"
+as_root test -x "$DEFAULT_ROOT/usr/local/bin/anios-gpu-doctor" ||
+  fail "finalizer không cài anios-gpu-doctor cho máy đích"
+grep -qF 'nvidia_drm.modeset=1' "$DEFAULT_ROOT/etc/default/grub" ||
+  fail "finalizer không thêm tham số kernel nvidia_drm.modeset=1 vào GRUB của máy đích"
 ! grep -qE '^[[:space:]]*GRUB_(THEME|FONT)[[:space:]]*=' "$DEFAULT_ROOT/etc/default/grub" ||
   fail "default GRUB selection left a custom theme/font enabled"
 grep -q '^GRUB_TERMINAL_OUTPUT="console"$' "$DEFAULT_ROOT/etc/default/grub" ||

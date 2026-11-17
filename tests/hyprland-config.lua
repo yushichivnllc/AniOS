@@ -231,6 +231,40 @@ else
     end
 end
 
+-- --- Hồ sơ GPU (NVIDIA / phiên an toàn) ------------------------------------
+-- anios-session đặt ANIOS_GPU và ANIOS_SAFE trước khi chạy Hyprland; cấu hình
+-- phải phản ánh đúng hồ sơ đó, nếu không thì "sửa lỗi NVIDIA" chỉ là danh nghĩa.
+local function collect(key)
+    for _, cfg in ipairs(configs) do
+        if cfg[key] ~= nil then return cfg[key] end
+    end
+    return nil
+end
+local gpu_env = os.getenv("ANIOS_GPU") or ""
+local safe_env = (os.getenv("ANIOS_SAFE") or "") == "1"
+local cursor_cfg = collect("cursor") or {}
+local debug_cfg = collect("debug") or {}
+local decoration_cfg = collect("decoration") or {}
+local animations_cfg = collect("animations") or {}
+
+if gpu_env:match("^nvidia") then
+    assert(cursor_cfg.no_hardware_cursors == true,
+        "driver NVIDIA phải tắt con trỏ phần cứng (cursor:no_hardware_cursors)")
+    assert(debug_cfg.vfr == false,
+        "driver NVIDIA phải tắt VFR (debug:vfr = false) để hình không rung")
+elseif not safe_env then
+    -- Ở phiên thường, máy Intel/AMD phải giữ con trỏ phần cứng như trước; phiên an
+    -- toàn thì cố ý dùng con trỏ phần mềm cho mọi GPU để loại trừ nguyên nhân.
+    assert(cursor_cfg.no_hardware_cursors ~= true,
+        "máy Intel/AMD không được tắt con trỏ phần cứng")
+end
+
+if safe_env then
+    assert(animations_cfg.enabled == false, "phiên an toàn phải tắt animation")
+    assert(((decoration_cfg.blur or {}).enabled) == false, "phiên an toàn phải tắt blur")
+    assert(((decoration_cfg.shadow or {}).enabled) == false, "phiên an toàn phải tắt shadow")
+end
+
 -- Render the shipped Matugen template with sample hex values. Validating only
 -- colors.lua would let a wallpaper change reintroduce the broken string form.
 local f = assert(io.open(template, "r"))
