@@ -74,6 +74,14 @@ jobs:
         # qua ANIOS_SAFE, Hyprland chết ngay phải được thử lại đúng MỘT lần ở chế
         # độ an toàn, và lần chạy lỗi phải để lại nhật ký cho anios-gpu-doctor.
         run: ./scripts/selftest-anios-session.sh
+      - name: Self-test the net cafe mode (per-customer wipe / crash watchdog)
+        # Quán net là máy DÙNG CHUNG, và đây là script XOÁ DỮ LIỆU: một dấu '..' lọt
+        # vào danh sách xoá là mất cả thư mục nhà. Bài này chạy cafe.sh + anios-cafe
+        # trên cây $HOME giả: chỉ xoá đúng danh sách cho phép, giữ dotfiles
+        # Hyprland/~/Desktop/nhật ký phiên, symlink trỏ ra ngoài không mất dữ liệu
+        # đích, --dry-run không xoá gì, và watchdog chỉ khởi động lại máy khi bật,
+        # đúng ngưỡng, tối đa một lần mỗi lần boot.
+        run: ./scripts/selftest-anios-cafe.sh
       - name: Self-test the NVIDIA kernel parameters of the ISO boot entries
         # Card NVIDIA rời (RTX 3060/GA106...) chỉ lên được Hyprland khi nvidia-drm
         # giữ KMS ngay từ đầu: modprobe.d + initramfs + tham số kernel. Bài này nạp

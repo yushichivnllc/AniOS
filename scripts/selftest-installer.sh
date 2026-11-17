@@ -261,7 +261,7 @@ for session in anios.desktop anios-imi.desktop anios-minimal.desktop anios-safe.
     >"$LIVE_ROOT/usr/share/wayland-sessions/$session"
 done
 for binary in anios-session anios-audio-setup anios-audio-check anios-switch-desktop \
-  anios-switch-im anios-update anios-gpu-doctor anios-dmesg-check; do
+  anios-switch-im anios-update anios-gpu-doctor anios-dmesg-check anios-cafe; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$LIVE_ROOT/usr/local/bin/$binary"
 done
 chmod 0755 "$LIVE_ROOT"/usr/local/bin/*
@@ -273,6 +273,14 @@ printf 'MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n' \
   >"$LIVE_ROOT/etc/mkinitcpio.conf.d/10-anios-nvidia.conf"
 printf 'MODULES+=(vmd)\n' >"$LIVE_ROOT/etc/mkinitcpio.conf.d/20-anios-vmd.conf"
 printf 'anios_export_gpu_env() { :; }\n' >"$LIVE_ROOT/usr/local/lib/anios/gpu-env.sh"
+# Chế độ quán net: finalizer đòi thư viện, cấu hình TẮT mặc định và unit watchdog.
+printf 'anios_cafe_load_config() { :; }\n' >"$LIVE_ROOT/usr/local/lib/anios/cafe.sh"
+mkdir -p -- "$LIVE_ROOT/etc/anios" "$LIVE_ROOT/etc/systemd/system/timers.target.wants"
+printf 'ANIOS_CAFE_ENABLE=0\n' >"$LIVE_ROOT/etc/anios/net-cafe.conf"
+printf '[Service]\nExecStart=/usr/local/bin/anios-cafe watchdog\n' \
+  >"$LIVE_ROOT/etc/systemd/system/anios-cafe-watchdog.service"
+printf '[Timer]\nUnit=anios-cafe-watchdog.service\n\n[Install]\nWantedBy=timers.target\n' \
+  >"$LIVE_ROOT/etc/systemd/system/anios-cafe-watchdog.timer"
 mkdir -p -- "$LIVE_ROOT/usr/share/anios/skel/.config/hypr" "$LIVE_ROOT/usr/share/anios/skel/Desktop"
 cat >"$LIVE_ROOT/usr/share/anios/skel/.config/hypr/hyprlock.conf" <<'HYPRLOCK'
 # Live password: 1111
@@ -548,6 +556,18 @@ as_root test -x "$DEFAULT_ROOT/usr/local/bin/anios-gpu-doctor" ||
   fail "finalizer không cài anios-gpu-doctor cho máy đích"
 as_root test -x "$DEFAULT_ROOT/usr/local/bin/anios-dmesg-check" ||
   fail "finalizer không cài anios-dmesg-check cho máy đích"
+# Chế độ quán net phải sang được máy đích, và phải ở trạng thái TẮT (không xoá dữ
+# liệu của người dùng thường chỉ vì họ chạy bộ cài đặt).
+as_root test -x "$DEFAULT_ROOT/usr/local/bin/anios-cafe" ||
+  fail "finalizer không cài anios-cafe cho máy đích"
+as_root test -s "$DEFAULT_ROOT/usr/local/lib/anios/cafe.sh" ||
+  fail "finalizer không chép thư viện chế độ quán net sang máy đích"
+as_root test -s "$DEFAULT_ROOT/etc/systemd/system/anios-cafe-watchdog.timer" ||
+  fail "finalizer không cài unit watchdog của chế độ quán net"
+as_root test -L "$DEFAULT_ROOT/etc/systemd/system/timers.target.wants/anios-cafe-watchdog.timer" ||
+  fail "finalizer không bật anios-cafe-watchdog.timer trên máy đích"
+as_root grep -qxF 'ANIOS_CAFE_ENABLE=0' "$DEFAULT_ROOT/etc/anios/net-cafe.conf" ||
+  fail "chế độ quán net phải TẮT mặc định trên máy đích"
 grep -qF 'nvidia_drm.modeset=1' "$DEFAULT_ROOT/etc/default/grub" ||
   fail "finalizer không thêm tham số kernel nvidia_drm.modeset=1 vào GRUB của máy đích"
 ! grep -qE '^[[:space:]]*GRUB_(THEME|FONT)[[:space:]]*=' "$DEFAULT_ROOT/etc/default/grub" ||

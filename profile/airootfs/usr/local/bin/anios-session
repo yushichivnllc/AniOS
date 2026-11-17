@@ -83,6 +83,23 @@ else
 fi
 anios_log "session start: desktop=${ANIOS_DESKTOP:-default} safe=${ANIOS_SAFE:-0} gpu=${ANIOS_GPU:-none} nvidia_modeset=${ANIOS_NVIDIA_MODESET:-unknown} aq_drm=${AQ_DRM_DEVICES:-none}"
 
+# --- Chế độ quán net: dọn dữ liệu của khách trước ---------------------------
+# Máy quán net là máy dùng chung: phiên Steam, lịch sử/mật khẩu trình duyệt và
+# file tải về của khách trước không được để lại. Chỉ làm khi quán đã bật
+# (`anios-cafe on`); mặc định ảnh không xoá gì. Xem /etc/anios/net-cafe.conf.
+cafe_lib="${ANIOS_CAFE_LIB:-/usr/local/lib/anios/cafe.sh}"
+if [[ -r "$cafe_lib" ]]; then
+  # shellcheck source=/dev/null
+  . "$cafe_lib"
+  anios_cafe_load_config
+  if [[ "${ANIOS_CAFE_WIPE_ON_START:-0}" == 1 ]]; then
+    cafe_wipe_log="$(mktemp 2>/dev/null || echo /tmp/anios-cafe-wipe.$$)"
+    anios_cafe_clean 0 >"$cafe_wipe_log" 2>&1 || true
+    anios_log "net-cafe: wiped ${ANIOS_CAFE_LAST_REMOVED} item(s) before this session: $(tr '\n' ';' <"$cafe_wipe_log" 2>/dev/null)"
+    rm -f -- "$cafe_wipe_log" 2>/dev/null || true
+  fi
+fi
+
 # Không dùng `exec`: cần đọc mã thoát của Hyprland để biết phiên có lên hình hay
 # không, rồi ghi lại và (một lần) thử chế độ an toàn.
 started_at="$(date +%s)"
@@ -103,11 +120,34 @@ if (( status != 0 )) && [[ "${ANIOS_SAFE:-0}" != 1 ]] && (( elapsed < 20 )); the
     "AniOS: Hyprland thoát với mã $status sau ${elapsed}s — thử lại ở chế độ an toàn." \
     "       Chi tiết: ${log_file:-~/.local/share/anios/session.log}" >&2
   export ANIOS_SAFE=1
+  started_at="$(date +%s)"
   set +e
   dbus-run-session -- Hyprland "$@"
   status=$?
   set -euo pipefail
-  anios_log "safe-mode Hyprland exited with status $status"
+  elapsed=$(( $(date +%s) - started_at ))
+  anios_log "safe-mode Hyprland exited with status $status after ${elapsed}s"
+fi
+
+# --- Chế độ quán net: ghi nhận phiên chết nhanh ------------------------------
+# Phiên thoát với mã lỗi trong 20 giây đầu (kể cả sau khi đã thử chế độ an toàn)
+# là dấu hiệu máy hỏng chứ không phải khách thoát. Chỉ GHI LẠI: việc khởi động
+# lại máy do unit anios-cafe-watchdog.timer (chạy bằng root) quyết định, vì tài
+# khoản phiên không có quyền reboot.
+# Chỉ ghi khi quán đã bật chế độ: máy dùng riêng không phải sinh file trạng thái
+# nào trong ~/.local/state/anios.
+if declare -F anios_cafe_record_failure >/dev/null 2>&1 &&
+  [[ "${ANIOS_CAFE_ENABLE:-0}" == 1 ]]; then
+  if (( status != 0 )) && (( elapsed < 20 )); then
+    anios_cafe_record_failure
+    cafe_failures="$(anios_cafe_failure_count)"
+    anios_log "net-cafe: fast failure recorded (${cafe_failures}/${ANIOS_CAFE_MAX_FAST_FAILURES} in ${ANIOS_CAFE_FAILURE_WINDOW}s)"
+    if anios_cafe_should_reboot; then
+      anios_log "net-cafe: watchdog will reboot the machine (auto-reboot is enabled)"
+    fi
+  else
+    anios_cafe_clear_failures
+  fi
 fi
 
 exit "$status"
