@@ -527,8 +527,9 @@ b, strong { font-weight: 700; }
   max-width: 252px;
 }
 .player-card__cover {
-  width: 48px; height: 48px;
+  width: 56px; height: 56px;
   object-fit: cover;
+  object-position: center 16%; /* giữ khuôn mặt của sticker trong khung tròn vuông */
   border-radius: 9px;
   background: var(--white);
   border: 1.5px solid var(--ink);
