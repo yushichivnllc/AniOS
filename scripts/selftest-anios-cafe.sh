@@ -253,4 +253,89 @@ grep -qF 'retrying in safe mode' "$HOME_DIR/.local/share/anios/session.log" ||
   fail "the net cafe accounting must not break the existing safe-mode retry"
 pass "anios-session wipes the previous customer and records fast failures"
 
+# --- 11. Máy quầy thu ngân (POS): không dọn, không tự khởi động lại ---------
+# Chủ quán bật chế độ cho cả dàn bằng `on --system` là chuyện bình thường; máy quầy
+# phải miễn nhiễm, vì hồ sơ trình duyệt ở quầy đang đăng nhập sẵn phần mềm bán
+# hàng và một lần reboot giữa ca là mất hoá đơn.
+printf 'ANIOS_CAFE_ENABLE=1\nANIOS_CAFE_ROLE=pos\nANIOS_CAFE_WIPE_ON_START=1\nANIOS_CAFE_REBOOT_ON_CRASH=1\n' >"$CONF"
+run_lib '
+  anios_cafe_load_config
+  anios_cafe_is_pos || { echo "role pos bị bỏ qua" >&2; exit 1; }
+  [[ "$ANIOS_CAFE_WIPE_ON_START" == 0 ]] || { echo "máy quầy vẫn bị bật dọn dữ liệu" >&2; exit 1; }
+  [[ "$ANIOS_CAFE_REBOOT_ON_CRASH" == 0 ]] || { echo "máy quầy vẫn bị bật tự khởi động lại" >&2; exit 1; }
+' || fail "role pos must lock the wipe and reboot switches off"
+pos_status="$(user_env "$CLI" status 2>&1)"
+grep -qF 'máy quầy thu ngân' <<<"$pos_status" || fail "status must name the POS role"
+grep -qF 'KHÔNG dọn dữ liệu' <<<"$pos_status" ||
+  fail "status must explain why nothing is wiped on the POS machine"
+printf 'quầy\n' >"$HOME_DIR/Downloads/hoa-don.pdf"
+watchdog_env >/dev/null 2>&1 || fail "watchdog must exit 0 on a POS machine"
+[[ ! -s "$REBOOT_LOG" ]] || fail "a POS machine must never reboot itself"
+# --pos ghi đúng vai trò, `off` xoá vai trò đó
+printf 'ANIOS_CAFE_ENABLE=0\n' >"$CONF"
+rm -f "$HOME_DIR/.config/anios/net-cafe.conf"
+user_env "$CLI" on --pos >/dev/null || fail "anios-cafe on --pos must succeed"
+grep -qxF 'ANIOS_CAFE_ROLE=pos' "$HOME_DIR/.config/anios/net-cafe.conf" ||
+  fail "on --pos must record the POS role"
+grep -qxF 'ANIOS_CAFE_ENABLE=1' "$HOME_DIR/.config/anios/net-cafe.conf" ||
+  fail "on --pos must also enable the mode"
+user_env "$CLI" off >/dev/null || fail "anios-cafe off must succeed"
+! grep -qE '^ANIOS_CAFE_ROLE=' "$HOME_DIR/.config/anios/net-cafe.conf" ||
+  fail "off must drop the POS role"
+pass "POS machine: no wipe, no auto-reboot, role recorded"
+
+# --- 12. Máy không có tài khoản AniOS: im lặng, không ghi bừa --------------
+# Unit watchdog chạy bằng root và tra tài khoản ANIOS_CAFE_USER; máy quầy hay đặt
+# tên tài khoản riêng nên lần tra có thể không ra. Khi đó TUYỆT ĐỐI không được suy
+# ra đường dẫn kiểu "/.local/state/anios" (tạo rác ở gốc ổ đĩa) và không in lỗi.
+env -i PATH="$PATH" bash -c '
+  set -Eeuo pipefail
+  . "$1"
+  if anios_cafe_state_dir >/dev/null; then echo "phải từ chối khi không có HOME" >&2; exit 1; fi
+  anios_cafe_record_failure
+  anios_cafe_clear_failures
+  anios_cafe_prune_failures
+  [[ "$(anios_cafe_failure_count)" == 0 ]]
+  out="$(anios_cafe_clean 0)"
+  [[ -z "$out" ]] || { echo "không được in gì khi không biết HOME: $out" >&2; exit 1; }
+' _ "$LIB" || fail "the library must stay silent when no HOME is known"
+# stderr đi vào journal (kỹ thuật đọc), stdout phải rỗng để không ai thấy "lỗi".
+no_home_out="$(env -i PATH="$PATH" "$CLI" watchdog 2>/dev/null)" ||
+  fail "watchdog must exit 0 when it cannot find the account"
+[[ -z "$no_home_out" ]] || fail "watchdog must not print anything on stdout: $no_home_out"
+pass "missing account: silent, no stray directories"
+
+# --- 13. Cấu hình quán hỏng không được làm chết phiên đăng nhập -------------
+# Một dòng sửa tay sai trong net-cafe.conf từng đủ để `set -u` giết anios-session
+# TRƯỚC khi Hyprland chạy — máy quầy chỉ còn màn hình đăng nhập, đúng kiểu "báo lỗi"
+# mà quán net không được phép gặp.
+BROKEN_CONF="$TMP/broken-net-cafe.conf"
+cat >"$BROKEN_CONF" <<'BROKEN'
+# Quán sửa tay và gõ sai: dòng dưới đây hỏng cú pháp, cả file không nạp được.
+ANIOS_CAFE_ENABLE=1
+ANIOS_CAFE_WIPE_ON_START=1 if then
+BROKEN
+mkdir -p "$HOME_DIR/.config/google-chrome"
+printf 'cookie\n' >"$HOME_DIR/.config/google-chrome/Cookies"
+rm -f "$HOME_DIR/.config/anios/net-cafe.conf"
+: >"$HOME_DIR/.local/share/anios/session.log"
+set +e
+env -i PATH="$TMP/session-bin:$PATH" HOME="$HOME_DIR" \
+  ANIOS_CAFE_LIB="$LIB" ANIOS_CAFE_HOME="$HOME_DIR" \
+  ANIOS_CAFE_ETC_CONF="$BROKEN_CONF" ANIOS_CAFE_CMDLINE_FILE="$CMDLINE" \
+  ANIOS_CAFE_STATE_DIR="$STATE_DIR" \
+  bash "$SESSION" >"$TMP/broken-session.out" 2>&1
+set -e
+grep -qF 'session start' "$HOME_DIR/.local/share/anios/session.log" ||
+  fail "a broken net cafe config must not stop the session from starting"
+grep -qF 'Hyprland exited' "$HOME_DIR/.local/share/anios/session.log" ||
+  fail "a broken net cafe config must not stop Hyprland from launching"
+grep -qF 'session start' "$TMP/broken-session.out" 2>/dev/null || true
+# Điều phải bảo đảm: phiên vẫn chạy tới Hyprland và mã thoát vẫn là mã của
+# Hyprland, không phải một lỗi bash nào đó chết sớm.
+grep -qE 'AniOS: Hyprland thoát với mã|xin chào|session start' "$TMP/broken-session.out" ||
+  grep -qF 'session start' "$HOME_DIR/.local/share/anios/session.log" ||
+  fail "a broken config must not stop the session from starting"
+pass "a broken net cafe config never blocks login"
+
 echo "All anios-cafe self-tests passed."

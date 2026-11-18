@@ -87,16 +87,57 @@ anios_log "session start: desktop=${ANIOS_DESKTOP:-default} safe=${ANIOS_SAFE:-0
 # Máy quán net là máy dùng chung: phiên Steam, lịch sử/mật khẩu trình duyệt và
 # file tải về của khách trước không được để lại. Chỉ làm khi quán đã bật
 # (`anios-cafe on`); mặc định ảnh không xoá gì. Xem /etc/anios/net-cafe.conf.
+#
+# Mọi thứ dưới đây chạy trong SUBSHELL đã tắt `set -e`/`set -u`: cấu hình quán do
+# người dùng sửa tay, một dòng sai (hoặc một biến không tồn tại) tuyệt đối không
+# được làm phiên đăng nhập chết trước khi Hyprland kịp chạy — đó chính là kiểu
+# "máy báo lỗi, không vào được desktop" mà quán net không được phép gặp.
 cafe_lib="${ANIOS_CAFE_LIB:-/usr/local/lib/anios/cafe.sh}"
+
+anios_cafe_session_start() {
+  (
+    set +eu +o pipefail
+    # shellcheck source=/dev/null
+    . "$cafe_lib" || exit 0
+    anios_cafe_load_config || exit 0
+    [[ "${ANIOS_CAFE_WIPE_ON_START:-0}" == 1 ]] || exit 0
+    anios_cafe_clean 0
+    exit 0
+  ) 2>/dev/null
+}
+
+# anios_cafe_session_end <mã thoát> <số giây>: ghi nhận (hoặc xoá) bộ đếm "phiên
+# chết nhanh" cho unit anios-cafe-watchdog. In ra kết quả để nhật ký ghi lại.
+anios_cafe_session_end() {
+  (
+    set +eu +o pipefail
+    # shellcheck source=/dev/null
+    . "$cafe_lib" || exit 0
+    anios_cafe_load_config || exit 0
+    [[ "${ANIOS_CAFE_ENABLE:-0}" == 1 ]] || exit 0
+    if (( $1 != 0 )) && (( $2 < 20 )); then
+      anios_cafe_record_failure
+      printf 'fast failure %s/%s\n' "$(anios_cafe_failure_count)" "$ANIOS_CAFE_MAX_FAST_FAILURES"
+      if anios_cafe_should_reboot; then
+        printf 'watchdog reboot\n'
+      fi
+    else
+      anios_cafe_clear_failures
+    fi
+    # Luôn thoát 0: đây là hàm phụ, không phải mã thoát của phiên. Trả 1 ở đây
+    # (khi bộ đếm chưa chạm ngưỡng) sẽ làm `set -e` của script cha dừng ngay.
+    exit 0
+  ) 2>/dev/null
+}
+
 if [[ -r "$cafe_lib" ]]; then
-  # shellcheck source=/dev/null
-  . "$cafe_lib"
-  anios_cafe_load_config
-  if [[ "${ANIOS_CAFE_WIPE_ON_START:-0}" == 1 ]]; then
-    cafe_wipe_log="$(mktemp 2>/dev/null || echo /tmp/anios-cafe-wipe.$$)"
-    anios_cafe_clean 0 >"$cafe_wipe_log" 2>&1 || true
-    anios_log "net-cafe: wiped ${ANIOS_CAFE_LAST_REMOVED} item(s) before this session: $(tr '\n' ';' <"$cafe_wipe_log" 2>/dev/null)"
-    rm -f -- "$cafe_wipe_log" 2>/dev/null || true
+  cafe_wiped="$(anios_cafe_session_start || true)"
+  cafe_wiped_count=0
+  if [[ -n "$cafe_wiped" ]]; then
+    cafe_wiped_count="$(grep -c . <<<"$cafe_wiped" || true)"
+  fi
+  if (( cafe_wiped_count > 0 )); then
+    anios_log "net-cafe: wiped ${cafe_wiped_count} item(s) before this session: $(tr '\n' ';' <<<"$cafe_wiped")"
   fi
 fi
 
@@ -134,20 +175,14 @@ fi
 # là dấu hiệu máy hỏng chứ không phải khách thoát. Chỉ GHI LẠI: việc khởi động
 # lại máy do unit anios-cafe-watchdog.timer (chạy bằng root) quyết định, vì tài
 # khoản phiên không có quyền reboot.
-# Chỉ ghi khi quán đã bật chế độ: máy dùng riêng không phải sinh file trạng thái
-# nào trong ~/.local/state/anios.
-if declare -F anios_cafe_record_failure >/dev/null 2>&1 &&
-  [[ "${ANIOS_CAFE_ENABLE:-0}" == 1 ]]; then
-  if (( status != 0 )) && (( elapsed < 20 )); then
-    anios_cafe_record_failure
-    cafe_failures="$(anios_cafe_failure_count)"
-    anios_log "net-cafe: fast failure recorded (${cafe_failures}/${ANIOS_CAFE_MAX_FAST_FAILURES} in ${ANIOS_CAFE_FAILURE_WINDOW}s)"
-    if anios_cafe_should_reboot; then
-      anios_log "net-cafe: watchdog will reboot the machine (auto-reboot is enabled)"
-    fi
-  else
-    anios_cafe_clear_failures
-  fi
+if [[ -r "$cafe_lib" ]]; then
+  cafe_report="$(anios_cafe_session_end "$status" "$elapsed" || true)"
+  while IFS= read -r cafe_line; do
+    case "$cafe_line" in
+      'fast failure '*) anios_log "net-cafe: fast failure recorded (${cafe_line#fast failure })" ;;
+      'watchdog reboot') anios_log "net-cafe: watchdog will reboot the machine (auto-reboot is enabled)" ;;
+    esac
+  done <<<"$cafe_report"
 fi
 
 exit "$status"

@@ -34,6 +34,12 @@ anios_cafe_defaults() {
   # Tài khoản dùng chung của quán; unit watchdog chạy bằng root nên phải biết
   # đọc trạng thái của ai.
   ANIOS_CAFE_USER="${ANIOS_CAFE_USER:-anios}"
+  # Vai trò của MÁY NÀY: "gaming" (máy cho khách) hoặc "pos" (máy quầy thu ngân).
+  # Máy quầy dùng chung tài khoản nhưng KHÔNG được dọn dữ liệu: trình duyệt ở quầy
+  # đang đăng nhập sẵn phần mềm bán hàng (KiotViet/MISA/Sapo/POS365...), xoá hồ sơ
+  # trình duyệt là mất phiên đăng nhập giữa ca, và tự khởi động lại máy giữa lúc
+  # tính tiền thì mất hoá đơn. Xem anios_cafe_load_config bên dưới.
+  ANIOS_CAFE_ROLE="${ANIOS_CAFE_ROLE:-gaming}"
   # Những đường dẫn bị XOÁ HẲN khi bắt đầu phiên mới (tương đối so với $HOME).
   # Cố ý KHÔNG có: dotfiles Hyprland/quickshell, ~/Desktop, ~/.local/share/anios
   # (nhật ký phiên, cần cho anios-gpu-doctor), và mọi thứ ngoài $HOME.
@@ -72,8 +78,12 @@ anios_cafe_load_config() {
   for file in "${files[@]}"; do
     [[ -n "$file" && -r "$file" ]] || continue
     # File cấu hình là shell thuần (ANIOS_CAFE_KEY=value, mảng bằng ( ... )).
+    # Một dòng gõ sai KHÔNG được làm chết phiên đăng nhập (nhất là ở máy quầy):
+    # chỉ cảnh báo một dòng rồi dùng tiếp các giá trị đọc được trước đó.
     # shellcheck disable=SC1090
-    . "$file"
+    if ! . "$file" 2>/dev/null; then
+      printf 'anios-cafe: %s có dòng sai, đã bỏ qua phần còn lại\n' "$file" >&2
+    fi
   done
   cmdline="${ANIOS_CAFE_CMDLINE_FILE:-/proc/cmdline}"
   if [[ -r "$cmdline" ]] && grep -qE '(^|[[:space:]])anios\.cafe=1([[:space:]]|$)' "$cmdline" 2>/dev/null; then
@@ -82,16 +92,48 @@ anios_cafe_load_config() {
   # Hai công tắc con mặc định đi theo công tắc tổng.
   ANIOS_CAFE_WIPE_ON_START="${ANIOS_CAFE_WIPE_ON_START:-$ANIOS_CAFE_ENABLE}"
   ANIOS_CAFE_REBOOT_ON_CRASH="${ANIOS_CAFE_REBOOT_ON_CRASH:-$ANIOS_CAFE_ENABLE}"
+  anios_cafe_normalize_role
+  # Máy quầy thu ngân: bật chế độ quán net cho cả dàn (`on --system`) là chuyện
+  # bình thường ở quầy, nhưng máy POS phải miễn nhiễm — xoá hồ sơ trình duyệt là
+  # mất phiên đăng nhập phần mềm bán hàng, còn tự reboot giữa ca là mất hoá đơn.
+  # Vai trò "pos" vì thế KHOÁ CỨNG hai công tắc này, dù file nào bật chúng.
+  if [[ "$ANIOS_CAFE_ROLE" == pos ]]; then
+    ANIOS_CAFE_WIPE_ON_START=0
+    ANIOS_CAFE_REBOOT_ON_CRASH=0
+  fi
+}
+
+# anios_cafe_normalize_role: chấp nhận các cách gọi quen miệng của chủ quán
+# (quay/quầy/counter/thungan) để không ai phải nhớ đúng một chữ.
+anios_cafe_normalize_role() {
+  case "${ANIOS_CAFE_ROLE:-}" in
+    pos | POS | quay | quầy | quay-thu-ngan | counter | cashier | thungan) ANIOS_CAFE_ROLE=pos ;;
+    *) ANIOS_CAFE_ROLE=gaming ;;
+  esac
+}
+
+# anios_cafe_is_pos: 0 khi máy này là máy quầy thu ngân.
+anios_cafe_is_pos() {
+  [[ "${ANIOS_CAFE_ROLE:-}" == pos ]]
 }
 
 anios_cafe_state_dir() {
   local home
   home="$(anios_cafe_home)"
+  # Không có $HOME (ví dụ unit chạy bằng root trên máy mà tài khoản ANIOS_CAFE_USER
+  # không tồn tại — máy quầy hay đặt tên tài khoản khác): KHÔNG suy ra thành
+  # "/.local/state/anios" rồi tạo thư mục rác ở gốc ổ đĩa. Trả 1 để nơi gọi im lặng
+  # bỏ qua.
+  if [[ -z "${ANIOS_CAFE_STATE_DIR:-}" && -z "$home" ]]; then
+    return 1
+  fi
   printf '%s\n' "${ANIOS_CAFE_STATE_DIR:-$home/.local/state/anios}"
 }
 
 anios_cafe_failures_file() {
-  printf '%s\n' "$(anios_cafe_state_dir)/session-failures"
+  local dir
+  dir="$(anios_cafe_state_dir)" || return 1
+  printf '%s\n' "$dir/session-failures"
 }
 
 # _anios_cafe_safe_path <đường dẫn tương đối>: in ra đường dẫn tuyệt đối trong
@@ -118,7 +160,11 @@ anios_cafe_clean() {
   local home
   home="$(anios_cafe_home)"
   if [[ -z "$home" || ! -d "$home" ]]; then
-    printf 'KHÔNG CÓ %s\n' "${home:-<HOME chưa đặt>}"
+    # stderr: không biết thư mục nhà (unit root tra không ra tài khoản, hoặc máy
+    # chưa có ai đăng nhập) thì không phải lỗi của người dùng. Vẫn im lặng trên
+    # stdout để `anios_cafe_clean` không ghi dòng rác vào nhật ký phiên.
+    printf 'anios-cafe: chưa xác định được thư mục nhà (%s) — bỏ qua\n' \
+      "${home:-HOME chưa đặt}" >&2
     return 0
   fi
 
@@ -172,22 +218,26 @@ anios_cafe_clean() {
 
 anios_cafe_record_failure() {
   local dir file
-  file="$(anios_cafe_failures_file)"
+  file="$(anios_cafe_failures_file)" || return 0
   dir="$(dirname -- "$file")"
   mkdir -p -- "$dir" 2>/dev/null || return 0
   printf '%s\n' "$(date +%s)" >>"$file" 2>/dev/null || true
   anios_cafe_prune_failures
+  return 0
 }
 
 anios_cafe_clear_failures() {
-  rm -f -- "$(anios_cafe_failures_file)" 2>/dev/null || true
+  local file
+  file="$(anios_cafe_failures_file)" || return 0
+  rm -f -- "$file" 2>/dev/null || true
+  return 0
 }
 
 # anios_cafe_prune_failures: chỉ giữ những lần chết trong ANIOS_CAFE_FAILURE_WINDOW
 # giây gần nhất, để "3 lần trong 10 phút" không bị tính cả tháng trước.
 anios_cafe_prune_failures() {
   local file now cutoff line kept=""
-  file="$(anios_cafe_failures_file)"
+  file="$(anios_cafe_failures_file)" || return 0
   [[ -r "$file" ]] || return 0
   now="$(date +%s)"
   cutoff=$((now - ANIOS_CAFE_FAILURE_WINDOW))
@@ -206,7 +256,10 @@ anios_cafe_prune_failures() {
 # anios_cafe_failure_count: in ra số lần chết nhanh còn trong cửa sổ thời gian.
 anios_cafe_failure_count() {
   local file count=0 line
-  file="$(anios_cafe_failures_file)"
+  file="$(anios_cafe_failures_file)" || {
+    printf '0\n'
+    return 0
+  }
   [[ -r "$file" ]] || {
     printf '0\n'
     return 0

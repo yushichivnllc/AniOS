@@ -250,6 +250,19 @@ grep -qF 'anios_cafe_clean' "$AIROOTFS/usr/local/bin/anios-session" ||
   fail "anios-session phải dọn dữ liệu khách khi bắt đầu phiên (chế độ quán net)"
 grep -qF 'anios_cafe_record_failure' "$AIROOTFS/usr/local/bin/anios-session" ||
   fail "anios-session phải ghi nhận phiên chết nhanh để watchdog tự phục hồi"
+# Máy quầy thu ngân (POS) phải miễn nhiễm với cả hai việc: xoá hồ sơ trình duyệt là
+# mất phiên đăng nhập phần mềm bán hàng, tự khởi động lại giữa ca là mất hoá đơn.
+grep -qF 'ANIOS_CAFE_ROLE' "$CAFE_LIB" || fail "cafe.sh phải có vai trò máy (ANIOS_CAFE_ROLE)"
+grep -qF 'anios_cafe_is_pos' "$CAFE_LIB" || fail "cafe.sh phải nhận diện được máy quầy"
+grep -qF 'anios_cafe_is_pos' "$CAFE_CLI" ||
+  fail "anios-cafe phải xử lý vai trò máy quầy (status/clean/watchdog)"
+grep -qF -- '--pos' "$CAFE_CLI" || fail "anios-cafe thiếu tuỳ chọn --pos cho máy quầy"
+grep -qF -- '--pos' "$ROOT_DIR/README.md" || fail "README phải hướng dẫn bật chế độ cho máy quầy"
+# Watchdog chạy mỗi phút trên mọi máy: không được để unit "failed" chỉ vì thiếu
+# tài khoản hay thiếu thư viện, và không được ghi ra ngoài $HOME.
+grep -qF 'anios_cafe_state_dir' "$CAFE_LIB" || fail "cafe.sh thiếu hàm xác định thư mục trạng thái"
+awk '/^anios_cafe_state_dir\(\) \{/,/^}/' "$CAFE_LIB" | grep -qF 'return 1' ||
+  fail "anios_cafe_state_dir phải từ chối khi không xác định được thư mục nhà (tránh /.local)"
 for cafe_installer_needle in anios-cafe cafe.sh net-cafe.conf anios-cafe-watchdog; do
   grep -qF -- "$cafe_installer_needle" "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
     fail "bộ cài đặt phải chép '$cafe_installer_needle' sang máy đích"
