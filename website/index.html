@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AniOS — Arch Linux cho máy phòng net, cắm là chơi</title>
+<meta name="description" content="AniOS là bản phối lại Arch Linux dựng sẵn cho máy phòng net: khởi động vào Hyprland, Steam và Proton nằm sẵn trong ảnh, driver NVIDIA 580xx, gõ tiếng Việt ngay từ đầu. Ba bản ISO: AniOS, AniTails, Anix.">
+<meta name="theme-color" content="#cfd0f0">
+<meta property="og:type" content="website">
+<meta property="og:title" content="AniOS — Arch Linux cho máy phòng net">
+<meta property="og:description" content="Cắm USB là vào Hyprland. Steam, Proton, driver NVIDIA và tiếng Việt đã nằm sẵn trong ảnh.">
+<meta property="og:image" content="assets/hero-gamer.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23cfd0f0'/%3E%3Cpath d='M50 16v68M16 50h68M26 26l48 48M74 26L26 74' stroke='%23e63329' stroke-width='9' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script>document.documentElement.classList.add("js");</script>
+</head>
+<body>
+<div class="page">
+  <a class="skip" href="#top">Bỏ qua điều hướng, vào nội dung</a>
+
+  <!-- ================= Điều hướng ================= -->
+  <header class="nav" id="nav">
+    <a class="brand" href="#top" aria-label="AniOS — về đầu trang">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 100 100"><path d="M50 14v72M14 50h72M24 24l52 52M76 24L24 76" /></svg>
+      </span>
+      <span class="brand__text">AniOS</span>
+      <span class="brand__tag">2026.11</span>
+    </a>
+
+    <nav class="nav__links" id="navLinks" aria-label="Mục lục">
+      <a href="#ban-iso">Ba bản ISO</a>
+      <a href="#ben-trong">Bên trong</a>
+      <a href="#quan-net">Chế độ quán net</a>
+      <a href="#su-co">Sự cố</a>
+    </nav>
+
+    <div class="nav__actions">
+      <a class="btn btn--ghost" href="https://github.com/yushichivnllc/AniOS" target="_blank" rel="noopener">
+        GitHub <span aria-hidden="true">↗</span>
+      </a>
+      <a class="btn btn--solid" href="https://github.com/yushichivnllc/AniOS/releases" target="_blank" rel="noopener">
+        Tải ISO
+      </a>
+      <button class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navLinks" aria-label="Mở menu">
+        <span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= Poster mở đầu ================= -->
+  <main id="top">
+  <section class="hero" aria-labelledby="heroTitle">
+
+    <!-- Lớp chữ nền kiểu poster -->
+    <div class="hero__ghost" aria-hidden="true">
+      <span class="ghost ghost--1">Phòng</span>
+      <span class="ghost ghost--2">net</span>
+      <span class="ghost ghost--3">Steam</span>
+    </div>
+
+    <div class="hero__inner">
+      <div class="hero__copy">
+        <p class="kicker">
+          <span class="kicker__dot" aria-hidden="true"></span>
+          Bản phối lại của Arch Linux · dựng cho máy phòng net
+        </p>
+
+        <h1 class="hero__title" id="heroTitle">
+          <span class="hero__title-main">Ani<span class="hero__title-cut">OS</span></span>
+          <span class="hero__title-sub">MÁY NET <em>lên hình</em></span>
+        </h1>
+
+        <p class="lead">
+          Cắm USB, khởi động, và bạn đứng ngay trong Hyprland — Steam cùng Proton đã
+          nằm sẵn trong ảnh, driver NVIDIA 580xx cài trước, tiếng Việt gõ được từ
+          phút đầu tiên. Không cần cài lại từng máy, không cần mạng để bắt đầu.
+        </p>
+
+        <div class="hero__cta">
+          <a class="btn btn--big" href="https://github.com/yushichivnllc/AniOS/releases" target="_blank" rel="noopener">
+            Tải ISO mới nhất
+          </a>
+          <a class="btn btn--outline btn--big" href="#ban-iso">Xem ba bản ISO</a>
+        </div>
+
+        <ul class="hero__facts">
+          <li><b>4–4,5 GB</b> mỗi ảnh ISO</li>
+          <li><b>USB ≥ 16 GB</b>, giữ được dữ liệu</li>
+          <li><b>Miễn phí</b>, mã nguồn mở</li>
+        </ul>
+      </div>
+
+      <!-- Cụm ảnh dán kiểu tạp chí -->
+      <div class="hero__art">
+        <figure class="polaroid polaroid--hero" data-parallax="0.06">
+          <span class="tape tape--tl" aria-hidden="true"></span>
+          <span class="tape tape--br" aria-hidden="true"></span>
+          <div class="polaroid__frame">
+            <img src="assets/hero-gamer.jpg" width="768" height="1376" alt="Minh hoạ cô gái chơi game đội tai nghe, tay cầm tay cầm chơi game." loading="eager">
+          </div>
+          <figcaption class="polaroid__cap">
+            <span>anios<span class="polaroid__cap-dim">://live</span></span>
+            <span class="polaroid__cap-num">01</span>
+          </figcaption>
+        </figure>
+
+        <!-- Thẻ "đang phát" giống trình phát nhạc trong poster -->
+        <div class="player-card" data-parallax="0.12">
+          <img class="player-card__cover" src="assets/chibi-sticker.jpg" width="221" height="304" alt="">
+          <div class="player-card__body">
+            <p class="player-card__label">ĐANG CHẠY</p>
+            <p class="player-card__title">Steam + Proton</p>
+            <p class="player-card__sub">không cần tải thêm</p>
+            <div class="player-card__controls" aria-hidden="true">
+              <span>♥</span><span>⏮</span><span>▶</span><span>⏭</span>
+            </div>
+          </div>
+        </div>
+
+        <span class="sticker-heart sticker-heart--a" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 21s-8-4.7-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.3 12 21 12 21z"/></svg>
+        </span>
+        <span class="sticker-heart sticker-heart--b" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 21s-8-4.7-8-10.4A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 3.6C20 16.3 12 21 12 21z"/></svg>
+        </span>
+
+        <span class="asterisk" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><path d="M50 8v84M8 50h84M20 20l60 60M80 20L20 80" /></svg>
+        </span>
+
+        <p class="hero__scrawl" aria-hidden="true">cắm là chơi ✳</p>
+      </div>
+    </div>
+
+    <div class="hero__ticker" aria-hidden="true">
+      <span>★ Hyprland</span><span>★ Steam sẵn sàng</span><span>★ linux-zen</span>
+      <span>★ NVIDIA 580xx</span><span>★ gõ tiếng Việt</span><span>★ zram</span>
+    </div>
+  </section>
+
+  <!-- ================= Dải chữ chạy ================= -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee__track">
+      <span>Hyprland ✳ Steam ✳ Proton ✳ NVIDIA 580xx ✳ PipeWire ✳ fcitx5 ✳ zram ✳ Calamares ✳ Quán net ✳</span>
+      <span>Hyprland ✳ Steam ✳ Proton ✳ NVIDIA 580xx ✳ PipeWire ✳ fcitx5 ✳ zram ✳ Calamares ✳ Quán net ✳</span>
+    </div>
+  </div>
+
+  <!-- ================= Ba bản ISO ================= -->
+  <section class="section" id="ban-iso" aria-labelledby="isoTitle">
+    <header class="section__head">
+      <p class="eyebrow">01 — chọn bản</p>
+      <h2 class="section__title" id="isoTitle">Một profile, <span class="marker">ba tính cách</span></h2>
+      <p class="section__lead">
+        Cả ba bản dựng từ cùng một profile nền, khác nhau ở thứ được nướng vào ảnh.
+        Chọn theo việc bạn định làm, không phải theo cấu hình máy.
+      </p>
+    </header>
+
+    <div class="cards">
+      <article class="card card--iso is-featured" data-reveal>
+        <span class="tape tape--top" aria-hidden="true"></span>
+        <p class="card__num">ISO 01</p>
+        <h3 class="card__title">AniOS</h3>
+        <p class="card__tag">Máy phòng net</p>
+        <p class="card__desc">
+          Bản mặc định. Hyprland mở lên cùng Steam, Proton nướng sẵn trong ảnh, stack
+          AI cục bộ và lớp ghi trên USB để cài thêm gói vẫn còn sau khi tắt máy.
+        </p>
+        <ul class="tags">
+          <li>Steam tự khởi động</li><li>Proton offline</li><li>AI cục bộ</li><li>Lưu trên USB</li>
+        </ul>
+        <code class="chip-code">--edition anios</code>
+      </article>
+
+      <article class="card card--iso" data-reveal>
+        <p class="card__num">ISO 02</p>
+        <h3 class="card__title">AniTails</h3>
+        <p class="card__tag">Riêng tư kiểu Tails</p>
+        <p class="card__desc">
+          Chạy hoàn toàn trong RAM: tắt máy là sạch dấu vết, MAC ngẫu nhiên, đi qua
+          Tor. Cố ý <b>không</b> có Steam, không lưu trữ, không AUR.
+        </p>
+        <ul class="tags">
+          <li>Chạy trong RAM</li><li>Tor</li><li>MAC ngẫu nhiên</li><li>Không dấu vết</li>
+        </ul>
+        <code class="chip-code">--edition aniterals</code>
+      </article>
+
+      <article class="card card--iso" data-reveal>
+        <p class="card__num">ISO 03</p>
+        <h3 class="card__title">Anix</h3>
+        <p class="card__tag">Chơi hết cỡ</p>
+        <p class="card__desc">
+          Mọi thứ của AniOS, thêm Proton GE, VKD3D, <span class="nowrap">protontricks</span>, lớp kiểm
+          chứng Vulkan 32-bit và công cụ theo dõi GPU cho máy có card rời.
+        </p>
+        <ul class="tags">
+          <li>Proton GE</li><li>VKD3D</li><li>lib32 đầy đủ</li><li>Theo dõi GPU</li>
+        </ul>
+        <code class="chip-code">--edition anix</code>
+      </article>
+    </div>
+
+    <p class="section__foot">
+      Ảnh ISO khoảng <b>4–4,5 GB</b>; ghi ra USB bằng <code>dd</code>, Rufus (chế độ DD)
+      hoặc balenaEtcher, dùng USB <b>16 GB</b> trở lên.
+    </p>
+  </section>
+
+  <!-- ================= Bên trong ================= -->
+  <section class="section" id="ben-trong" aria-labelledby="insideTitle">
+    <header class="section__head section__head--split">
+      <div>
+        <p class="eyebrow">02 — bên trong</p>
+        <h2 class="section__title" id="insideTitle">Những thứ <span class="marker marker--yellow">lẽ ra phải tự có</span></h2>
+      </div>
+      <p class="section__lead">
+        Mỗi mục dưới đây là một chỗ mà bản Arch tươi thường làm người dùng bỏ cuộc giữa
+        đường. AniOS làm sẵn, kèm lệnh kiểm tra khi có chuyện.
+      </p>
+    </header>
+
+    <div class="bento">
+      <article class="tile tile--wide" data-reveal>
+        <p class="tile__num">01</p>
+        <h3>Hyprland, cấu hình bằng Lua</h3>
+        <p>Compositor Wayland với dotfile Immaterial Impulse và Matugen. Sửa xong
+          <code>Super+Shift+R</code> là nạp lại, không phải khởi động lại máy.</p>
+        <span class="tile__badge">Wayland</span>
+      </article>
+
+      <article class="tile" data-reveal>
+        <p class="tile__num">02</p>
+        <h3>Steam &amp; Proton trong ảnh</h3>
+        <p>Proton và Steam Runtime được tải sẵn lúc dựng ISO. Mở Steam là chơi, không
+          phải chờ Valve cấp quyền tải.</p>
+      </article>
+
+      <article class="tile tile--dark" data-reveal>
+        <p class="tile__num">03</p>
+        <h3>NVIDIA 580xx dựng từ AUR</h3>
+        <p>Chặn <code>nouveau</code>, bật <code>nvidia-drm.modeset=1</code>, nhét module
+          vào initramfs và thêm tham số kernel cho mọi mục menu khởi động.</p>
+      </article>
+
+      <article class="tile" data-reveal>
+        <p class="tile__num">04</p>
+        <h3>Âm thanh tự bật</h3>
+        <p>PipeWire + WirePlumber bật sẵn trong phiên, tự bỏ trạng thái tắt tiếng mà
+          BIOS để lại. Không có tiếng thì gọi <code>anios-audio-check</code>.</p>
+      </article>
+
+      <article class="tile" data-reveal>
+        <p class="tile__num">05</p>
+        <h3>Gõ tiếng Việt ngay</h3>
+        <p>fcitx5 và ibus (Unikey) cùng có mặt, <code>Ctrl+Space</code> để chuyển,
+          <code>anios-switch-im</code> để đổi bộ gõ.</p>
+      </article>
+
+      <article class="tile tile--wide" data-reveal>
+        <p class="tile__num">06</p>
+        <h3>Hai giao diện, một phím</h3>
+        <p><b>AniOS Minimal</b> (Waybar) nhẹ cho iGPU đời cũ, và <b>Immaterial Impulse</b>
+          (Quickshell) Material 3 cho máy mạnh hơn. Đổi bằng
+          <code>anios-switch-desktop</code> hoặc <code>Super+Alt+M</code>.</p>
+        <span class="tile__badge">Minimal / IMI</span>
+      </article>
+
+      <article class="tile" data-reveal>
+        <p class="tile__num">07</p>
+        <h3>AI cục bộ, không cần mạng</h3>
+        <p>Ollama bản Vulkan, llama-cpp, whisper-cpp, OpenVINO, kèm Jan AI và LM Studio.</p>
+      </article>
+
+      <article class="tile" data-reveal>
+        <p class="tile__num">08</p>
+        <h3>Cài lên ổ đĩa khi cần</h3>
+        <p>Calamares chọn GRUB, theme SDDM và dotfiles; máy đích nhận luôn
+          <code>anios-gpu-doctor</code> để tự sửa lỗi driver.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= Chế độ quán net ================= -->
+  <section class="section section--cafe" id="quan-net" aria-labelledby="cafeTitle">
+    <div class="cafe">
+      <div class="cafe__copy">
+        <p class="eyebrow eyebrow--light">03 — dành cho quán</p>
+        <h2 class="section__title" id="cafeTitle">Chế độ <span class="marker marker--yellow">quán net</span></h2>
+        <p class="section__lead section__lead--light">
+          Hai sự cố làm hỏng cả dàn máy mà driver đồ hoạ không liên quan: khách sau
+          thấy dữ liệu của khách trước, và phiên chết lặp lại thì máy nằm im ở màn
+          hình đăng nhập. AniOS xử lý cả hai, mặc định tắt cho tới khi bạn bật.
+        </p>
+
+        <ul class="cafe__list">
+          <li>
+            <b>Dọn giữa hai lượt</b>
+            Phiên Steam, hồ sơ trình duyệt, Discord/Telegram, lịch sử shell và nội dung
+            <code>Downloads</code> bị dọn khi bắt đầu phiên mới. Dotfile Hyprland,
+            <code>~/Desktop</code> và nhật ký chẩn đoán được giữ nguyên.
+          </li>
+          <li>
+            <b>Tự phục hồi</b>
+            Phiên thoát lỗi trong 20 giây bị tính là “chết nhanh”. Ba lần trong mười
+            phút thì watchdog khởi động lại máy — tối đa một lần mỗi lần boot, để máy
+            hỏng thật không rơi vào vòng lặp reboot.
+          </li>
+          <li>
+            <b>Máy quầy không bị đụng</b>
+            <code>anios-cafe on --pos</code> khoá cứng cả hai việc trên máy thu ngân:
+            giữ phiên đăng nhập phần mềm bán hàng và hoá đơn đang tính.
+          </li>
+        </ul>
+
+        <a class="btn btn--yellow" href="https://github.com/yushichivnllc/AniOS#ch%E1%BA%A1y-trong-qu%C3%A1n-net-m%C3%A1y-d%C3%B9ng-chung-nhi%E1%BB%81u-kh%C3%A1ch" target="_blank" rel="noopener">
+          Đọc hướng dẫn triển khai
+        </a>
+      </div>
+
+      <div class="cafe__terminal" data-reveal>
+        <div class="terminal">
+          <div class="terminal__bar">
+            <span class="terminal__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="terminal__title">quầy — anios-cafe</span>
+          </div>
+          <pre class="terminal__body"><code><span class="c-dim"># xem trước, chưa xoá gì</span>
+<span class="c-prompt">$</span> anios-cafe clean --dry-run
+
+<span class="c-dim"># bật cho cả dàn máy khách</span>
+<span class="c-prompt">$</span> sudo anios-cafe on --system
+
+<span class="c-dim"># riêng máy thu ngân: không dọn, không reboot</span>
+<span class="c-prompt">$</span> anios-cafe on --pos
+
+<span class="c-prompt">$</span> anios-cafe status
+  Vai trò: máy quầy thu ngân (POS)
+  Máy quầy: KHÔNG dọn dữ liệu, KHÔNG tự khởi động lại</code></pre>
+        </div>
+        <span class="sticker" aria-hidden="true">POS-safe</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Một tấm ảnh ================= -->
+  <section class="section section--photo" aria-label="Một góc máy trong quán">
+    <figure class="photo-card" data-reveal>
+      <span class="tape tape--tl" aria-hidden="true"></span>
+      <img src="assets/net-cafe-desk.jpg" width="1376" height="768" loading="lazy"
+           alt="Minh hoạ một góc máy chơi game trong quán: màn hình, bàn phím cơ, tai nghe và ly trà đá bên cửa sổ lúc hoàng hôn.">
+      <figcaption>
+        <span>Một góc máy trong quán — 21:47, Hyprland, Steam và ly trà đá.</span>
+        <span>FIG. 02</span>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ================= Ba bước ================= -->
+  <section class="section" id="bat-dau" aria-labelledby="startTitle">
+    <header class="section__head">
+      <p class="eyebrow">04 — bắt đầu</p>
+      <h2 class="section__title" id="startTitle">Ba bước, <span class="marker">không cần hỏi ai</span></h2>
+    </header>
+
+    <ol class="steps">
+      <li class="step" data-reveal>
+        <span class="step__num">01</span>
+        <h3>Tải ảnh ISO</h3>
+        <p>Vào mục Releases, chọn bản hợp việc: <b>AniOS</b> cho phòng net,
+          <b>Anix</b> cho máy chơi game, <b>AniTails</b> khi cần riêng tư.</p>
+      </li>
+      <li class="step" data-reveal>
+        <span class="step__num">02</span>
+        <h3>Ghi ra USB</h3>
+        <p>Dùng Rufus (chế độ DD), balenaEtcher hoặc <code>dd</code>. USB 16 GB trở
+          lên; phần trống còn lại được AniOS dùng làm chỗ lưu dữ liệu.</p>
+      </li>
+      <li class="step" data-reveal>
+        <span class="step__num">03</span>
+        <h3>Khởi động và chơi</h3>
+        <p>Máy tự đăng nhập vào Hyprland. Mật khẩu phiên live và <code>sudo</code> là
+          <code>1111</code> — đổi ngay nếu bạn dùng máy cho việc riêng.</p>
+      </li>
+    </ol>
+
+    <div class="codes">
+      <figure class="code-card" data-reveal>
+        <figcaption>Ghi ISO bằng dd</figcaption>
+        <pre><code>sudo dd if=anios-&lt;ngày&gt;-x86_64.iso \
+  of=/dev/sdX bs=4M status=progress conv=fsync</code></pre>
+      </figure>
+      <figure class="code-card" data-reveal>
+        <figcaption>Tự dựng ISO trên Arch</figcaption>
+        <pre><code>sudo pacman -Syu --needed archiso git
+sudo ./scripts/build-iso.sh</code></pre>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ================= Sự cố ================= -->
+  <section class="section" id="su-co" aria-labelledby="fixTitle">
+    <header class="section__head section__head--split">
+      <div>
+        <p class="eyebrow">05 — khi có chuyện</p>
+        <h2 class="section__title" id="fixTitle">Sự cố <span class="marker marker--yellow">đã gặp thật</span></h2>
+      </div>
+      <p class="section__lead">
+        Toàn bộ mục này là những lỗi có thật trên máy thật, kèm lệnh chẩn đoán có sẵn
+        trong ảnh. Không đoán mò.
+      </p>
+    </header>
+
+    <div class="faq">
+      <details class="faq__item" open>
+        <summary>Card NVIDIA (RTX 3060/3070) không vào được Hyprland</summary>
+        <div class="faq__body">
+          <p>Thường là do thiếu KMS sớm hoặc thiếu module trong initramfs. Chạy từ TTY
+            (<code>Ctrl+Alt+F2</code>):</p>
+          <pre><code>anios-gpu-doctor          # xem máy đang thiếu gì
+sudo anios-gpu-doctor --fix
+</code></pre>
+          <p>Trong lúc chờ, chọn phiên <b>AniOS – Safe</b> ở màn hình đăng nhập để có
+            desktop không hiệu ứng.</p>
+        </div>
+      </details>
+
+      <details class="faq__item">
+        <summary><code>dmesg</code> đầy chữ “error” nhưng máy vẫn chạy bình thường</summary>
+        <div class="faq__body">
+          <p>Phần lớn là lỗi firmware ACPI vô hại. <code>anios-dmesg-check</code> phân
+            loại thành ba mức VÔ HẠI / CHÚ Ý / CẦN SỬA và in đúng lệnh cần chạy.</p>
+          <pre><code>anios-dmesg-check
+anios-dmesg-check --boot      # đọc toàn bộ từ lúc khởi động</code></pre>
+        </div>
+      </details>
+
+      <details class="faq__item">
+        <summary>Steam báo “needs to be online to update” dù máy có mạng</summary>
+        <div class="faq__body">
+          <p>Đồng hồ sai hoặc DNS hỏng đều gây ra đúng câu này. Kiểm tra và tự sửa:</p>
+          <pre><code>anios-netcheck
+sudo anios-netcheck --fix      # gồm cả --fix-dns</code></pre>
+        </div>
+      </details>
+
+      <details class="faq__item">
+        <summary>Không có tiếng, hoặc âm thanh chỉ ra HDMI</summary>
+        <div class="faq__body">
+          <p><code>Super+Shift+A</code> mở công cụ kiểm tra: card ALSA, unit, thiết bị
+            xuất, mức âm lượng và một tiếng bíp thử. Dựng lại dàn âm thanh bằng tay:</p>
+          <pre><code>anios-audio-setup --force
+wpctl set-default &lt;id&gt;       # chuyển về loa / jack 3.5mm</code></pre>
+        </div>
+      </details>
+
+      <details class="faq__item">
+        <summary>Quên mật khẩu phiên live</summary>
+        <div class="faq__body">
+          <p>Mật khẩu mặc định của tài khoản <code>anios</code> và <code>sudo</code> là
+            <code>1111</code>. Đây là môi trường live dùng chung — đừng để dữ liệu quan
+            trọng trong đó, và đổi mật khẩu nếu máy không nằm trong quán.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+  </main>
+
+  <!-- ================= Chân trang ================= -->
+  <footer class="footer">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <span class="footer__mark" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><path d="M50 14v72M14 50h72M24 24l52 52M76 24L24 76" /></svg>
+        </span>
+        <p class="footer__title">AniOS</p>
+        <p class="footer__sub">Arch Linux, dựng sẵn cho máy phòng net.</p>
+      </div>
+
+      <nav class="footer__cols" aria-label="Liên kết chân trang">
+        <div>
+          <p class="footer__head">Dự án</p>
+          <a href="https://github.com/yushichivnllc/AniOS" target="_blank" rel="noopener">Mã nguồn</a>
+          <a href="https://github.com/yushichivnllc/AniOS/releases" target="_blank" rel="noopener">Bản phát hành</a>
+          <a href="https://github.com/yushichivnllc/AniOS/issues" target="_blank" rel="noopener">Báo lỗi</a>
+        </div>
+        <div>
+          <p class="footer__head">Tài liệu</p>
+          <a href="https://github.com/yushichivnllc/AniOS#readme" target="_blank" rel="noopener">README đầy đủ</a>
+          <a href="https://github.com/yushichivnllc/AniOS/blob/main/profile/editions/README.md" target="_blank" rel="noopener">Ba bản ISO</a>
+          <a href="https://github.com/yushichivnllc/AniOS#ch%E1%BA%A1y-trong-qu%C3%A1n-net-m%C3%A1y-d%C3%B9ng-chung-nhi%E1%BB%81u-kh%C3%A1ch" target="_blank" rel="noopener">Chế độ quán net</a>
+        </div>
+        <div>
+          <p class="footer__head">Cộng đồng</p>
+          <a href="https://github.com/XephyLon/immaterial-impulse" target="_blank" rel="noopener">Immaterial Impulse</a>
+          <a href="https://archlinux.org" target="_blank" rel="noopener">Arch Linux</a>
+          <a href="https://hypr.land" target="_blank" rel="noopener">Hyprland</a>
+        </div>
+      </nav>
+    </div>
+
+    <p class="footer__note">
+      AniOS là bản phối lại của Arch Linux và không liên kết chính thức với Arch Linux,
+      Valve hay Hyprland. Ảnh minh hoạ trên trang là hình gốc do dự án tạo.
+      Nội dung trang dựa trên README của repository.
+    </p>
+    <p class="footer__sign" aria-hidden="true">Design ✳ by AniOS</p>
+  </footer>
+
+</div>
+<script src="script.js" defer></script>
+</body>
+</html>
