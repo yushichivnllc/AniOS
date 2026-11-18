@@ -1,0 +1,13 @@
+[Unit]
+Description=AniOS net cafe watchdog (moi phut mot lan)
+
+[Timer]
+# Chờ máy ổn định rồi kiểm tra mỗi phút: đủ nhanh để máy tự phục hồi trước khi
+# khách tiếp theo phàn nàn, đủ chậm để không đọc/ghi đĩa liên tục.
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=30s
+Unit=anios-cafe-watchdog.service
+
+[Install]
+WantedBy=timers.target

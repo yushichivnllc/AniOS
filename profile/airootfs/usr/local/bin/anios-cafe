@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+# anios-cafe — một lệnh quản trị cho máy AniOS dùng trong quán net.
+#
+#   anios-cafe                 xem trạng thái (mặc định)
+#   anios-cafe status          chế độ đang bật/tắt, sẽ dọn gì, phiên vừa rồi có chết không
+#   anios-cafe on              bật chế độ quán net cho tài khoản này (bền qua reboot)
+#   anios-cafe on --system     bật cho MỌI tài khoản trên máy (cần root, sửa /etc)
+#   anios-cafe on --pos        máy QUẦY THU NGÂN: không dọn dữ liệu, không tự khởi
+#                              động lại (giữ phiên đăng nhập phần mềm bán hàng)
+#   anios-cafe off             tắt chế độ quán net
+#   anios-cafe clean           dọn dữ liệu khách NGAY (giữa hai khách, không cần đăng xuất)
+#   anios-cafe clean --dry-run chỉ in ra sẽ xoá gì
+#   anios-cafe forget          xoá bộ đếm "phiên chết nhanh" (sau khi đã sửa được máy)
+#   anios-cafe watchdog        (dùng nội bộ) unit systemd gọi mỗi phút để quyết định
+#                              có tự khởi động lại máy hay không
+#
+# Chế độ quán net giải quyết đúng hai việc mà một máy dùng chung cần:
+#   1. khách sau không thấy dữ liệu của khách trước (Steam, trình duyệt, file tải);
+#   2. máy tự khởi động lại khi phiên đồ hoạ chết lặp lại, thay vì nằm im ở màn
+#      hình đăng nhập chờ kỹ thuật.
+# Cấu hình nằm ở /etc/anios/net-cafe.conf và ~/.config/anios/net-cafe.conf; logic
+# chia sẻ với phiên đăng nhập nằm ở /usr/local/lib/anios/cafe.sh.
+set -Eeuo pipefail
+
+LIB="${ANIOS_CAFE_LIB:-/usr/local/lib/anios/cafe.sh}"
+# Trong ảnh, thư viện luôn ở đường dẫn tuyệt đối trên. Fallback theo vị trí của
+# chính script để chạy được từ bản checkout khi phát triển/bài tự kiểm tra.
+if [[ ! -r "$LIB" ]]; then
+  _cafe_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib/anios" 2>/dev/null && pwd)" || _cafe_lib_dir=""
+  [[ -n "$_cafe_lib_dir" && -r "$_cafe_lib_dir/cafe.sh" ]] && LIB="$_cafe_lib_dir/cafe.sh"
+  unset _cafe_lib_dir
+fi
+[[ -r "$LIB" ]] || {
+  # Unit systemd gọi `anios-cafe watchdog` mỗi phút: thiếu thư viện (ảnh cũ, hoặc
+  # ai đó gỡ tay) thì im lặng thoát 0 để `systemctl --failed` không đỏ lên trên máy
+  # quầy — chỉ in một dòng vào journal cho kỹ thuật.
+  echo "anios-cafe: thiếu thư viện $LIB (bỏ qua)" >&2
+  [[ "${1:-}" == watchdog ]] && exit 0
+  exit 1
+}
+# shellcheck source=/dev/null
+. "$LIB"
+
+if [[ -t 1 ]]; then
+  bold=$'\033[1m'
+  green=$'\033[32m'
+  yellow=$'\033[33m'
+  red=$'\033[31m'
+  dim=$'\033[2m'
+  reset=$'\033[0m'
+else
+  bold= green= yellow= red= dim= reset=
+fi
+
+usage() {
+  cat <<'EOF'
+Cách dùng: anios-cafe [status|on|off|clean|forget]
+
+  (không tham số)    xem trạng thái
+  status             chế độ quán net, dữ liệu sẽ dọn, số lần phiên chết nhanh
+  on [--system] [--pos]  bật chế độ quán net (mặc định: chỉ tài khoản này)
+                     --pos: máy quầy thu ngân — không dọn dữ liệu, không tự
+                     khởi động lại máy (giữ đăng nhập phần mềm bán hàng)
+  off [--system]     tắt chế độ quán net
+  clean [--dry-run]  dọn dữ liệu khách ngay (thêm --force khi Steam/trình duyệt
+                     vẫn đang chạy)
+  forget             xoá bộ đếm phiên chết nhanh
+
+Mã thoát: 0 = xong, 1 = dùng sai, 3 = đang có ứng dụng chạy nên không dọn.
+EOF
+}
+
+user_conf() {
+  local home
+  home="$(anios_cafe_home)"
+  printf '%s\n' "$home/.config/anios/net-cafe.conf"
+}
+system_conf() {
+  printf '%s\n' "${ANIOS_CAFE_ETC_CONF:-/etc/anios/net-cafe.conf}"
+}
+
+# write_conf <file> <enable 0|1> [role]: ghi cấu hình tối giản. Không ghi đè các
+# khoá khác mà quản trị viên đã thêm — chỉ thay ANIOS_CAFE_ENABLE (và
+# ANIOS_CAFE_ROLE khi có nêu vai trò).
+write_conf() {
+  local file="$1" enable="$2" role="${3:-}" tmp dir
+  dir="$(dirname -- "$file")"
+  install -d -m 0755 -- "$dir" 2>/dev/null || true
+  tmp="$(mktemp "$dir/.anios-cafe.XXXXXX" 2>/dev/null)" || {
+    echo "anios-cafe: không ghi được vào $dir" >&2
+    exit 1
+  }
+  if [[ -f "$file" ]]; then
+    grep -vE '^[[:space:]]*ANIOS_CAFE_(ENABLE|ROLE)=' "$file" >"$tmp" 2>/dev/null || true
+  else
+    {
+      printf '# AniOS — chế độ quán net (do `anios-cafe %s` ghi)\n' \
+        "$([[ "$enable" == 1 ]] && echo on || echo off)"
+      printf '# Các khoá khác xem /etc/anios/net-cafe.conf.\n'
+    } >"$tmp"
+  fi
+  printf 'ANIOS_CAFE_ENABLE=%s\n' "$enable" >>"$tmp"
+  [[ -n "$role" ]] && printf 'ANIOS_CAFE_ROLE=%s\n' "$role" >>"$tmp"
+  install -m 0644 -- "$tmp" "$file"
+  rm -f -- "$tmp"
+}
+
+describe_source() {
+  local home etc
+  home="$(anios_cafe_home)"
+  etc="$(system_conf)"
+  if [[ -r "$etc" ]] && grep -qE '^[[:space:]]*ANIOS_CAFE_ENABLE=1' "$etc" 2>/dev/null; then
+    printf '/etc/anios/net-cafe.conf'
+    return 0
+  fi
+  if [[ -r "$home/.config/anios/net-cafe.conf" ]] &&
+    grep -qE '^[[:space:]]*ANIOS_CAFE_ENABLE=1' "$home/.config/anios/net-cafe.conf" 2>/dev/null; then
+    printf '%s/.config/anios/net-cafe.conf' "$home"
+    return 0
+  fi
+  local cmdline="${ANIOS_CAFE_CMDLINE_FILE:-/proc/cmdline}"
+  if [[ -r "$cmdline" ]] && grep -qE '(^|[[:space:]])anios\.cafe=1([[:space:]]|$)' "$cmdline" 2>/dev/null; then
+    printf 'tham số nhân anios.cafe=1'
+    return 0
+  fi
+  printf 'mặc định (tắt)'
+}
+
+cmd_status() {
+  local home onoff color source
+  anios_cafe_load_config
+  home="$(anios_cafe_home)"
+  printf '%sAniOS — chế độ quán net%s\n' "$bold" "$reset"
+  printf '  Tài khoản: %s (%s)\n' "${ANIOS_CAFE_USER:-anios}" "${home:-?}"
+  if anios_cafe_is_pos; then
+    printf '  Vai trò: %smáy quầy thu ngân (POS)%s\n' "$bold" "$reset"
+  else
+    printf '  Vai trò: máy cho khách\n'
+  fi
+  if [[ "${ANIOS_CAFE_ENABLE:-0}" == 1 ]]; then
+    onoff='BẬT'
+    color="$green"
+  else
+    onoff='TẮT'
+    color="$yellow"
+  fi
+  source="$(describe_source)"
+  printf '  Chế độ: %s%s%s (%s)\n' "$color" "$onoff" "$reset" "$source"
+  if anios_cafe_is_pos; then
+    # Máy quầy: nói rõ lý do để không ai tưởng chế độ quán net bị hỏng.
+    printf '  Máy quầy: KHÔNG dọn dữ liệu, KHÔNG tự khởi động lại (giữ đăng nhập\n'
+    printf '            phần mềm bán hàng và hoá đơn đang tính).\n'
+  else
+    printf '  Dọn dữ liệu khách khi bắt đầu phiên: %s\n' \
+      "$([[ "${ANIOS_CAFE_WIPE_ON_START:-0}" == 1 ]] && echo bật || echo tắt)"
+    printf '  Tự khởi động lại khi phiên chết: %s (ngưỡng %s lần / %s phút)\n' \
+      "$([[ "${ANIOS_CAFE_REBOOT_ON_CRASH:-0}" == 1 ]] && echo bật || echo tắt)" \
+      "$ANIOS_CAFE_MAX_FAST_FAILURES" "$((ANIOS_CAFE_FAILURE_WINDOW / 60))"
+    printf '  Phiên chết nhanh gần đây: %s\n' "$(anios_cafe_failure_count)"
+  fi
+  if command -v systemctl >/dev/null 2>&1 &&
+    systemctl --quiet is-enabled anios-cafe-watchdog.timer >/dev/null 2>&1; then
+    printf '  Watchdog (root): %s\n' \
+      "$(systemctl --quiet is-active anios-cafe-watchdog.timer >/dev/null 2>&1 && echo đang chạy || echo đã bật, chưa chạy)"
+  fi
+
+  if anios_cafe_is_pos; then
+    printf '\n  (máy quầy không dọn dữ liệu; muốn dọn tay thì dùng: anios-cafe clean --force)\n'
+    return 0
+  fi
+
+  printf '\n  %sSẽ dọn ở phiên sau:%s\n' "$dim" "$reset"
+  local rel path found=0
+  for rel in "${ANIOS_CAFE_WIPE_PATHS[@]}"; do
+    path="$(_anios_cafe_safe_path "$rel")" || continue
+    if [[ -e "$path" || -L "$path" ]]; then
+      printf '    đang có   %s\n' "$rel"
+      found=1
+    fi
+  done
+  for rel in "${ANIOS_CAFE_EMPTY_DIRS[@]}"; do
+    path="$(_anios_cafe_safe_path "$rel")" || continue
+    [[ -d "$path" ]] || continue
+    if [[ -n "$(find "$path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+      printf '    đang có   %s/ (nội dung)\n' "$rel"
+      found=1
+    fi
+  done
+  (( found )) || printf '    (chưa có dữ liệu khách nào để dọn)\n'
+  if [[ "${ANIOS_CAFE_ENABLE:-0}" != 1 ]]; then
+    printf '\n%sBật cho quán net:%s anios-cafe on   (hoặc: anios-cafe on --system)\n' "$dim" "$reset"
+    printf '%sMáy quầy thu ngân:%s anios-cafe on --pos   (không dọn dữ liệu, không tự khởi động lại)\n' "$dim" "$reset"
+  fi
+}
+
+cmd_toggle() {
+  local enable="$1" system_scope="$2" role="${3:-}" file
+  if [[ "$system_scope" == 1 ]]; then
+    (( EUID == 0 )) || {
+      echo "anios-cafe: --system cần quyền root (sudo anios-cafe $([[ "$enable" == 1 ]] && echo on || echo off) --system)" >&2
+      exit 1
+    }
+    file="$(system_conf)"
+  else
+    file="$(user_conf)"
+  fi
+  # `--pos` ghi kèm vai trò; `off` xoá vai trò để máy trở lại bình thường.
+  if [[ "$enable" == 0 ]]; then
+    role=""
+  elif [[ "$role" != pos ]]; then
+    role=""
+  fi
+  write_conf "$file" "$enable" "$role"
+  printf 'Đã %s chế độ quán net trong %s\n' \
+    "$([[ "$enable" == 1 ]] && echo bật || echo tắt)" "$file"
+  if [[ "$role" == pos ]]; then
+    printf 'Vai trò: máy quầy thu ngân — sẽ KHÔNG dọn dữ liệu và KHÔNG tự khởi động lại.\n'
+  fi
+
+  if [[ "$enable" == 0 ]]; then
+    anios_cafe_clear_failures
+    printf 'Đã xoá bộ đếm phiên chết nhanh.\n'
+  fi
+  printf 'Áp dụng từ lần đăng nhập tiếp theo.\n'
+}
+
+cmd_clean() {
+  local dry=0 force=0 arg busy
+  for arg in "${@:-}"; do
+    case "$arg" in
+      --dry-run) dry=1 ;;
+      --force) force=1 ;;
+      "") ;;
+      *)
+        echo "anios-cafe clean: tuỳ chọn không hợp lệ: $arg" >&2
+        exit 1
+        ;;
+    esac
+  done
+  anios_cafe_load_config
+  if anios_cafe_is_pos && (( !force && !dry )); then
+    printf 'Máy quầy thu ngân: chế độ dọn tự động đang tắt.\n'
+    printf 'Nếu thật sự muốn dọn tay (ví dụ đổi máy), chạy lại với --force.\n'
+    return 0
+  fi
+  if (( !dry && !force )); then
+    busy=""
+    for app in steam steamwebhelper firefox chrome chromium coccoc; do
+      pgrep -x "$app" >/dev/null 2>&1 && busy+=" $app"
+    done
+    if [[ -n "$busy" ]]; then
+      printf 'anios-cafe: đang chạy:%s — đóng chúng trước, hoặc dùng --force\n' "$busy" >&2
+      exit 3
+    fi
+  fi
+  if (( dry )); then
+    printf '%sSẽ dọn (chưa xoá gì):%s\n' "$bold" "$reset"
+  else
+    printf '%sĐang dọn dữ liệu khách…%s\n' "$bold" "$reset"
+  fi
+  anios_cafe_clean "$dry"
+  if (( dry )); then
+    printf '(%s mục)\n' "$ANIOS_CAFE_LAST_REMOVED"
+  else
+    printf 'Xong: %s mục đã dọn. Khách tiếp theo đăng nhập vào máy sạch.\n' \
+      "$ANIOS_CAFE_LAST_REMOVED"
+  fi
+}
+
+cmd_watchdog() {
+  local home marker_dir marker count
+  # Unit này chạy mỗi phút trên MỌI máy, kể cả máy quầy thu ngân. Bất cứ trục trặc
+  # môi trường nào (thiếu tài khoản, thiếu thư mục trạng thái, cấu hình lạ) cũng
+  # phải thoát 0 và im lặng: một unit "failed" hiện đỏ trong `systemctl --failed`
+  # và bị chủ quán đọc là "hệ thống lỗi".
+  set +u
+  if (( EUID != 0 )) && [[ -z "${ANIOS_CAFE_HOME:-}" ]]; then
+    echo "anios-cafe watchdog: chỉ unit systemd (root) gọi lệnh này (bỏ qua)" >&2
+    exit 0
+  fi
+  # Chạy bằng root nên $HOME là /root: phải trỏ về tài khoản dùng chung.
+  if [[ -z "${ANIOS_CAFE_HOME:-}" ]]; then
+    # Tài khoản dùng chung có thể tên khác "anios" (máy quầy hay đặt tên riêng).
+    ANIOS_CAFE_HOME="$(getent passwd "${ANIOS_CAFE_USER:-anios}" 2>/dev/null | cut -d: -f6)"
+  fi
+  if [[ -z "${ANIOS_CAFE_HOME:-}" || ! -d "${ANIOS_CAFE_HOME:-}" ]]; then
+    echo "anios-cafe watchdog: không thấy thư mục nhà của tài khoản ${ANIOS_CAFE_USER:-anios} (bỏ qua)" >&2
+    exit 0
+  fi
+  export ANIOS_CAFE_HOME
+  anios_cafe_load_config || exit 0
+  # Máy quầy thu ngân không bao giờ tự khởi động lại.
+  anios_cafe_is_pos && exit 0
+  anios_cafe_prune_failures || true
+  anios_cafe_should_reboot || exit 0
+
+  count="$(anios_cafe_failure_count)"
+  # Mỗi lần khởi động chỉ tự khởi động lại MỘT lần: nếu máy hỏng phần cứng thật,
+  # vòng lặp 3-lần-chết-rồi-reboot sẽ biến thành reboot liên tục và không ai đọc
+  # được nhật ký. Sau một lần, giữ máy ở màn hình đăng nhập để kỹ thuật vào xem.
+  marker_dir="${ANIOS_CAFE_RUN_DIR:-/run/anios-cafe}"
+  marker="$marker_dir/rebooted"
+  if [[ -e "$marker" ]]; then
+    printf 'anios-cafe: %s lần phiên chết nhanh, nhưng đã tự khởi động lại một lần trong lần boot này; giữ nguyên để kỹ thuật kiểm tra (xem: anios-cafe status, anios-gpu-doctor).\n' \
+      "$count" >&2
+    exit 0
+  fi
+  install -d -m 0755 -- "$marker_dir" 2>/dev/null || true
+  : >"$marker" 2>/dev/null || true
+  anios_cafe_clear_failures
+  printf 'anios-cafe: phiên đồ hoạ chết %s lần trong %s phút — tự khởi động lại máy.\n' \
+    "$count" "$((ANIOS_CAFE_FAILURE_WINDOW / 60))" >&2
+  # ANIOS_CAFE_REBOOT_CMD chỉ dùng cho bài tự kiểm tra: không bao giờ reboot thật
+  # trong lúc chạy test.
+  if [[ -n "${ANIOS_CAFE_REBOOT_CMD:-}" ]]; then
+    # shellcheck disable=SC2086
+    $ANIOS_CAFE_REBOOT_CMD
+    exit 0
+  fi
+  systemctl reboot
+}
+
+cmd_forget() {
+  anios_cafe_load_config
+  anios_cafe_clear_failures
+  printf 'Đã xoá bộ đếm phiên chết nhanh.\n'
+}
+
+command="${1:-status}"
+shift || true
+case "$command" in
+  status) cmd_status ;;
+  on | off)
+    scope=0
+    role=""
+    for arg in "${@:-}"; do
+      case "$arg" in
+        --system) scope=1 ;;
+        --pos | pos | quay | quầy) role=pos ;;
+        "") ;;
+        *) echo "anios-cafe $command: tuỳ chọn không hợp lệ: $arg" >&2; exit 1 ;;
+      esac
+    done
+    if [[ "$command" == on ]]; then
+      cmd_toggle 1 "$scope" "$role"
+    else
+      cmd_toggle 0 "$scope" "$role"
+    fi
+    ;;
+  clean) cmd_clean "$@" ;;
+  forget) cmd_forget ;;
+  watchdog) cmd_watchdog ;;
+  -h | --help | help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "anios-cafe: lệnh không hợp lệ: $command" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

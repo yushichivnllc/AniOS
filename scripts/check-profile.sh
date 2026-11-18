@@ -215,6 +215,65 @@ for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/p
     fail "systemd-coredump không còn trong kho Arch (coredumpctl thuộc gói systemd): bỏ khỏi ${manifest#"$ROOT_DIR"/}"
 done
 
+# Chế độ quán net: máy dùng chung phải dọn dữ liệu của khách trước và phải tự phục
+# hồi khi phiên đồ hoạ chết lặp lại. Đây là hai sự cố vận hành hay gặp nhất ở quán
+# net, không liên quan driver đồ hoạ. Ba thứ phải đi cùng nhau, thiếu một là hỏng:
+#   1. thư viện dùng chung (logic xoá dữ liệu + đếm lỗi),
+#   2. lệnh quản trị anios-cafe cho chủ quán,
+#   3. unit watchdog chạy bằng root (tài khoản phiên không có quyền reboot).
+CAFE_SELFTEST="$ROOT_DIR/scripts/selftest-anios-cafe.sh"
+[[ -x "$CAFE_SELFTEST" ]] || fail "missing or not executable: scripts/selftest-anios-cafe.sh"
+grep -qF 'selftest-anios-cafe.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
+  fail "the profile workflow must run scripts/selftest-anios-cafe.sh"
+CAFE_LIB="$AIROOTFS/usr/local/lib/anios/cafe.sh"
+CAFE_CLI="$AIROOTFS/usr/local/bin/anios-cafe"
+CAFE_CONF="$AIROOTFS/etc/anios/net-cafe.conf"
+CAFE_UNIT="$AIROOTFS/etc/systemd/system/anios-cafe-watchdog.service"
+CAFE_TIMER="$AIROOTFS/etc/systemd/system/anios-cafe-watchdog.timer"
+CAFE_WANTS="$AIROOTFS/etc/systemd/system/timers.target.wants/anios-cafe-watchdog.timer"
+for cafe_file in "$CAFE_LIB" "$CAFE_CLI" "$CAFE_CONF" "$CAFE_UNIT" "$CAFE_TIMER"; do
+  [[ -s "$cafe_file" ]] || fail "thiếu ${cafe_file#"$AIROOTFS"} (chế độ quán net)"
+done
+[[ -x "$CAFE_CLI" ]] || fail "anios-cafe phải có bit thực thi"
+[[ -L "$CAFE_WANTS" ]] || fail "anios-cafe-watchdog.timer phải được bật sẵn (symlink trong timers.target.wants)"
+grep -qF 'ExecStart=/usr/local/bin/anios-cafe watchdog' "$CAFE_UNIT" ||
+  fail "anios-cafe-watchdog.service phải chạy 'anios-cafe watchdog'"
+grep -qF 'WantedBy=timers.target' "$CAFE_TIMER" ||
+  fail "anios-cafe-watchdog.timer phải cài vào timers.target"
+# Ai đó sửa thư viện cho "tiện tay" xoá cả thư mục nhà sẽ làm mất cấu hình Hyprland
+# và lối tắt trên Desktop: khoá lại danh sách cấm.
+if grep -qE '^[[:space:]]+(Desktop|\.config/(hypr|quickshell)|\.local/share/anios)[[:space:]]*$' "$CAFE_LIB"; then
+  fail "chế độ quán net không được đưa Desktop/.config/hypr/.local/share/anios vào danh sách xoá"
+fi
+grep -qF 'anios.cafe=1' "$CAFE_LIB" || fail "cafe.sh phải nhận tham số nhân anios.cafe=1"
+grep -qF 'anios_cafe_clean' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải dọn dữ liệu khách khi bắt đầu phiên (chế độ quán net)"
+grep -qF 'anios_cafe_record_failure' "$AIROOTFS/usr/local/bin/anios-session" ||
+  fail "anios-session phải ghi nhận phiên chết nhanh để watchdog tự phục hồi"
+# Máy quầy thu ngân (POS) phải miễn nhiễm với cả hai việc: xoá hồ sơ trình duyệt là
+# mất phiên đăng nhập phần mềm bán hàng, tự khởi động lại giữa ca là mất hoá đơn.
+grep -qF 'ANIOS_CAFE_ROLE' "$CAFE_LIB" || fail "cafe.sh phải có vai trò máy (ANIOS_CAFE_ROLE)"
+grep -qF 'anios_cafe_is_pos' "$CAFE_LIB" || fail "cafe.sh phải nhận diện được máy quầy"
+grep -qF 'anios_cafe_is_pos' "$CAFE_CLI" ||
+  fail "anios-cafe phải xử lý vai trò máy quầy (status/clean/watchdog)"
+grep -qF -- '--pos' "$CAFE_CLI" || fail "anios-cafe thiếu tuỳ chọn --pos cho máy quầy"
+grep -qF -- '--pos' "$ROOT_DIR/README.md" || fail "README phải hướng dẫn bật chế độ cho máy quầy"
+# Watchdog chạy mỗi phút trên mọi máy: không được để unit "failed" chỉ vì thiếu
+# tài khoản hay thiếu thư viện, và không được ghi ra ngoài $HOME.
+grep -qF 'anios_cafe_state_dir' "$CAFE_LIB" || fail "cafe.sh thiếu hàm xác định thư mục trạng thái"
+awk '/^anios_cafe_state_dir\(\) \{/,/^}/' "$CAFE_LIB" | grep -qF 'return 1' ||
+  fail "anios_cafe_state_dir phải từ chối khi không xác định được thư mục nhà (tránh /.local)"
+for cafe_installer_needle in anios-cafe cafe.sh net-cafe.conf anios-cafe-watchdog; do
+  grep -qF -- "$cafe_installer_needle" "$ROOT_DIR/profile/installer/scripts/anios-installer-finalize" ||
+    fail "bộ cài đặt phải chép '$cafe_installer_needle' sang máy đích"
+done
+for cafe_build_needle in \
+  "'/usr/local/bin/anios-cafe:0:0:755'" \
+  "'/usr/local/lib/anios/cafe.sh:0:0:644'"; do
+  grep -qF -- "$cafe_build_needle" "$ROOT_DIR/scripts/build-iso.sh" ||
+    fail "ANIOS_FILE_PERMISSIONS thiếu $cafe_build_needle (mkarchiso sẽ bỏ bit thực thi)"
+done
+
 for manifest_package in dkms xorg-server; do
   for manifest in "$ROOT_DIR/profile/packages.x86_64" "$ROOT_DIR/profile/install/packages.x86_64"; do
     grep -qxF "$manifest_package" "$manifest" ||

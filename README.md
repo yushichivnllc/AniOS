@@ -495,6 +495,110 @@ Toàn bộ dotfile và thành phần của **Immaterial Impulse** (XephyLon) đ�
 - Ảnh live nay nặng hơn (thêm Cốc Cốc, Wine, Node.js, Java và `base-devel`), nên máy quán net RAM 4 GB sẽ chật khi vừa chạy game vừa mở trình duyệt; 8 GB trở lên là mức nên có.
 - Hệ thống Live đọc ảnh nén trực tiếp từ USB (`copytoram=n`, không chép vào RAM; zram là swap nén, `vm.swappiness=100` để giảm nghẽn khi mở nhiều game) và không phải trình cài đặt vào ổ đĩa. Cần đủ RAM cho hệ thống và game; để dùng ổn định trong quán net, nên cài lên ổ đĩa và kiểm thử từng mẫu máy trước.
 
+### Chạy trong quán net (máy dùng chung, nhiều khách)
+
+Hai sự cố làm hỏng một dàn máy quán net **không liên quan gì tới driver đồ hoạ**,
+và đều không được một bản Arch/Hyprland mặc định xử lý:
+
+1. **Khách sau thừa hưởng dữ liệu của khách trước** — phiên đăng nhập Steam, lịch
+   sử và mật khẩu trình duyệt, file tải về, tài khoản Discord/Telegram.
+2. **Phiên đồ hoạ chết lặp lại** (driver, ép xung, RAM) và máy nằm im ở màn hình
+   đăng nhập cho tới khi có người gọi kỹ thuật.
+
+`anios-cafe` xử lý đúng hai việc đó. Mặc định nó **TẮT**, nên không ai mất dữ liệu
+ngoài ý muốn; bật một lần là bền qua các lần khởi động:
+
+```bash
+anios-cafe                      # trạng thái: đang bật/tắt, sẽ dọn gì, phiên vừa rồi có chết không
+anios-cafe clean --dry-run      # xem trước sẽ xoá những gì (không xoá gì cả)
+sudo anios-cafe on --system     # bật cho MỌI tài khoản trên máy (khuyến nghị cho quán)
+anios-cafe on                   # hoặc chỉ bật cho tài khoản đang dùng
+anios-cafe clean                # dọn ngay giữa hai khách, không cần đăng xuất
+anios-cafe off                  # tắt hẳn (dùng khi máy chuyển sang cho thuê theo giờ riêng)
+anios-cafe forget               # xoá bộ đếm "phiên chết nhanh" sau khi đã sửa được máy
+```
+
+Khi đã bật, mỗi lần bắt đầu phiên đăng nhập, `anios-session` xoá:
+
+| Xoá hẳn | Chỉ dọn sạch nội dung |
+| --- | --- |
+| phiên Steam (`.steam`, `.local/share/Steam`), hồ sơ Chrome/Chromium/Cốc Cốc/Firefox, Discord, Telegram, `.bash_history`, danh sách file gần đây | `~/Downloads`, `~/Documents`, `~/Pictures`, `~/Videos` (thư mục vẫn còn, khách sau vẫn thấy) |
+
+**Không bao giờ bị đụng tới**: dotfiles Hyprland/quickshell, `~/Desktop` (lối tắt
+của ảnh), `~/.local/share/anios` (nhật ký phiên cho `anios-gpu-doctor`), và bất kỳ
+đường dẫn nào ngoài thư mục nhà — kể cả khi ai đó trỏ một symlink ra ngoài. Thư viện
+`/usr/local/lib/anios/cafe.sh` chỉ chấp nhận đường dẫn tương đối trong `$HOME` và từ
+chối `..`/đường dẫn tuyệt đối; `./scripts/selftest-anios-cafe.sh` khoá lại điều này
+trên một cây `$HOME` giả (không cần root).
+
+Cơ chế tự phục hồi: `anios-session` đếm số lần phiên thoát với **mã lỗi trong 20
+giây đầu** (kể cả sau khi đã thử chế độ an toàn). Unit `anios-cafe-watchdog.timer`
+chạy mỗi phút bằng root đọc bộ đếm đó: đủ **3 lần trong 10 phút** thì khởi động lại
+máy — nhưng **chỉ một lần mỗi lần boot**. Nếu máy vẫn hỏng sau khi khởi động lại,
+watchdog giữ nguyên màn hình đăng nhập và ghi vào journal để kỹ thuật vào xem, thay
+vì rơi vào vòng lặp reboot mà không ai đọc được nhật ký:
+
+```bash
+anios-cafe status                      # số lần phiên chết nhanh trong cửa sổ 10 phút
+journalctl -b -u anios-cafe-watchdog   # watchdog đã làm gì
+grep -c 'fast failure' ~/.local/share/anios/session.log
+```
+
+Chỉnh ngưỡng trong `/etc/anios/net-cafe.conf` (mọi khoá `ANIOS_CAFE_*` đều đặt được
+ở đó hoặc trong `~/.config/anios/net-cafe.conf`, file sau đè file trước):
+
+```bash
+ANIOS_CAFE_ENABLE=1
+ANIOS_CAFE_MAX_FAST_FAILURES=3     # số lần chết nhanh
+ANIOS_CAFE_FAILURE_WINDOW=600      # trong bao nhiêu giây
+ANIOS_CAFE_WIPE_ON_START=1         # dọn dữ liệu khách khi bắt đầu phiên
+ANIOS_CAFE_REBOOT_ON_CRASH=1       # tự khởi động lại khi phiên chết lặp lại
+```
+
+Muốn bật cho riêng một lần khởi động (máy thử nghiệm), thêm `anios.cafe=1` vào tham
+số kernel ở menu GRUB.
+
+#### Máy quầy thu ngân (POS): bật chế độ cho cả dàn mà máy quầy vẫn an toàn
+
+Máy quầy dùng chung tài khoản với máy khách nhưng **không được dọn dữ liệu**: trình
+duyệt ở quầy đang đăng nhập sẵn phần mềm bán hàng (KiotViet/MISA/Sapo/POS365...), xoá
+hồ sơ trình duyệt là mất phiên giữa ca, còn tự khởi động lại máy giữa lúc tính tiền
+là mất hoá đơn. Vì vậy máy quầy được đánh dấu vai trò riêng:
+
+```bash
+anios-cafe on --pos        # trên CHÍNH máy quầy (một lần, bền qua reboot)
+anios-cafe status          # "Vai trò: máy quầy thu ngân (POS)" + lý do không dọn gì
+anios-cafe off             # bỏ vai trò, máy trở lại như thường
+```
+
+Vai trò `pos` **khoá cứng** hai công tắc dọn dữ liệu và tự khởi động lại, kể cả khi
+`/etc/anios/net-cafe.conf` bật chúng cho cả dàn hay ai đó thêm `anios.cafe=1` vào
+tham số kernel. Muốn dọn tay trên máy quầy (đổi máy, thanh lý) thì dùng
+`anios-cafe clean --force`; `--dry-run` vẫn xem trước được bình thường.
+
+#### Không có thông báo lỗi trên máy quầy
+
+Thành phần này chạy mỗi phút trên mọi máy, nên nó được viết để **không bao giờ hiện
+lỗi** cho người đứng quầy:
+
+- `anios-cafe watchdog` thoát 0 và im lặng khi không tìm thấy tài khoản dùng chung,
+  thiếu thư viện, thiếu cấu hình hay thiếu thư mục nhà — unit systemd không bao giờ
+  hiện "failed" đỏ trong `systemctl --failed`. Chẩn đoán nằm ở
+  `journalctl -b -u anios-cafe-watchdog`.
+- Không ghi gì ra ngoài `$HOME`: trước đây thiếu `$HOME` sẽ suy ra
+  `/.local/state/anios` và tạo thư mục rác ở gốc ổ đĩa — nay bỏ qua hoàn toàn.
+- Một dòng sửa tay sai trong `net-cafe.conf` chỉ bị bỏ qua kèm một dòng cảnh báo,
+  **không** làm phiên đăng nhập chết trước khi Hyprland chạy. Toàn bộ phần xử lý quán
+  net của `anios-session` chạy trong subshell đã tắt `set -e`/`set -u`, nên cấu hình
+  hỏng không thể biến thành "máy không vào được desktop".
+
+> Lưu ý khi triển khai: chế độ này **xoá dữ liệu thật**. Chạy `anios-cafe clean
+> --dry-run` trên một máy mẫu trước khi bật cho cả dàn, và nhớ rằng nó dọn cả file
+> khách tải về trong `~/Downloads` — nếu quán có quy định cho khách lưu file thì
+> chuyển thư mục đó sang ổ riêng hoặc gỡ `Downloads` khỏi `ANIOS_CAFE_EMPTY_DIRS`.
+> Trên máy cài từ ISO, các thành phần này đã nằm sẵn trong ảnh nhưng ở trạng thái
+> tắt; trên phiên Live, thay đổi chỉ sống trong phiên đó.
+
 ### Card NVIDIA (RTX 3060/GA106, Ampere) không vào được Hyprland
 
 Toàn bộ phần này là cấu hình chuẩn cho máy dùng card NVIDIA rời — tiêu biểu là
@@ -712,6 +816,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf`, `/etc/modprobe.d/anios-nvidia.conf` và `usr/local/lib/anios/gpu-env.sh` — ba lớp cấu hình NVIDIA: module trong initramfs, tham số modprobe (modeset, giữ VRAM qua suspend) và biến môi trường theo loại máy (chỉ-NVIDIA vs hybrid), gồm cả `AQ_DRM_DEVICES` để compositor không mở nhầm card `simpledrm`.
 - `profile/airootfs/etc/mkinitcpio.conf.d/20-anios-vmd.conf` — `MODULES+=(vmd)` cho mainboard Intel bật RST/VMD (B760/H610): ổ NVMe bị giấu sau VMD chỉ hiện khi initramfs có module này, nếu không bản cài đặt không tìm ra root. Dùng `+=` để không ghi đè danh sách module NVIDIA của drop-in `10-`.
 - `profile/airootfs/usr/local/bin/anios-gpu-doctor` — chẩn đoán GPU từ TTY (PCI/driver/modeset, thiết bị `/dev/dri` + ai đang giữ `/dev/fb0`, ổ NVMe sau Intel VMD/RST, cấu hình, nhật ký phiên), `--fix` ghi lại modprobe.d + drop-in mkinitcpio (+ `20-anios-vmd.conf` khi máy bật VMD) + tham số GRUB, rồi dựng lại initramfs.
+- `profile/airootfs/usr/local/bin/anios-cafe`, `usr/local/lib/anios/cafe.sh`, `etc/anios/net-cafe.conf` và hai unit `anios-cafe-watchdog.{service,timer}` — "chế độ quán net": dọn dữ liệu của khách trước khi bắt đầu phiên (Steam, hồ sơ trình duyệt, Discord/Telegram, lịch sử shell, dọn nội dung `Downloads`/`Documents`/`Pictures`/`Videos`) và tự khởi động lại máy khi phiên đồ hoạ chết nhanh 3 lần trong 10 phút, tối đa một lần mỗi lần boot. Máy quầy thu ngân đánh dấu `anios-cafe on --pos` để miễn nhiễm cả hai việc. Mặc định tắt; xem [mục quán net](#chạy-trong-quán-net-máy-dùng-chung-nhiều-khách).
 - `profile/airootfs/usr/local/bin/anios-dmesg-check` — phân loại `dmesg` thành ba mức VÔ HẠI / CHÚ Ý / CẦN SỬA kèm giải thích và lệnh sửa; nhận diện lỗi firmware ACPI `AE_ALREADY_EXISTS` (BIOS khai báo trùng `_DSM` của khe PCIe card đồ hoạ) là vô hại, và với segfault thì in tên chương trình bị crash + `coredumpctl info <tên>`.
 - `scripts/check-live-aur.sh` — kiểm tra Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder ngay trong `airootfs.sfs` vừa dựng.
 - `scripts/selftest-anios-aur-build.sh` — tự kiểm tra `anios-aur-build.sh` trên chroot giả (fake pacman/makepkg/runuser), không cần Arch Linux.
@@ -729,6 +834,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-anios-session.sh` — chạy đúng `anios-session` với `dbus-run-session`/`Hyprland` giả: cờ `--safe` tới được cấu hình qua `ANIOS_SAFE`, Hyprland chết ngay được thử lại đúng một lần ở chế độ an toàn, thoát bình thường không chạy lại, nhật ký phiên có mã thoát.
 - `scripts/selftest-anios-gpu-doctor.sh` — chạy `anios-gpu-doctor` trên cây sysfs/`/etc`/`/dev` giả: bắt được `modeset=0`, thiếu modprobe.d/drop-in, `nouveau` đang giữ card, card chỉ còn `/dev/fb0` của `efifb`, Intel VMD/RST đang bật; `--fix` ghi đủ cấu hình, gọi `mkinitcpio`, không làm mất dòng khác của `/etc/default/grub`, và chạy hai lần không nhân đôi dòng.
 - `scripts/selftest-anios-dmesg-check.sh` — chạy `anios-dmesg-check` trên nhật ký giả: dòng ACPI `AE_ALREADY_EXISTS` và `RAS: Correctable Errors collector initialized` phải là VÔ HẠI (và mã thoát 0 khi chỉ có chúng), còn segfault/OOM/GPU treo/lỗi ổ đĩa phải là CẦN SỬA kèm tên chương trình và lệnh tra cứu.
+- `scripts/selftest-anios-cafe.sh` — chạy `cafe.sh` và `anios-cafe` trên cây `$HOME` giả (không root): từ chối đường dẫn tuyệt đối/`..`, chỉ xoá danh sách cho phép, symlink trỏ ra ngoài không mất dữ liệu đích, giữ dotfiles Hyprland/`~/Desktop`/nhật ký phiên, `--dry-run` không xoá gì, `on`/`off` ghi đúng cấu hình, `clean` từ chối khi Steam/trình duyệt còn chạy, watchdog chỉ reboot khi bật + đúng ngưỡng + tối đa một lần mỗi lần boot; vai trò `pos` (máy quầy thu ngân) khoá cả hai việc, máy không có tài khoản dùng chung thì im lặng và không tạo thư mục rác, và một cấu hình gõ sai không làm chết phiên đăng nhập.
 - `scripts/selftest-build-iso-nvidia-params.sh` — nạp đúng `anios_add_nvidia_kernel_params()` của `build-iso.sh` rồi chạy trên GRUB/Syslinux/systemd-boot giả: mọi mục menu nhận `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` đúng một lần, chạy lại không nhân đôi, profile không có cấu hình khởi động là no-op.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
 - `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh).
@@ -750,6 +856,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-anios-session.sh       # phiên an toàn + tự lùi khi Hyprland thoát ngay
 ./scripts/selftest-anios-gpu-doctor.sh    # chẩn đoán GPU và --fix trên cây giả
 ./scripts/selftest-anios-dmesg-check.sh     # phân loại dmesg: lỗi firmware vô hại vs lỗi thật
+./scripts/selftest-anios-cafe.sh           # chế độ quán net: xoá đúng, giữ đúng, watchdog đúng ngưỡng
 ./scripts/selftest-build-iso-nvidia-params.sh # tham số kernel NVIDIA trên GRUB/Syslinux/systemd-boot
 ```
 

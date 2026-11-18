@@ -38,6 +38,7 @@ required_source_files=(
   "$LIVE_ROOT/usr/local/bin/anios-audio-check"
   "$LIVE_ROOT/usr/local/bin/anios-switch-desktop"
   "$LIVE_ROOT/usr/local/bin/anios-update"
+  "$LIVE_ROOT/usr/local/bin/anios-cafe"
   "$LIVE_ROOT/etc/systemd/zram-generator.conf"
   "$TARGET_ROOT/usr/share/anios/skel/.config/hypr/hyprland.lua"
   "$TARGET_ROOT/etc/skel/.config/hypr/hyprland.lua"
@@ -128,7 +129,7 @@ sed -i 's/live desktop session/desktop session/g' \
 
 for binary in \
   anios-session anios-audio-setup anios-audio-check anios-switch-desktop \
-  anios-switch-im anios-update anios-gpu-doctor anios-dmesg-check; do
+  anios-switch-im anios-update anios-gpu-doctor anios-dmesg-check anios-cafe; do
   source_binary="$LIVE_ROOT/usr/local/bin/$binary"
   [[ -s "$source_binary" ]] || fail "AniOS helper is missing: $source_binary"
   install -D -m 0755 -- "$source_binary" "$TARGET_ROOT/usr/local/bin/$binary"
@@ -151,6 +152,21 @@ for gpu_file in /etc/modprobe.d/anios-nvidia.conf /usr/local/lib/anios/gpu-env.s
   [[ -s "$LIVE_ROOT$gpu_file" ]] || fail "GPU configuration is missing: $LIVE_ROOT$gpu_file"
   install -D -m 0644 -- "$LIVE_ROOT$gpu_file" "$TARGET_ROOT$gpu_file"
 done
+
+# Chế độ quán net (`anios-cafe`): máy đã cài phải có thư viện dùng chung, file cấu
+# hình (mặc định TẮT) và unit watchdog. Unit chỉ đọc /etc/anios/net-cafe.conf nên
+# mang sang máy đích là vô hại cho tới khi quán bật bằng `anios-cafe on --system`.
+install -D -m 0644 -- "$LIVE_ROOT/usr/local/lib/anios/cafe.sh" \
+  "$TARGET_ROOT/usr/local/lib/anios/cafe.sh"
+install -D -m 0644 -- "$LIVE_ROOT/etc/anios/net-cafe.conf" \
+  "$TARGET_ROOT/etc/anios/net-cafe.conf"
+install -D -m 0644 -- "$LIVE_ROOT/etc/systemd/system/anios-cafe-watchdog.service" \
+  "$TARGET_ROOT/etc/systemd/system/anios-cafe-watchdog.service"
+install -D -m 0644 -- "$LIVE_ROOT/etc/systemd/system/anios-cafe-watchdog.timer" \
+  "$TARGET_ROOT/etc/systemd/system/anios-cafe-watchdog.timer"
+install -d -m 0755 -- "$TARGET_ROOT/etc/systemd/system/timers.target.wants"
+ln -sfn ../anios-cafe-watchdog.timer \
+  "$TARGET_ROOT/etc/systemd/system/timers.target.wants/anios-cafe-watchdog.timer"
 
 # Calamares chạy module `initcpio` TRƯỚC bước finalize này, nên drop-in NVIDIA vừa
 # chép ở trên chưa kịp vào initramfs của máy đích. Ngoài ra pacstrap dùng

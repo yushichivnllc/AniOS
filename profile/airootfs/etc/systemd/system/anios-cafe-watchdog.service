@@ -1,0 +1,13 @@
+[Unit]
+Description=AniOS net cafe watchdog (tu khoi dong lai khi phien chet lap lai)
+Documentation=man:anios-cafe(1)
+# File cấu hình luôn có trong ảnh; nội dung quyết định có làm gì hay không.
+ConditionPathExists=/etc/anios/net-cafe.conf
+After=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/anios-cafe watchdog
+# Chỉ để lại ít dòng trong journal mỗi phút khi không có gì xảy ra.
+StandardOutput=journal
+StandardError=journal
