@@ -37,9 +37,11 @@ jobs:
       - name: Install lint and test tooling
         # shellcheck-py đóng gói sẵn ShellCheck nên không cần cài riêng trên
         # Ubuntu (bản trong kho apt thường quá cũ cho các kiểm tra hiện tại).
+        # LƯU Ý: số phiên bản của GÓI là 0.11.0.1, còn ShellCheck bên trong là
+        # 0.11.0 — ghim "shellcheck-py==0.11.0" sẽ không cài được.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ruff==0.17.6 pytest==8.4.1 pytest-cov==7.1.0 shellcheck-py==0.11.0
+          python -m pip install ruff==0.17.6 pytest==8.4.1 pytest-cov==7.1.0 shellcheck-py==0.11.0.1
           ruff --version
           shellcheck --version
           pytest --version
