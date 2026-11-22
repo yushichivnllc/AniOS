@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List
 
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -20,13 +20,13 @@ def safe_name(value: str, fallback: str = "unknown", max_len: int = 80) -> str:
 _NUM = re.compile(r"(\d+)")
 
 
-def natural_key(name: str) -> List:
+def natural_key(name: str) -> list:
     """Khoá sắp xếp tự nhiên: 'vol 2' < 'vol 10' (không dùng so sánh chuỗi thuần)."""
     parts = _NUM.split(name.lower())
     return [int(p) if p.isdigit() else p for p in parts]
 
 
-def sorted_images(files: Iterable[Path]) -> List[Path]:
+def sorted_images(files: Iterable[Path]) -> list[Path]:
     """Sắp xếp file ảnh theo thứ tự đọc (tự nhiên, không phân biệt hoa thường)."""
     exts = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif"}
     images = [p for p in files if p.suffix.lower() in exts and p.is_file()]

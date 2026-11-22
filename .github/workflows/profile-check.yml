@@ -129,6 +129,17 @@ jobs:
         # nhầm, manifest còn dòng trùng. Kèm kiểm tra đường phân giải --edition và
         # việc --edition all tách work dir theo từng bản.
         run: ./scripts/selftest-editions.sh
+      - name: Self-test the single-source skeleton
+        # Repo từng commit HAI bản giống hệt của bộ dotfile (1.526 file mỗi
+        # bản): etc/skel và usr/share/anios/skel. Sửa một bản quên bản kia là
+        # hỏng âm thầm: mọi bài kiểm tra vẫn xanh, nhưng máy live và máy đã cài
+        # chạy hai bộ cấu hình khác nhau. Nay cây repo chỉ chứa MỘT nguồn
+        # (profile/shared/skel) và bản trong ảnh đều là sản phẩm dựng.
+        # Bài này khoá bất biến: mọi bản sao trong cây repo bị chặn, nguồn phải
+        # đủ mục bắt buộc, và --stage phải chép trung thành (symlink, quyền thực
+        # thi) — kể cả khi sinh bản đích từ cây đã qua remove.paths của
+        # edition (AniTails gỡ Steam.desktop khỏi ảnh amnesic).
+        run: ./scripts/selftest-skel-single-source.sh
       - name: Self-test the offline Steam runtime installer
         # anios-steam-setup chạy ở lần mở Steam ĐẦU TIÊN của người dùng, nên lỗi của
         # nó chỉ lộ ra trên máy thật sau khi đã ghi USB. Bài này chạy đúng script đó
@@ -146,7 +157,8 @@ jobs:
           import re
 
           root = pathlib.Path("profile/airootfs")
-          json.loads((root / "usr/share/anios/skel/.config/waybar/config").read_text())
+          skel = pathlib.Path("profile/shared/skel")
+          json.loads((skel / ".config/waybar/config").read_text())
 
           sddm = configparser.ConfigParser(interpolation=None)
           sddm.read(root / "etc/sddm.conf.d/10-anios-autologin.conf")

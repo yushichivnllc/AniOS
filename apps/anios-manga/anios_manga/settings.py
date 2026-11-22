@@ -5,7 +5,6 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import List
 
 APP_ID = "anios-manga"
 
@@ -37,7 +36,7 @@ class Settings:
     # Nguồn mặc định: MangaDex (API công khai, không cần khoá).
     source: str = "mangadex"
     # Ngôn ngữ ưu tiên khi lấy danh sách chương; MangaDex nhận nhiều ngôn ngữ.
-    languages: List[str] = field(default_factory=lambda: ["vi", "en"])
+    languages: list[str] = field(default_factory=lambda: ["vi", "en"])
     reader_mode: str = "webtoon"
     data_saver: bool = False  # ảnh nén của MangaDex (nhẹ hơn, phù hợp mạng chậm)
     nsfw: bool = False  # cho phép nội dung 18+
@@ -66,7 +65,7 @@ class Settings:
         return default_data_dir()
 
     @classmethod
-    def load(cls, path: Path | None = None) -> "Settings":
+    def load(cls, path: Path | None = None) -> Settings:
         path = path or default_config_path()
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))

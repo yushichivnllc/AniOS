@@ -552,6 +552,16 @@ printf 'Boot entries carry nvidia_drm.modeset=1 nvidia_drm.fbdev=1 for NVIDIA KM
 
 cp -a -- "$ROOT_DIR/profile/airootfs/." "$BUILD_PROFILE/airootfs/"
 
+# Bộ dotfile có ĐÚNG MỘT nguồn trong cây repo: profile/shared/skel.
+# Bản nằm trong ảnh là SẢN PHẨM DỰNG, không phải nguồn: nó được stage vào
+# đây, TRƯỚC khi overlay của edition và remove.paths chạy, để AniTails vẫn gỡ
+# được Desktop/Steam.desktop khỏi ảnh amnesic. Nếu /etc/skel được sinh từ
+# nguồn trong repo thì file đó sẽ quay lại ảnh — lỗi lặp lại của thời còn hai
+# bản dotfile trùng nhau.
+SKEL_SYNC="$ROOT_DIR/scripts/sync-skel.sh"
+[[ -x "$SKEL_SYNC" ]] || { echo "Missing AniOS skeleton helper: $SKEL_SYNC" >&2; exit 1; }
+bash "$SKEL_SYNC" --stage "$BUILD_PROFILE/airootfs/usr/share/anios/skel"
+
 # --- Overlay riêng của edition --------------------------------------------
 # profile/editions/<edition>/airootfs được chép SAU overlay chung nên nó ghi đè
 # được file của profile/airootfs (AniTails thay cấu hình journald, thêm unit Tor).
@@ -903,15 +913,23 @@ if [[ -d "$BUILD_PROFILE/grub" ]]; then
   done
 fi
 
+# Bộ dotfile có ĐÚNG MỘT nguồn: profile/shared/skel (đã stage vào cây dựng ở
+# trên, TRƯỚC bước remove.paths của edition).
+#
+# /etc/skel trong ảnh = mặc định của useradd và /home/anios = tài khoản live;
+# cả hai PHẢI lấy từ cây đã qua remove.paths, không lấy từ nguồn trong repo.
+# Lấy từ nguồn repo sẽ hồi sinh Steam.desktop trong ảnh AniTails — bản amnesic
+# không có Steam nên không được có shortcut đó.
+SKEL_SOURCE="$BUILD_PROFILE/airootfs/usr/share/anios/skel"
+
 # Tài khoản live đã có sẵn cấu hình đọc được ngay trong ảnh nén: nếu
 # anios-live-home.service gặp trục trặc, desktop vẫn khởi động bình thường.
 install -d -m 0755 -- "$BUILD_PROFILE/airootfs/home/anios"
-cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
-  "$BUILD_PROFILE/airootfs/home/anios/"
+cp -a -- "$SKEL_SOURCE/." "$BUILD_PROFILE/airootfs/home/anios/"
 
-install -d -m 0755 -- "$BUILD_PROFILE/airootfs/etc/skel"
-cp -a -- "$BUILD_PROFILE/airootfs/usr/share/anios/skel/." \
-  "$BUILD_PROFILE/airootfs/etc/skel/"
+# /etc/skel trong ảnh = mặc định của useradd, phải giống hệt cây đã dùng ở
+# /home/anios (tức là đã qua remove.paths của edition).
+bash "$SKEL_SYNC" --stage "$BUILD_PROFILE/airootfs/etc/skel" "$SKEL_SOURCE"
 
 # --- Gói AUR được nướng sẵn vào ảnh live ----------------------------------
 # pacman không cài được AUR, nên các gói trong profile/packages.aur.x86_64

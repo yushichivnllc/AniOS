@@ -1,0 +1,95 @@
+name: AniOS quality gate
+
+# Quality gate cho mọi pull request (C3 của Master Prompt): trước đây pytest,
+# ruff và shellcheck KHÔNG chạy trong CI, nên một lỗi cú pháp Python hay một
+# lỗi shell trong scripts/ chỉ lộ ra khi người dùng đã cài ISO.
+#
+# Job này KHÔNG dựng ISO (việc đó thuộc build-iso.yml) và phải xanh trong
+# dưới 4 phút.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install lint and test tooling
+        # shellcheck-py đóng gói sẵn ShellCheck nên không cần cài riêng trên
+        # Ubuntu (bản trong kho apt thường quá cũ cho các kiểm tra hiện tại).
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff==0.17.6 pytest==8.4.1 pytest-cov==7.1.0 shellcheck-py==0.11.0
+          ruff --version
+          shellcheck --version
+          pytest --version
+
+      - name: Lint Python
+        # ruff.toml đặt target-version py311 và bật E4/E7/E9/F/I/B/UP.
+        run: ruff check apps/
+
+      - name: ShellCheck the shell scripts
+        # -S error: chặn lỗi chắc chắn sai. Mức warning vẫn còn ~20 cảnh báo
+        # cũ, nên bật dần để không chặn PR vì việc không liên quan.
+        # Bao gồm cả profile/installer/scripts: đó là các helper chạy trong
+        # chroot lúc cài đặt, lỗi shell ở đó chỉ lộ ra trên máy người dùng.
+        run: |
+          shellcheck -x -S error scripts/*.sh profile/installer/scripts/*
+
+      - name: Install Lua and run the Hyprland config checks
+        # check-hyprland.sh nạp thật các module Lua của bộ dotfile và chạy
+        # smoke test trên cây giả — bắt lỗi cú pháp Lua và lỗi kiểu dữ liệu
+        # mà "luac -p" không thấy.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+          LUA=lua5.4 ./scripts/check-hyprland.sh
+
+      - name: Install PySide6 for the app tests
+        # App là PySide6/QML; test cần import được QtGui/QtQml để nạp QML.
+        # QT_QPA_PLATFORM=offscreen để không mở cửa sổ thật trên runner.
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pip install "PySide6==6.12.0"
+
+      - name: Run the app test suites
+        # Hai app có CÙNG tên file test (test_models.py, test_settings.py...),
+        # nên pytest gộp một lần sẽ báo "import file mismatch". Chạy riêng
+        # từng app để mỗi app dùng đúng pyproject.toml của nó.
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest apps/anios-manga/tests -q
+          python -m pytest apps/anios-reddit/tests -q
+
+      - name: Upload the test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-reports
+          path: |
+            apps/anios-manga/.pytest_cache/
+            apps/anios-reddit/.pytest_cache/
+          retention-days: 7
+          if-no-files-found: ignore

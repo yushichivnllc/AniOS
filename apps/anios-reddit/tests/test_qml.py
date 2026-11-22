@@ -59,7 +59,7 @@ def test_main_window_loads_and_fills_feed(gui):
 
 def test_setup_page_is_shown_without_client_id(tmp_path, monkeypatch):
     monkeypatch.setenv("ANIOS_REDDIT_CONFIG", str(tmp_path / "config.json"))
-    app = QGuiApplication.instance() or QGuiApplication([])
+    _app = QGuiApplication.instance() or QGuiApplication([])
     engine = QQmlApplicationEngine()
     backend = Backend(Settings(client_id=""), client_factory=lambda s: RedditClient("x", transport=make_fake()),
                       parent=engine)

@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional
 
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 
 from . import __version__
-from .downloader import download_chapter, downloaded_pages, read_meta
+from .downloader import download_chapter, downloaded_pages
 from .http import MangaError
 from .library import DEFAULT_CATEGORY, Library
 from .models import (
@@ -26,7 +26,7 @@ from .models import (
     PAGE_ROLES,
     DictListModel,
 )
-from .paths import chapter_dir, ensure_dirs
+from .paths import ensure_dirs
 from .settings import READER_MODES, THEMES, Settings
 from .sources import build_sources, source_labels
 from .sources.base import Chapter, Manga, status_label
@@ -44,7 +44,7 @@ def _image_source(url: str) -> str:
     return f"image://manga/{quote(url, safe='')}"
 
 
-def _relative_time(timestamp: float, now: Optional[float] = None) -> str:
+def _relative_time(timestamp: float, now: float | None = None) -> str:
     if not timestamp:
         return ""
     delta = max(0, int((now if now is not None else time.time()) - timestamp))
@@ -95,13 +95,13 @@ class Backend(QObject):
         self._history_model = DictListModel(HISTORY_ROLES, self)
         self._downloads_model = DictListModel(DOWNLOAD_ROLES, self)
 
-        self._chapters: List[Chapter] = []
+        self._chapters: list[Chapter] = []
         self._current_manga: dict = {}
         self._browse_mode = "popular"
         self._query = ""
         self._page = 0
         self._has_more = False
-        self._tags: List[dict] = []
+        self._tags: list[dict] = []
 
         self._reader: dict = {
             "mangaId": "",
@@ -111,7 +111,7 @@ class Backend(QObject):
             "label": "",
         }
         self._reader_index = 0
-        self._reader_pages: List[str] = []
+        self._reader_pages: list[str] = []
 
         self._busy = False
         self._status = ""
@@ -1018,7 +1018,7 @@ class Backend(QObject):
         self._library_model.set_rows(rows)
         self.libraryChanged.emit()
 
-    def _current_chapter(self) -> Optional[Chapter]:
+    def _current_chapter(self) -> Chapter | None:
         chapter_id = self._reader.get("chapterId", "")
         for chapter in self._chapters:
             if chapter.id == chapter_id:

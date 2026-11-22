@@ -347,15 +347,15 @@ as_root test -x "$SKEL_ROOT/usr/local/bin/anios-session" ||
 # "#111111" (region selector) and "#88111111". Every installation therefore died
 # at `shellprocess@anios-skel` with "Live password text remains in the target
 # skeleton" — after pacstrap had already spent its time downloading the system.
-# Run the helper against profile/airootfs/usr/share/anios/skel (the tree that is
-# baked into the Live ISO) so a colour, a port or a size can never do that again.
+# Run the helper against profile/shared/skel (the single source that is baked
+# into the Live ISO) so a colour, a port or a size can never do that again.
 REAL_LIVE="$SANDBOX/real-live"
 REAL_TARGET="$SANDBOX/real-target"
-REAL_SKEL_SRC="$ROOT_DIR/profile/airootfs/usr/share/anios/skel"
+REAL_SKEL_SRC="$ROOT_DIR/profile/shared/skel"
 mkdir -p -- "$REAL_LIVE/usr/share/anios" "$REAL_LIVE/usr/share/wayland-sessions" \
   "$REAL_LIVE/usr/local/bin" "$REAL_TARGET"
 [[ -d "$REAL_SKEL_SRC/.config/hypr" ]] ||
-  fail "profile/airootfs/usr/share/anios/skel is missing from the repository"
+  fail "profile/shared/skel is missing from the repository"
 cp -a -- "$REAL_SKEL_SRC" "$REAL_LIVE/usr/share/anios/skel"
 for session in anios.desktop anios-imi.desktop anios-minimal.desktop anios-safe.desktop; do
   cp -- "$ROOT_DIR/profile/airootfs/usr/share/wayland-sessions/$session" \

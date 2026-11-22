@@ -52,7 +52,7 @@ def test_chapters_are_sorted_naturally(source, library_root):
 
 
 def test_prepare_pages_extracts_archive_once(source, library_root, tmp_path):
-    archive = make_cbz(library_root / "Bộ" / "ch1.cbz", ["3.png", "1.png", "2.png"])
+    make_cbz(library_root / "Bộ" / "ch1.cbz", ["3.png", "1.png", "2.png"])
     chapters = source.chapters("Bộ")
     urls = source.prepare_pages(chapters[0])
 

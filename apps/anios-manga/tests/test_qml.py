@@ -6,7 +6,6 @@ QT_QUICK_BACKEND=software (conftest.py đặt sẵn).
 from __future__ import annotations
 
 import os
-import time
 
 import pytest
 
@@ -18,7 +17,6 @@ from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent, QQmlContext  # n
 
 from anios_manga.__main__ import QML_DIR  # noqa: E402
 from anios_manga.backend import Backend  # noqa: E402
-from anios_manga.settings import Settings  # noqa: E402
 from conftest import make_fake, pump  # noqa: E402
 
 pytestmark = pytest.mark.usefixtures("qt_app")
@@ -160,7 +158,6 @@ def test_qml_only_uses_backend_members_that_exist():
     """
     import re
 
-    from PySide6.QtCore import QObject
 
     backend_members = set(dir(Backend))
     for path in sorted(QML_DIR.glob("*.qml")):

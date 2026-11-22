@@ -30,7 +30,7 @@
 
   | # | Nguyên nhân thất bại (đã xác minh trong repo) | Quy tắc sống còn (bắt buộc trong mọi PR) |
   |---|---|---|
-  | 1 | **Cây skel bị nhân đôi**: `profile/airootfs/etc/skel` và `profile/airootfs/usr/share/anios/skel` là **2 bản giống hệt, mỗi bản 1.526 file** (mỗi bản ~198k LoC Quickshell). Sửa một bản quên bản kia → máy live và máy đã cài lệch nhau. | **C1 — Single Source of Truth cho skel.** `profile/shared/skel/` là nguồn duy nhất; `scripts/sync-skel.sh` sinh ra 2 bản đích; CI **fail** nếu 2 bản lệch nhau (thêm bài `selftest-skel-sync.sh`). Không được commit sửa tay vào bản đích. |
+  | 1 | **Cây skel bị nhân đôi**: `profile/airootfs/etc/skel` và `profile/airootfs/usr/share/anios/skel` là **2 bản giống hệt, mỗi bản 1.526 file** (mỗi bản ~198k LoC Quickshell). Sửa một bản quên bản kia → máy live và máy đã cài lệch nhau. | **C1 — Single Source of Truth cho skel.** `profile/shared/skel/` là nguồn duy nhất; `scripts/sync-skel.sh` sinh ra các bản đích **trong ảnh** (`/usr/share/anios/skel`, `/etc/skel`, `/home/anios`); cây repo **không** chứa bản sao nào và CI **fail** nếu bản sao xuất hiện lại (bài `selftest-skel-single-source.sh`). Bản đích phải sinh từ cây **đã qua `remove.paths` của edition** để AniTails không hồi sinh `Steam.desktop`. |
   | 2 | **Monolith Bash**: `build-iso.sh` 1.626 LOC, `check-profile.sh` 1.418 LOC, `anios-aur-build.sh` 935 LOC — không có module, không có lint, mỗi lần sửa là cả một vùng nguy hiểm. | **C2 — Không file nào vượt 600 LOC.** Tách `scripts/lib/*.sh` theo miền; `check-profile.sh` trở thành runner gọi `scripts/checks/*.sh`. Bắt buộc `shellcheck -S warning` + `luacheck` trong CI. |
   | 3 | **Test chưa được nối vào CI**: `apps/*/tests/` có pytest + fixture đầy đủ nhưng **`grep -n pytest .github/workflows/*.yml` = 0 kết quả** → test suite có thể hỏng từ lâu mà không ai biết. | **C3 — Test phải chạy trong CI, không phải "nên có".** Mọi job đều chạy `make check` (shellcheck + luacheck + ruff + pytest + qmllint + 14 selftest). Test hỏng = PR đỏ. |
   | 4 | **Lời hứa sai với người dùng**: README quảng bá AniTails có "Tor" nhưng **không có `tor` trong `profile/packages.x86_64` cũng không có trong `edition.conf` của aniterals**. | **C4 — Không tính năng nào được tuyên bố nếu không có bài kiểm chứng tự động trong CI.** Thêm `tor`/`obfs4proxy`/`macchanger` + bài `check-live-animals` xác nhận chúng có mặt trong `airootfs.sfs`. |
@@ -58,7 +58,7 @@
 | Tự kiểm tra | `scripts/selftest-*.sh` (14 file) | ~1.900 LOC | Tốt nhất của repo — nhưng rời rạc, không có index, không có coverage matrix |
 | Manifest gói | `profile/packages.x86_64`, `profile/packages.aur.x86_64`, `profile/install/packages.x86_64` | ~400 dòng | Tốt, nhưng **3 nguồn tr truth** cho cùng một "bộ gói" → dễ lệch |
 | Overlay hệ thống | `profile/airootfs/etc`, `usr/local/bin` (18 tool), `usr/local/lib/anios` (4 lib) | ~4.500 LOC | Chất lượng cao — đây là "linh hồn" sản phẩm |
-| Dotfile desktop | `profile/airootfs/{etc,usr/share/anios}/skel` | 2 × 1.526 file | **Trùng lặp 100%** → vi phạm C1 |
+| Dotfile desktop | `profile/airootfs/{etc,usr/share/anios}/skel` | 2 × 1.526 file | **Trùng lặp 100%** → vi phạm C1 (đã đóng: nguồn còn ở `profile/shared/skel/`) |
 | Shell Quickshell (IMI) | `skel/.config/quickshell/imi/` | 805 QML + 282 JS, 14 ngôn ngữ | Rất lớn, không có manifest lazy-load, không có design token riêng |
 | Cấu hình Hyprland | `skel/.config/hypr/` | 4.597 LOC Lua | Tốt, có hồ sơ GPU 3 tầng (nvidia/safe/default) — giữ nguyên |
 | Theme GRUB | `usr/share/grub/themes/ayanami` | 100 icon + 2,8k dòng PNG | Nguồn upstream đã pin commit — giữ nguyên |
@@ -88,7 +88,7 @@ scripts/lib/verify.sh      # post-build assertions (iso identity, pkglist, audio
 `scripts/check-profile.sh` còn **≤ 200 LOC** (runner) + `scripts/checks/{structure,packages,editions,installer,desktop,security,ci-coverage,syntax}.sh` (mỗi file ≤ 300 LOC), mỗi check trả về 0/1 và in kết luận một dòng.
 
 **R2 — Hạ nền tảng dữ liệu: một cây skel, một manifest gói.**
-- `profile/shared/skel/` (nguồn) → `scripts/sync-skel.sh --check` (CI) và `--write` (dev).
+- `profile/shared/skel/` (nguồn) → `scripts/sync-skel.sh --check` (CI) và `--stage DEST [SRC]` (dựng ISO).
 - Manifest gói: hợp nhất 3 file thành **1 file YAML + 3 profile lọc** (`profile/packages.base.yaml` + `profiles: {live, target, anix, aniterals}`), có `scripts/manifest-diff.sh` in chính xác gói nào của bản nào khác bản nào (thay vì 3 file phải đối chiếu thủ công). Giữ **đường dẫn cũ** (`profile/packages.x86_64`…) dưới dạng file sinh tự động tương thích để không phá script hiện có.
 
 **R3 — Chuẩn hoá app desktop thành một hệ.**
@@ -166,9 +166,9 @@ Makefile
 
 ```
 WAVE 0 — Lưới an toàn (1–2 ngày)
-  S0.1 Nối pytest + shellcheck + luacheck + ruff vào CI (đóng C3)
-  S0.2 scripts/sync-skel.sh + check lệch skel (đóng C1)
-  S0.3 docs/README 3 tầng + Makefile + CONTRIBUTING
+  S0.1 Nối pytest + shellcheck + luacheck + ruff vào CI (đóng C3)  ✅ xong
+  S0.2 scripts/sync-skel.sh + check lệch skel (đóng C1)             ✅ xong
+  S0.3 docs/README 3 tầng + Makefile + CONTRIBUTING                 ✅ xong
   → Chạy được toàn bộ mà KHÔNG đổi hành vi sản phẩm.
 
 WAVE 1 — Tái cấu trúc pipeline (3–5 ngày)

@@ -1,8 +1,6 @@
 """Kiểm thử nhà cung cấp ảnh: cache ra đĩa, tải khi trượt, đọc file cục bộ."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from anios_manga.http import MangaError
 from anios_manga.images import MangaImageProvider, image_url
 

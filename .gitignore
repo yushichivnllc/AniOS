@@ -9,3 +9,11 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Môi trường ảo phát triển (công cụ lint/test cài cục bộ, KHÔNG commit)
+/.venv-dev/
+/.venv/
+
+# Cache công cụ
+.ruff_cache/
+.mypy_cache/

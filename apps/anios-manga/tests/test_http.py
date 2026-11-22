@@ -8,7 +8,6 @@ import pytest
 from anios_manga.http import (
     MangaError,
     build_url,
-    default_bytes_transport,
     request_bytes,
     request_json,
 )

@@ -5,7 +5,6 @@ import json
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
 
 
 def default_config_path() -> Path:
@@ -24,7 +23,7 @@ class Settings:
     last_sort: str = "hot"
 
     @classmethod
-    def load(cls, path: Optional[Path] = None) -> "Settings":
+    def load(cls, path: Path | None = None) -> Settings:
         path = path or default_config_path()
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -36,7 +35,7 @@ class Settings:
             settings.theme = "dark"
         return settings
 
-    def save(self, path: Optional[Path] = None) -> Path:
+    def save(self, path: Path | None = None) -> Path:
         path = path or default_config_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")

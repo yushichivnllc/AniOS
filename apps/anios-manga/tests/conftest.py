@@ -107,7 +107,6 @@ def pump(app, predicate, timeout=8.0):
 
 @pytest.fixture(scope="session")
 def qt_app():
-    import pytest
 
     from PySide6.QtGui import QGuiApplication
 
