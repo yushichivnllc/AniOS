@@ -23,13 +23,12 @@
 #   6. size sai kiểu / bằng 0             → giữ 24
 #   7. không cài theme nào                → exit 0 và KHÔNG gọi hyprctl
 #   8. theme định dạng hyprcursor         → được nhận là đã cài
-#   9. hai bản skel                       → giống hệt nhau từng byte
+#   9. bộ dotfile chỉ có một nguồn         → không bản sao nào được nằm trong cây repo
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_REL='.config/hypr/hyprland/scripts/apply_saved_cursor.sh'
-SCRIPT="$ROOT_DIR/profile/airootfs/usr/share/anios/skel/$SCRIPT_REL"
-SCRIPT_TWIN="$ROOT_DIR/profile/airootfs/etc/skel/$SCRIPT_REL"
+SCRIPT="$ROOT_DIR/profile/shared/skel/$SCRIPT_REL"
 
 [[ -x "$SCRIPT" ]] || { echo "FAIL: thiếu hoặc không chạy được $SCRIPT" >&2; exit 1; }
 bash -n "$SCRIPT" || { echo "FAIL: lỗi cú pháp bash trong $SCRIPT" >&2; exit 1; }
@@ -181,11 +180,17 @@ write_config "$CONFIG_JSON" '{"hyprland":{"cursor":{"theme":"Volantes","size":24
 run_script
 expect_call 'setcursor Volantes 24' "manifest.toml đủ để coi là theme đã cài"
 
-echo "--- 9. hai bản skel phải giống hệt nhau ---"
-if diff -q -- "$SCRIPT" "$SCRIPT_TWIN" >/dev/null; then
-  report_ok "etc/skel và usr/share/anios/skel cùng một nội dung"
+echo "--- 9. bộ dotfile chỉ có một nguồn ---"
+if [[ ! -e "$ROOT_DIR/profile/airootfs/etc/skel" &&
+      ! -e "$ROOT_DIR/profile/airootfs/usr/share/anios/skel" ]]; then
+  report_ok "không có bản sao dotfile nào trong cây repo (đều được sinh lúc dựng ISO)"
 else
-  report_fail "hai bản skel của apply_saved_cursor.sh khác nhau"
+  report_fail "cây repo chứa bản sao dotfile: dotfile có nhiều nguồn và sẽ trôi lệch"
+fi
+if bash "$ROOT_DIR/scripts/sync-skel.sh" --check >/dev/null 2>&1; then
+  report_ok "scripts/sync-skel.sh --check xanh"
+else
+  report_fail "scripts/sync-skel.sh --check báo lỗi"
 fi
 
 if ((failures)); then

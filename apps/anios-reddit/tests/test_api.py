@@ -5,7 +5,13 @@ import urllib.parse
 import pytest
 
 from anios_reddit import api
-from anios_reddit.api import RedditClient, RedditError, compact_number, make_user_agent, relative_time
+from anios_reddit.api import (
+    RedditClient,
+    RedditError,
+    compact_number,
+    make_user_agent,
+    relative_time,
+)
 from conftest import load_fixture, make_fake
 
 

@@ -800,6 +800,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 
 ## Cấu trúc repository
 
+- `profile/shared/skel/` — **nguồn duy nhất** của toàn bộ bộ dotfile (1.526 file): cấu hình Hyprland (Lua), Quickshell/Immaterial Impulse, Waybar, Matugen, `.bashrc` và các shortcut trên Desktop. Trong ảnh, bộ này xuất hiện ở `/usr/share/anios/skel` (bộ cài đặt lấy từ đây), `/etc/skel` (mặc định của `useradd`) và `/home/anios` (tài khoản live) — cả ba đều là **sản phẩm dựng**, do `scripts/sync-skel.sh` sinh ra lúc dựng ISO. Cây repo **không** chứa bản sao nào: sửa một bản mà quên bản kia là kiểu hỏng âm thầm khiến máy live và máy đã cài chạy hai bộ cấu hình khác nhau.
 - `profile/airootfs/` — tài khoản Live, SDDM tự đăng nhập và theme **Wuthering Waves** (Qylock) đã tinh chỉnh khởi tạo video có dự phòng, phiên Hyprland (cấu hình Lua `hyprland.lua` + `hyprlock.conf` hỗ trợ song song Minimal và Immaterial Impulse), Quickshell, Waybar, Matugen, dotfile cài sẵn, ibus & fcitx5, công cụ chuyển đổi giao diện (`usr/local/bin/anios-switch-desktop`), dàn âm thanh tự khởi động (`etc/systemd/user/`, `usr/local/bin/anios-audio-setup`, `usr/local/bin/anios-audio-check`), mạng **chỉ do NetworkManager quản lý** (mặt nạ `systemd-networkd*` + `iwd`, drop-in `dns=systemd-resolved` cùng `FallbackDNS` của resolved, `usr/local/bin/anios-netcheck` và unit chạy nó), đồng hồ/múi giờ Việt Nam (`etc/localtime` → `Asia/Ho_Chi_Minh`, bật sẵn `systemd-timesyncd`, drop-in NTP cụm châu Á) và theme con trỏ Adwaita dùng chung cho Hyprland/GTK/XWayland (`~/.icons/default/index.theme`), kèm pacman hook (`etc/pacman.d/hooks/anios-live-user.hook`) tạo sẵn tài khoản live và mật khẩu `1111` trong ảnh lúc build.
 - `profile/airootfs/usr/share/sddm/themes/wuwa/` — theme Qylock Wuthering Waves, mã nguồn giấy phép GPL-3.0; thông tin upstream và commit nguồn ở `UPSTREAM`.
 - `profile/airootfs/etc/os-release` — tên AniOS hiển thị cho người dùng, `ID=arch` để giữ tương thích công cụ Arch.
@@ -811,6 +812,8 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `profile/packages.aur.x86_64` — manifest gói AUR cần nướng vào ảnh (`calamares`, `yay`, `coccoc-browser-stable`, `legacy-launcher`); cố tình tách khỏi `packages.x86_64` vì pacstrap không phân giải được AUR.
 - `scripts/build-iso.sh` — dựng profile Archiso tạm thời (kernel `linux-zen`, ảnh thương hiệu, gỡ bỏ xung đột agetty tty1, ghim `/etc/localtime` về `Asia/Ho_Chi_Minh` và bảo đảm `systemd-timesyncd` được bật trong ảnh, sao chép dotfile cho tài khoản live), stage Calamares và các theme/helper installer khi bật AUR, khai báo lại quyền/bit thực thi của các script trong ảnh bằng **một** danh sách `ANIOS_FILE_PERMISSIONS` (mkarchiso chép airootfs với `--no-preserve=mode`), chuẩn bị hook dựng gói (`root/.anios-aur` + `customize_airootfs.sh`, tuỳ chọn `--no-aur` để bỏ qua), chạy `mkarchiso`, rồi tự xác nhận gói AUR có trong pacman DB của ảnh và không còn tàn dư builder.
 - `scripts/anios-aur-build.sh` — chạy **trong chroot airootfs**: tải PKGBUILD từ AUR (git AUR → mirror GitHub → snapshot cgit), dựng bằng `makepkg` dưới tài khoản tạm `aniosbuild` với quyền đã hạ, root cài phụ thuộc/gói và dọn mồ côi, thử lại gói hỏng, phân loại nguyên nhân hỏng, phát annotation cho GitHub Actions, cài cấu hình Calamares vào `/etc/calamares`, ghi `/usr/share/anios/aur-packages.txt`.
+- `scripts/sync-skel.sh` — nguồn duy nhất cho bộ dotfile: `--check` chặn mọi bản sao trong cây repo và đối chiếu các mục bắt buộc, `--stage DEST [SRC]` sinh bản đích trong ảnh. Bản đích phải được sinh từ cây **đã qua `remove.paths` của edition** (AniTails gỡ `Steam.desktop` khỏi ảnh amnesic), nên `build-iso.sh` truyền vào cây dựng chứ không truyền nguồn trong repo.
+- `scripts/selftest-skel-single-source.sh` — bảo vệ bất biến "một nguồn dotfile": mọi bản sao trong cây repo bị chặn, nguồn phải đủ mục bắt buộc, và `--stage` phải chép trung thành (symlink, quyền thực thi) kể cả khi sinh từ cây nguồn khác.
 - `scripts/check-profile.sh` — kiểm tra cấu trúc profile, danh sách gói (kể cả manifest AUR và ràng buộc của bước dựng AUR), cấu hình Calamares/installer (gồm `modules/locale.conf` để hệ thống cài ra đúng giờ Việt Nam), định danh AniOS, dotfile, cấu hình âm thanh (drop-in + symlink bật sẵn), múi giờ/NTP của ảnh live và tính nhất quán của theme con trỏ (gói `adwaita-cursors`, `~/.icons/default/index.theme`, mặc định của Settings → Cursor), mức độ bao phủ của CI và cú pháp script ngoại tuyến.
 - `scripts/check-hyprland.sh` — kiểm tra cú pháp và smoke test Lua cho Minimal/Immaterial Impulse, mẫu Matugen và đồng bộ hai skel; chạy mỗi cấu hình với ba hồ sơ GPU (`default`, `ANIOS_GPU=nvidia`, `ANIOS_SAFE=1`); cần Lua 5.4 trở lên, không cần GPU.
 - `profile/airootfs/etc/mkinitcpio.conf.d/10-anios-nvidia.conf`, `/etc/modprobe.d/anios-nvidia.conf` và `usr/local/lib/anios/gpu-env.sh` — ba lớp cấu hình NVIDIA: module trong initramfs, tham số modprobe (modeset, giữ VRAM qua suspend) và biến môi trường theo loại máy (chỉ-NVIDIA vs hybrid), gồm cả `AQ_DRM_DEVICES` để compositor không mở nhầm card `simpledrm`.
@@ -837,9 +840,26 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 - `scripts/selftest-anios-cafe.sh` — chạy `cafe.sh` và `anios-cafe` trên cây `$HOME` giả (không root): từ chối đường dẫn tuyệt đối/`..`, chỉ xoá danh sách cho phép, symlink trỏ ra ngoài không mất dữ liệu đích, giữ dotfiles Hyprland/`~/Desktop`/nhật ký phiên, `--dry-run` không xoá gì, `on`/`off` ghi đúng cấu hình, `clean` từ chối khi Steam/trình duyệt còn chạy, watchdog chỉ reboot khi bật + đúng ngưỡng + tối đa một lần mỗi lần boot; vai trò `pos` (máy quầy thu ngân) khoá cả hai việc, máy không có tài khoản dùng chung thì im lặng và không tạo thư mục rác, và một cấu hình gõ sai không làm chết phiên đăng nhập.
 - `scripts/selftest-build-iso-nvidia-params.sh` — nạp đúng `anios_add_nvidia_kernel_params()` của `build-iso.sh` rồi chạy trên GRUB/Syslinux/systemd-boot giả: mọi mục menu nhận `nvidia_drm.modeset=1 nvidia_drm.fbdev=1` đúng một lần, chạy lại không nhân đôi, profile không có cấu hình khởi động là no-op.
 - `.github/workflows/build-iso.yml` — dựng ISO tự động, kiểm tra ảnh live (gồm dàn âm thanh PipeWire: plugin SPA ALSA, unit người dùng, cấu hình bật sẵn và công cụ chẩn đoán; Calamares/packagechooser, helper installer, gói AUR, `python`/`nodejs`/`wine` và tàn dư builder), xuất artifact và phát hành release.
-- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh).
+- `.github/workflows/profile-check.yml` — kiểm tra nhanh profile trên mỗi push và pull request, kèm các bài tự kiểm tra chạy trong vài giây (AUR, ảnh live, âm thanh, mạng, theme con trỏ, installer, quyền tệp trong ảnh, nguồn dotfile).
+- `.github/workflows/quality.yml` — **quality gate** cho mọi pull request: `ruff` (Python), `shellcheck` (mọi script shell kể cả helper cài đặt), kiểm tra Lua của bộ dotfile và `pytest` cho cả hai app PySide6. Trước đây các bước này không chạy trong CI nên lỗi chỉ lộ ra khi người dùng đã cài ISO.
+- `Makefile` — một lệnh cho mọi kiểm tra: `make check` (quality gate đầy đủ), `make lint`, `make test`, `make selftest`, `make profile`, `make iso EDITION=anios`, `make clean`.
 
 ## Kiểm tra nhanh
+
+Cách nhanh nhất là dùng `make` — nó gọi đúng những bài kiểm tra mà CI gọi:
+
+```bash
+make check                               # quality gate đầy đủ: lint + test + selftest + profile
+make lint                                # chỉ shellcheck + ruff
+make test                                # chỉ pytest của hai app PySide6
+make selftest                            # toàn bộ bài tự kiểm tra dạng shell
+make profile                             # chỉ kiểm tra đặc tả profile + bộ cài đặt
+```
+
+Xem `docs/CONTRIBUTING.md` để biết quy trình đóng góp đầy đủ và các quy tắc
+bắt buộc (C1–C8) trước khi mở pull request.
+
+Từng bài kiểm tra có thể chạy riêng:
 
 ```bash
 ./scripts/check-profile.sh               # cấu trúc profile, danh sách gói, manifest AUR, ràng buộc CI
@@ -858,6 +878,7 @@ Lưu ý cho môi trường live: **model không nướng vào ISO** (kẻo ảnh
 ./scripts/selftest-anios-dmesg-check.sh     # phân loại dmesg: lỗi firmware vô hại vs lỗi thật
 ./scripts/selftest-anios-cafe.sh           # chế độ quán net: xoá đúng, giữ đúng, watchdog đúng ngưỡng
 ./scripts/selftest-build-iso-nvidia-params.sh # tham số kernel NVIDIA trên GRUB/Syslinux/systemd-boot
+./scripts/selftest-skel-single-source.sh   # nguồn dotfile duy nhất + stage trung thành
 ```
 
 Các bài kiểm tra chạy nhanh, không cần dựng ISO. Có thể đặt `LUA=lua5.4` nếu

@@ -1,14 +1,14 @@
 """Model danh sách cho QML: một lớp tổng quát dựa trên dict (đúng kiểu apps/anios-reddit)."""
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from PySide6.QtCore import (
     QAbstractListModel,
     QByteArray,
     QModelIndex,
     Qt,
-    Signal,
     Slot,
 )
 

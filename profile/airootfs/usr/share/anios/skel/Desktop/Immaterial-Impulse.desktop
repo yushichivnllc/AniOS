@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Switch to Immaterial Impulse
-Comment=Switch to Immaterial Impulse (Quickshell) desktop
-Exec=anios-switch-desktop imi
-Icon=immaterial-impulse
-Terminal=false
-Categories=Settings;System;

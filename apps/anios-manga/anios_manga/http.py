@@ -17,23 +17,23 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Callable, Optional
+from collections.abc import Callable
 
 USER_AGENT = "AniOSManga/0.1.0 (Linux x86_64) PySide6"
 
 # transport(method, url, headers, body) -> (status, body_text, response_headers)
-Transport = Callable[[str, str, dict, Optional[bytes]], tuple]
+Transport = Callable[[str, str, dict, bytes | None], tuple]
 
 
 class MangaError(Exception):
     """Lỗi có thông điệp hiển thị được cho người dùng."""
 
-    def __init__(self, message: str, status: Optional[int] = None):
+    def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
 
 
-def build_url(base: str, path: str, params: Optional[dict] = None) -> str:
+def build_url(base: str, path: str, params: dict | None = None) -> str:
     """Ghép URL; giá trị dạng list được lặp lại thành nhiều tham số (MangaDex cần cách này)."""
     url = base.rstrip("/") + "/" + path.lstrip("/") if base else path
     if not params:
@@ -49,14 +49,14 @@ def build_url(base: str, path: str, params: Optional[dict] = None) -> str:
     return f"{url}?{urllib.parse.urlencode(query)}" if query else url
 
 
-def _headers(extra: Optional[dict] = None) -> dict:
+def _headers(extra: dict | None = None) -> dict:
     headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
     if extra:
         headers.update(extra)
     return headers
 
 
-def default_transport(method: str, url: str, headers: dict, body: Optional[bytes]) -> tuple:
+def default_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple:
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=25) as resp:
@@ -67,7 +67,7 @@ def default_transport(method: str, url: str, headers: dict, body: Optional[bytes
         raise MangaError(f"Không kết nối được tới máy chủ: {exc}") from exc
 
 
-def default_bytes_transport(method: str, url: str, headers: dict, body: Optional[bytes]) -> tuple:
+def default_bytes_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple:
     """Như `default_transport` nhưng giữ nguyên byte của ảnh (surrogateescape khép kín)."""
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
@@ -90,8 +90,8 @@ def _read_error(exc: urllib.error.HTTPError) -> str:
 def request_json(
     url: str,
     *,
-    params: Optional[dict] = None,
-    headers: Optional[dict] = None,
+    params: dict | None = None,
+    headers: dict | None = None,
     transport: Transport = default_transport,
     action: str = "tải dữ liệu",
     retries: int = 2,
@@ -99,7 +99,7 @@ def request_json(
 ) -> dict:
     """GET một JSON; tự thử lại khi bị giới hạn tần suất (429) hoặc máy chủ lỗi (5xx)."""
     full_url = build_url("", url, params) if params else url
-    last_error: Optional[MangaError] = None
+    last_error: MangaError | None = None
     attempts = max(1, retries)
     for attempt in range(attempts):
         try:
@@ -126,13 +126,13 @@ def request_json(
 def request_bytes(
     url: str,
     *,
-    headers: Optional[dict] = None,
+    headers: dict | None = None,
     transport: Transport = default_bytes_transport,
     action: str = "tải ảnh",
     retries: int = 3,
 ) -> bytes:
     """GET nội dung nhị phân (ảnh trang, ảnh bìa)."""
-    last_error: Optional[MangaError] = None
+    last_error: MangaError | None = None
     attempts = max(1, retries)
     for attempt in range(attempts):
         try:

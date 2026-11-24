@@ -7,7 +7,6 @@ chúng chỉ làm việc với `Manga`, `Chapter` và danh sách URL ảnh.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 STATUS_LABELS = {
     "ongoing": "Đang ra",
@@ -33,8 +32,8 @@ class Manga:
     author: str = ""
     artist: str = ""
     status: str = ""
-    tags: List[str] = field(default_factory=list)
-    year: Optional[int] = None
+    tags: list[str] = field(default_factory=list)
+    year: int | None = None
     url: str = ""
     alt_title: str = ""
     nsfw: bool = False
@@ -54,7 +53,7 @@ class Chapter:
 
 @dataclass(slots=True)
 class Listing:
-    items: List[Manga] = field(default_factory=list)
+    items: list[Manga] = field(default_factory=list)
     has_more: bool = False
 
 
@@ -77,13 +76,13 @@ class MangaSource:
     def details(self, manga_id: str) -> Manga:
         raise NotImplementedError
 
-    def chapters(self, manga_id: str, languages: Optional[List[str]] = None) -> List[Chapter]:
+    def chapters(self, manga_id: str, languages: list[str] | None = None) -> list[Chapter]:
         raise NotImplementedError
 
-    def page_urls(self, chapter: Chapter, *, data_saver: bool = False) -> List[str]:
+    def page_urls(self, chapter: Chapter, *, data_saver: bool = False) -> list[str]:
         raise NotImplementedError
 
-    def prepare_pages(self, chapter: Chapter, *, data_saver: bool = False) -> List[str]:
+    def prepare_pages(self, chapter: Chapter, *, data_saver: bool = False) -> list[str]:
         """URL ảnh của một chương, sẵn sàng đưa vào reader.
 
         Mặc định chính là `page_urls`. Nguồn cục bộ ghi đè để giải nén chương trước
@@ -91,7 +90,7 @@ class MangaSource:
         """
         return self.page_urls(chapter, data_saver=data_saver)
 
-    def tags(self) -> List[dict]:
+    def tags(self) -> list[dict]:
         """Danh sách thể loại để làm bộ lọc: [{"id": ..., "name": ...}, ...]."""
         return []
 

@@ -1,0 +1,26 @@
+# Người duyệt bắt buộc cho từng khu vực của repo.
+#
+# Bộ dựng ISO và bộ cài đặt là phần nhạy cảm nhất: chạy trên máy thật của
+# người dùng nên một lỗi ở đây xoá dữ liệu hoặc hỏng ảnh.
+
+*                               @yushichivnllc
+
+# Bộ dựng ISO và gói AUR
+/scripts/build-iso.sh           @yushichivnllc
+/scripts/anios-aur-build.sh     @yushichivnllc
+/scripts/anios-steam-provision.sh @yushichivnllc
+/profile/packages.x86_64        @yushichivnllc
+/profile/packages.aur.x86_64    @yushichivnllc
+
+# Bộ cài đặt (Calamares + helper chạy trong chroot)
+/profile/installer/              @yushichivnllc
+
+# Bộ dotfile (nguồn duy nhất)
+/profile/shared/skel/            @yushichivnllc
+
+# Ba bản ISO
+/profile/editions/              @yushichivnllc
+
+# Script xoá dữ liệu người dùng
+/profile/airootfs/usr/local/bin/anios-cafe @yushichivnllc
+/profile/airootfs/usr/local/lib/anios/cafe.sh @yushichivnllc

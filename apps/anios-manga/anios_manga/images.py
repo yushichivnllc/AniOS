@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import threading
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import QByteArray
 from PySide6.QtGui import QImage
@@ -99,7 +98,7 @@ class MangaImageResponse(QQuickImageResponse):
             self._error = f"Không đọc được ảnh: {exc}"
         self.finished.emit()
 
-    def textureFactory(self) -> Optional[QQuickTextureFactory]:  # noqa: N802
+    def textureFactory(self) -> QQuickTextureFactory | None:  # noqa: N802
         if self._image.isNull():
             return None
         return QQuickTextureFactory.textureFactoryForImage(self._image)

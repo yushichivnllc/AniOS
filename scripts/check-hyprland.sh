@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Validate both skel copies without requiring a Wayland session or GPU.
+# Validate the AniOS skeleton (Hyprland Lua config) without a Wayland session or GPU.
+#
+# Bộ dotfile chỉ có MỘT nguồn (profile/shared/skel), nên bài này kiểm tra nguồn
+# đó. Bản /etc/skel và /home/anios trong ảnh là sản phẩm dựng.
 set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LUA="${LUA:-lua}"
@@ -10,8 +13,8 @@ command -v "$LUA" >/dev/null 2>&1 || {
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf -- "$TMP_DIR"' EXIT
 
-for skel in etc/skel usr/share/anios/skel; do
-  source_config="$ROOT_DIR/profile/airootfs/$skel/.config"
+for skel in profile/shared/skel; do
+  source_config="$ROOT_DIR/$skel/.config"
   # Parse all modules, including currently empty/custom overrides, not just the
   # master file. loadfile compiles but never runs the config or requires hl.
   while IFS= read -r -d '' file; do
@@ -42,7 +45,11 @@ for skel in etc/skel usr/share/anios/skel; do
   done
 done
 
-for dir in hypr matugen/templates/hyprland quickshell; do
-  diff -qr "$ROOT_DIR/profile/airootfs/etc/skel/.config/$dir" \
-           "$ROOT_DIR/profile/airootfs/usr/share/anios/skel/.config/$dir"
+# Bất biến "một nguồn duy nhất": bản sao nào trong cây repo cũng không được tồn
+# tại, vì chúng được sinh ra lúc dựng ISO từ nguồn ở trên.
+for mirror in profile/airootfs/etc/skel profile/airootfs/usr/share/anios/skel; do
+  if [[ -e "$ROOT_DIR/$mirror" ]]; then
+    echo "FAIL: $mirror must not be committed; the skeleton has one source" >&2
+    exit 1
+  fi
 done

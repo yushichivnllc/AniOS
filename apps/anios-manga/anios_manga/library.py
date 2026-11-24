@@ -10,7 +10,6 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from .sources.base import Manga
 
@@ -119,7 +118,7 @@ class Library:
             ).fetchone()
         return row is not None
 
-    def list_favorites(self, category: Optional[str] = None) -> List[dict]:
+    def list_favorites(self, category: str | None = None) -> list[dict]:
         query = "SELECT * FROM favorites"
         params: tuple = ()
         if category:
@@ -139,7 +138,7 @@ class Library:
             self._conn.commit()
 
     # ------------------------------------------------------------------ thể loại kệ
-    def categories(self) -> List[str]:
+    def categories(self) -> list[str]:
         with self._lock:
             rows = self._conn.execute("SELECT name FROM categories ORDER BY created_at").fetchall()
         return [r["name"] for r in rows]
@@ -182,14 +181,14 @@ class Library:
             )
             self._conn.commit()
 
-    def get_progress(self, source: str, manga_id: str) -> Optional[dict]:
+    def get_progress(self, source: str, manga_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM progress WHERE source = ? AND manga_id = ?", (source, manga_id)
             ).fetchone()
         return dict(row) if row else None
 
-    def history(self, limit: int = 100) -> List[dict]:
+    def history(self, limit: int = 100) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
                 """SELECT h.*, p.chapter_id, p.chapter_label, p.page
@@ -268,7 +267,7 @@ class Library:
             )
             self._conn.commit()
 
-    def remove_download(self, source: str, manga_id: str, chapter_id: str) -> Optional[dict]:
+    def remove_download(self, source: str, manga_id: str, chapter_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM downloads WHERE source = ? AND manga_id = ? AND chapter_id = ?",
@@ -283,14 +282,14 @@ class Library:
             self._conn.commit()
         return dict(row) if row else None
 
-    def downloads(self) -> List[dict]:
+    def downloads(self) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM downloads ORDER BY created_at DESC"
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def downloaded_chapter_ids(self, source: str, manga_id: str) -> List[str]:
+    def downloaded_chapter_ids(self, source: str, manga_id: str) -> list[str]:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT chapter_id FROM downloads WHERE source = ? AND manga_id = ?",
@@ -298,7 +297,7 @@ class Library:
             ).fetchall()
         return [r["chapter_id"] for r in rows]
 
-    def download_for(self, source: str, manga_id: str, chapter_id: str) -> Optional[dict]:
+    def download_for(self, source: str, manga_id: str, chapter_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM downloads WHERE source = ? AND manga_id = ? AND chapter_id = ?",
@@ -311,7 +310,7 @@ class Library:
             row = self._conn.execute("SELECT COALESCE(SUM(size), 0) AS total FROM downloads").fetchone()
         return int(row["total"]) if row else 0
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         """Số liệu ngắn cho trang Cài đặt."""
         with self._lock:
             favorites = self._conn.execute("SELECT COUNT(*) AS n FROM favorites").fetchone()["n"]

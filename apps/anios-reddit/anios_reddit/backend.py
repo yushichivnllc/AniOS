@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
@@ -29,12 +29,12 @@ class Backend(QObject):
         super().__init__(parent)
         self._settings = settings
         self._factory = client_factory
-        self._client: Optional[RedditClient] = None
+        self._client: RedditClient | None = None
         self._posts = DictListModel(POST_ROLES, self)
         self._comments = DictListModel(COMMENT_ROLES, self)
         self._sort = settings.last_sort if settings.last_sort in SORTS else "hot"
         self._time_range = "day"
-        self._after: Optional[str] = None
+        self._after: str | None = None
         self._busy = False
         self._status = ""
         self._feed_req = 0
@@ -166,7 +166,7 @@ class Backend(QObject):
         except OSError as exc:
             self._set_status(f"Không lưu được cấu hình: {exc}")
 
-    def _client_or_none(self) -> Optional[RedditClient]:
+    def _client_or_none(self) -> RedditClient | None:
         if not self.hasClientId:
             return None
         if self._client is None:
@@ -188,7 +188,7 @@ class Backend(QObject):
         self._feed_req += 1
         self._start_feed(None, append=False)
 
-    def _start_feed(self, after: Optional[str], append: bool):
+    def _start_feed(self, after: str | None, append: bool):
         client = self._client_or_none()
         if client is None:
             self._set_status("Cần client ID của Reddit trước khi tải bài viết.")

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional
 
 from .http import MangaError, default_bytes_transport, request_bytes
 from .paths import chapter_dir
@@ -20,7 +20,7 @@ from .util import format_size
 ProgressCallback = Callable[[int, int], None]
 
 
-def downloaded_pages(path: Path) -> List[str]:
+def downloaded_pages(path: Path) -> list[str]:
     """Đường dẫn `file://` của các ảnh trong thư mục đã tải, theo thứ tự đọc."""
     if not path.is_dir():
         return []
@@ -40,7 +40,7 @@ def download_chapter(
     chapter: Chapter,
     settings: Settings,
     transport=default_bytes_transport,
-    progress: Optional[ProgressCallback] = None,
+    progress: ProgressCallback | None = None,
 ) -> dict:
     """Tải toàn bộ ảnh của `chapter`; trả về thông tin để ghi vào kho dữ liệu."""
     # Chạy thật không truyền transport: phải tự rơi về bản giữ nguyên byte của ảnh.

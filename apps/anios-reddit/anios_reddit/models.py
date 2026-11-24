@@ -1,7 +1,8 @@
 """Model danh sách cho QML. Một lớp tổng quát dựa trên dict để dùng cho bài viết và bình luận."""
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from PySide6.QtCore import QAbstractListModel, QByteArray, QModelIndex, Qt
 

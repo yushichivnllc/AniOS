@@ -17,8 +17,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Optional
 
 API_BASE = "https://oauth.reddit.com"
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
@@ -34,13 +34,13 @@ TIME_RANGES = ("hour", "day", "week", "month", "year", "all")
 COMMENT_SORTS = ("confidence", "top", "new", "controversial", "old", "qa")
 
 # transport(method, url, headers, body) -> (status, body_text, response_headers)
-Transport = Callable[[str, str, dict, Optional[bytes]], tuple]
+Transport = Callable[[str, str, dict, bytes | None], tuple]
 
 
 class RedditError(Exception):
     """Lỗi có thông điệp hiển thị được cho người dùng."""
 
-    def __init__(self, message: str, status: Optional[int] = None):
+    def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
 
@@ -51,7 +51,7 @@ def make_user_agent(contact: str = "") -> str:
     return f"linux:{APP_ID}:{APP_VERSION} (by /u/{who})"
 
 
-def default_transport(method: str, url: str, headers: dict, body: Optional[bytes]) -> tuple:
+def default_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple:
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
@@ -137,7 +137,7 @@ def parse_comments(children: list, max_depth: int = 8, limit: int = 300) -> list
 @dataclass
 class Page:
     posts: list = field(default_factory=list)
-    after: Optional[str] = None
+    after: str | None = None
 
 
 def parse_listing(payload: dict) -> Page:
@@ -158,7 +158,7 @@ def compact_number(n: int) -> str:
     return f"{v}M"
 
 
-def relative_time(created: float, now: Optional[float] = None) -> str:
+def relative_time(created: float, now: float | None = None) -> str:
     """Thời gian tương đối bằng tiếng Việt, ví dụ '5 phút trước'."""
     if not created:
         return ""
@@ -187,7 +187,7 @@ class RedditClient:
         contact: str = "",
         transport: Transport = default_transport,
         clock: Callable[[], float] = time.time,
-        device_id: Optional[str] = None,
+        device_id: str | None = None,
     ):
         if not client_id.strip():
             raise RedditError("Chưa có client ID của Reddit.")
@@ -196,7 +196,7 @@ class RedditClient:
         self._transport = transport
         self._clock = clock
         self._device_id = device_id or uuid.uuid4().hex[:30]
-        self._token: Optional[str] = None
+        self._token: str | None = None
         self._token_expires = 0.0
 
     # -- auth
@@ -238,7 +238,7 @@ class RedditClient:
             raise RedditError("Reddit đang giới hạn số yêu cầu." + wait, status)
         return _json_or_error(status, text, "tải dữ liệu từ Reddit")
 
-    def listing(self, subreddit: str = FEED_SUBREDDIT, sort: str = "hot", after: Optional[str] = None,
+    def listing(self, subreddit: str = FEED_SUBREDDIT, sort: str = "hot", after: str | None = None,
                 time_range: str = "day") -> Page:
         if sort not in SORTS:
             raise RedditError(f"Kiểu sắp xếp không hợp lệ: {sort}")

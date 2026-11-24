@@ -11,7 +11,6 @@ Tài liệu: https://api.mangadex.org/docs/
 from __future__ import annotations
 
 import re
-from typing import List, Optional
 
 from ..http import MangaError, build_url, default_transport, request_json
 from .base import Chapter, Listing, Manga, MangaSource
@@ -30,7 +29,7 @@ class MangaDexSource(MangaSource):
     name = "MangaDex"
     offline = False
 
-    def __init__(self, *, nsfw: bool = False, languages: Optional[List[str]] = None,
+    def __init__(self, *, nsfw: bool = False, languages: list[str] | None = None,
                  data_saver: bool = False, transport=None):
         self.nsfw = nsfw
         self.languages = list(languages) if languages else list(FALLBACK_LANGUAGES)
@@ -39,20 +38,20 @@ class MangaDexSource(MangaSource):
         self._transport = transport or default_transport
 
     # ------------------------------------------------------------------ tiện ích
-    def _get(self, path: str, params: Optional[dict] = None, action: str = "tải dữ liệu") -> dict:
+    def _get(self, path: str, params: dict | None = None, action: str = "tải dữ liệu") -> dict:
         url = build_url(API, path, params)
         payload = request_json(url, transport=self._transport, action=action)
         if payload.get("result") not in (None, "ok"):
             raise MangaError("MangaDex trả về lỗi, thử lại sau.")
         return payload
 
-    def _content_rating(self) -> List[str]:
+    def _content_rating(self) -> list[str]:
         ratings = ["safe", "suggestive"]
         if self.nsfw:
             ratings += ["erotica", "pornographic"]
         return ratings
 
-    def _langs(self) -> List[str]:
+    def _langs(self) -> list[str]:
         langs = [x for x in self.languages if x]
         return langs or list(FALLBACK_LANGUAGES)
 
@@ -99,7 +98,7 @@ class MangaDexSource(MangaSource):
             raise MangaError("Không tìm thấy truyện này trên MangaDex.")
         return self._to_manga(item)
 
-    def chapters(self, manga_id: str, languages: Optional[List[str]] = None) -> List[Chapter]:
+    def chapters(self, manga_id: str, languages: list[str] | None = None) -> list[Chapter]:
         langs = [x for x in (languages or self._langs()) if x]
         params = {
             "limit": 500,
@@ -108,7 +107,7 @@ class MangaDexSource(MangaSource):
             "includeEmptyPages": 0,
             "includeExternalUrl": 0,
         }
-        collected: List[Chapter] = []
+        collected: list[Chapter] = []
         while True:
             payload = self._get(f"/manga/{manga_id}/feed", params, action="tải danh sách chương")
             data = payload.get("data") or []
@@ -120,9 +119,9 @@ class MangaDexSource(MangaSource):
         # Một chương có thể có nhiều bản dịch: giữ bản của ngôn ngữ ưu tiên nhất.
         return _dedupe_by_language(collected, langs)
 
-    def tags(self) -> List[dict]:
+    def tags(self) -> list[dict]:
         payload = self._get("/manga/tag", action="tải thể loại")
-        out: List[dict] = []
+        out: list[dict] = []
         for item in payload.get("data") or []:
             attrs = item.get("attributes") or {}
             name = (attrs.get("name") or {}).get("en") or ""
@@ -132,7 +131,7 @@ class MangaDexSource(MangaSource):
         return out
 
     # ------------------------------------------------------------------ ảnh
-    def page_urls(self, chapter: Chapter, *, data_saver: bool = False) -> List[str]:
+    def page_urls(self, chapter: Chapter, *, data_saver: bool = False) -> list[str]:
         payload = self._get(f"/at-home/server/{chapter.id}", action="lấy địa chỉ ảnh")
         base = payload.get("baseUrl") or ""
         info = payload.get("chapter") or {}
@@ -278,7 +277,7 @@ def _dedupe_key(chapter: Chapter):
     return ("oneshot", chapter.title.strip().lower())
 
 
-def _dedupe_by_language(chapters: List[Chapter], languages: List[str]) -> List[Chapter]:
+def _dedupe_by_language(chapters: list[Chapter], languages: list[str]) -> list[Chapter]:
     """Giữ lại một bản dịch cho mỗi chương: bản của ngôn ngữ ưu tiên nhất."""
     rank = {lang: i for i, lang in enumerate(languages)}
     best: dict = {}

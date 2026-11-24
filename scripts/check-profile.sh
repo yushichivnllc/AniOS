@@ -4,6 +4,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 AIROOTFS="$ROOT_DIR/profile/airootfs"
 BRANDING="$ROOT_DIR/profile/branding"
+# Nguồn dotfile DUY NHẤT (C1). Trong ảnh, bản này nằm ở /usr/share/anios/skel
+# và được sinh ra lúc dựng ISO; cây repo không chứa bản sao nào khác.
+SKEL="$ROOT_DIR/profile/shared/skel"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "OK: $*"; }
 
@@ -110,20 +113,20 @@ for doctor_needle in 'Secure Boot' 'AQ_DRM_DEVICES' 'mkinitcpio -P'; do
 done
 
 # Hồ sơ GPU dùng chung cho hai desktop; cả hai bản skel đều phải nạp nó.
-NVIDIA_PROFILE="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/nvidia.lua"
+NVIDIA_PROFILE="$SKEL/.config/hypr/hyprland/nvidia.lua"
 [[ -s "$NVIDIA_PROFILE" ]] || fail "thiếu hồ sơ GPU .config/hypr/hyprland/nvidia.lua"
 grep -qF 'software_cursors' "$NVIDIA_PROFILE" ||
   fail "hồ sơ GPU phải quyết định dùng con trỏ phần mềm (driver NVIDIA)"
-for hypr_entry in "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" \
-                  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland-minimal.lua" \
-                  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/general.lua"; do
+for hypr_entry in "$SKEL/.config/hypr/hyprland.lua" \
+                  "$SKEL/.config/hypr/hyprland-minimal.lua" \
+                  "$SKEL/.config/hypr/hyprland/general.lua"; do
   grep -qF 'nvidia.lua' "$hypr_entry" ||
     fail "${hypr_entry#"$AIROOTFS/"} không nạp hồ sơ GPU: cờ NVIDIA/phiên an toàn sẽ bị bỏ qua"
 done
 for cursor_entry in \
-  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" \
-  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland-minimal.lua" \
-  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/general.lua"; do
+  "$SKEL/.config/hypr/hyprland.lua" \
+  "$SKEL/.config/hypr/hyprland-minimal.lua" \
+  "$SKEL/.config/hypr/hyprland/general.lua"; do
   grep -qF 'no_hardware_cursors = gpu.software_cursors' "$cursor_entry" ||
     fail "${cursor_entry#"$AIROOTFS/"} phải chuyển hồ sơ GPU sang cursor:no_hardware_cursors"
 done
@@ -287,13 +290,11 @@ for aur_only in calamares yay yay-bin coccoc-browser-stable legacy-launcher; do
   ! grep -qxF "$aur_only" "$ROOT_DIR/profile/packages.x86_64" ||
     fail "$aur_only only exists in the AUR; pacstrap cannot resolve it. Move it to profile/packages.aur.x86_64"
 done
-KEYBINDS="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/keybinds.lua"
-for keybinds in "$KEYBINDS" "$AIROOTFS/etc/skel/.config/hypr/hyprland/keybinds.lua"; do
-  grep -qF 'hl.dsp.global("quickshell:sessionToggle")' "$keybinds" ||
-    fail "Ctrl+Alt+Delete must open the built-in Quickshell session menu: $keybinds"
-  ! grep -qF 'wlogout' "$keybinds" ||
-    fail "keybinds must not depend on the AUR-only wlogout package: $keybinds"
-done
+KEYBINDS="$SKEL/.config/hypr/hyprland/keybinds.lua"
+grep -qF 'hl.dsp.global("quickshell:sessionToggle")' "$KEYBINDS" ||
+  fail "Ctrl+Alt+Delete must open the built-in Quickshell session menu: $KEYBINDS"
+! grep -qF 'wlogout' "$KEYBINDS" ||
+  fail "keybinds must not depend on the AUR-only wlogout package: $KEYBINDS"
 
 # Pin the build script's stock-Archiso kernel path rewrite, including fallback images.
 rewritten="$(printf '%s\n' 'linux /arch/boot/x86_64/vmlinuz-linux' 'initrd /arch/boot/x86_64/initramfs-linux.img' 'initrd /arch/boot/x86_64/initramfs-linux-fallback.img' | sed -E 's/(vmlinuz|initramfs)-linux(-fallback)?([.]|[[:space:]]|$)/\1-linux-zen\2\3/g')"
@@ -523,7 +524,7 @@ grep -qF 'LABEL=ANIOS_PERSIST' "$AIROOTFS/usr/local/bin/anios-persist" ||
 grep -qF 'org.vinegarhq.Sober' "$AIROOTFS/usr/local/bin/anios-sober" || fail "anios-sober must launch org.vinegarhq.Sober"
 grep -qF 'flatpak install --system --noninteractive -y flathub org.vinegarhq.Sober' "$ROOT_DIR/scripts/build-iso.sh" ||
   fail "build-iso.sh must bake Sober into the image"
-[[ -s "$AIROOTFS/etc/skel/Desktop/Sober.desktop" ]] || fail "the Sober desktop shortcut is missing"
+[[ -s "$SKEL/Desktop/Sober.desktop" ]] || fail "the Sober desktop shortcut is missing"
 FIREFOX_POLICY="$AIROOTFS/etc/firefox/policies/policies.json"
 [[ -s "$FIREFOX_POLICY" ]] || fail "Firefox policies.json is missing"
 ! grep -qF "127.0.0.1:43211" "$FIREFOX_POLICY" ||
@@ -611,7 +612,6 @@ grep -qF 'pam_unix.so' "$PAM_LIVE" ||
   fail "the live lock screen must not bypass password authentication"
 
 # --- Cài sẵn dotfile ------------------------------------------------------
-SKEL="$AIROOTFS/usr/share/anios/skel"
 for dotfile in \
   .bashrc .bash_profile .profile .gitconfig .vimrc .nanorc \
   .config/kitty/kitty.conf .config/fish/config.fish \
@@ -637,7 +637,7 @@ grep -qxF 'imi' "$SKEL/.config/anios/desktop-mode" ||
 # --- Cấu hình desktop -----------------------------------------------------
 # Hyprland 0.55 trở lên đọc cấu hình Lua (hyprland.lua); định dạng hyprlang
 # (.conf) đã bị thay thế, nên cả hai bản skel chỉ được phép có file .lua.
-HYPR_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua"
+HYPR_CONF="$SKEL/.config/hypr/hyprland.lua"
 [[ -s "$HYPR_CONF" ]] || fail "hyprland.lua is missing; Hyprland now reads the Lua config"
 grep -qF '/usr/share/anios/wallpaper.png' "$HYPR_CONF" || fail "Hyprland must set the AniOS wallpaper"
 grep -qF 'fcitx5 -d' "$HYPR_CONF" || fail "Hyprland must start fcitx5 for Vietnamese input"
@@ -647,20 +647,19 @@ grep -qF 'hl.dsp.exec_cmd(menu)' "$HYPR_CONF" || fail "Hyprland launcher keybind
 
 # Chặn cấu hình cũ, rồi kiểm tra toàn bộ module và nạp thử cả hai desktop.
 # luac -p riêng file chính không bắt được lỗi kiểu dữ liệu/tên option của hl.
-for hypr_lua in \
-  "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" \
-  "$AIROOTFS/etc/skel/.config/hypr/hyprland.lua"; do
-  [[ -s "$hypr_lua" ]] || fail "missing Hyprland config: $hypr_lua"
-  [[ ! -e "${hypr_lua%.lua}.conf" ]] ||
-    fail "obsolete Hyprland config ${hypr_lua%.lua}.conf: Hyprland now reads hyprland.lua"
+hypr_lua="$SKEL/.config/hypr/hyprland.lua"
+[[ -s "$hypr_lua" ]] || fail "missing Hyprland config: $hypr_lua"
+[[ ! -e "${hypr_lua%.lua}.conf" ]] ||
+  fail "obsolete Hyprland config ${hypr_lua%.lua}.conf: Hyprland now reads hyprland.lua"
+# Bộ dotfile chỉ có MỘT nguồn: profile/shared/skel. Trong ảnh, /etc/skel và
+# /home/anios là sản phẩm dựng (scripts/sync-skel.sh), nên cây repo không được
+# chứa bản sao nào — nếu có, đó là bản sao thứ hai và drift quay trở lại.
+for mirror in etc/skel usr/share/anios/skel; do
+  [[ ! -e "$AIROOTFS/$mirror" ]] ||
+    fail "profile/airootfs/$mirror must not be committed: the skeleton has a single source (profile/shared/skel); it is produced at build time"
 done
-# Keep both skeleton trees byte-for-byte aligned even on hosts without Lua.
-for config_dir in hypr matugen/templates/hyprland quickshell; do
-  if ! diff -qr "$AIROOTFS/etc/skel/.config/$config_dir" \
-    "$AIROOTFS/usr/share/anios/skel/.config/$config_dir"; then
-    fail "the Live and installed-user skeleton copies differ: $config_dir"
-  fi
-done
+bash "$ROOT_DIR/scripts/sync-skel.sh" --check ||
+  fail "the AniOS skeleton source-of-truth check failed"
 if command -v "${LUA:-lua}" >/dev/null 2>&1; then
   "$ROOT_DIR/scripts/check-hyprland.sh" || fail "Hyprland Lua validation failed"
 else
@@ -695,8 +694,8 @@ if grep -rn 'Bibata-Modern-Classic' "$AIROOTFS" "$ROOT_DIR/profile/packages.x86_
   "$ROOT_DIR/profile/install/packages.x86_64" 2>/dev/null; then
   fail "Bibata-Modern-Classic is not installed in the image; the cursor defaults must name Adwaita (adwaita-cursors)"
 fi
-for skel in "$AIROOTFS/etc/skel" "$AIROOTFS/usr/share/anios/skel"; do
-  cursor_default="$skel/.icons/default/index.theme"
+skel="$SKEL"
+cursor_default="$skel/.icons/default/index.theme"
   [[ -s "$cursor_default" ]] ||
     fail "missing ${cursor_default#"$AIROOTFS/"}: libXcursor and Hyprland resolve the theme name 'default' through its Inherits=, and without it the compositor loads no cursor shape"
   grep -qxF 'Inherits=Adwaita' "$cursor_default" ||
@@ -708,12 +707,11 @@ for skel in "$AIROOTFS/etc/skel" "$AIROOTFS/usr/share/anios/skel"; do
     fail "${apply_cursor#"$AIROOTFS/"} must fall back to the installed Adwaita theme"
   grep -qF 'theme_installed' "$apply_cursor" ||
     fail "${apply_cursor#"$AIROOTFS/"} must verify the theme is installed before calling hyprctl setcursor (a missing theme wipes the compositor's cursor shapes)"
-  grep -qF 'gtk-cursor-theme-name=Adwaita' "$skel/.config/gtk-3.0/settings.ini" ||
-    fail "GTK must use the same Adwaita pointer as the compositor: ${skel#"$AIROOTFS/"}/.config/gtk-3.0/settings.ini"
-  grep -qF 'property string theme: "Adwaita"' \
-    "$skel/.config/quickshell/imi/modules/common/Config.qml" ||
-    fail "Settings > Cursor must default to the installed Adwaita theme (${skel#"$AIROOTFS/"})"
-done
+grep -qF 'gtk-cursor-theme-name=Adwaita' "$skel/.config/gtk-3.0/settings.ini" ||
+  fail "GTK must use the same Adwaita pointer as the compositor: ${skel#"$AIROOTFS/"}/.config/gtk-3.0/settings.ini"
+grep -qF 'property string theme: "Adwaita"' \
+  "$skel/.config/quickshell/imi/modules/common/Config.qml" ||
+  fail "Settings > Cursor must default to the installed Adwaita theme (${skel#"$AIROOTFS/"})"
 CURSOR_SELFCHECK="$ROOT_DIR/scripts/selftest-apply-saved-cursor.sh"
 [[ -x "$CURSOR_SELFCHECK" ]] || fail "missing or not executable: scripts/selftest-apply-saved-cursor.sh"
 bash -n "$CURSOR_SELFCHECK" || fail "shell syntax error: scripts/selftest-apply-saved-cursor.sh"
@@ -784,12 +782,12 @@ grep -qF '/usr/local/bin/anios-audio-setup --notify' "$HYPR_CONF" ||
   fail "Hyprland must start the AniOS audio setup when the session begins"
 grep -qF 'anios-audio-check' "$HYPR_CONF" ||
   fail "Hyprland must offer a shortcut for the audio check tool"
-grep -qF 'anios-audio-check' "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ||
+grep -qF 'anios-audio-check' "$SKEL/Desktop/README.txt" ||
   fail "the live desktop readme must document anios-audio-check"
 
 # hyprlock thoát ngay nếu không tìm thấy hyprlock.conf, nên phím tắt khoá màn
 # hình chỉ có ý nghĩa khi file cấu hình đi kèm tồn tại.
-HYPRLOCK_CONF="$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprlock.conf"
+HYPRLOCK_CONF="$SKEL/.config/hypr/hyprlock.conf"
 [[ -s "$HYPRLOCK_CONF" ]] || fail "hyprlock.conf is missing; the lock keybind would do nothing"
 grep -qF 'ignore_empty_input = false' "$HYPRLOCK_CONF" ||
   fail "the live lock screen must require a password"
@@ -799,7 +797,7 @@ grep -qF 'pam:module = anios-live' "$HYPRLOCK_CONF" ||
   fail "the lock screen must use the AniOS PAM service"
 
 # Unikey phải là bộ gõ mặc định, nếu không người dùng phải tự thêm vào fcitx5.
-FCITX_PROFILE="$AIROOTFS/usr/share/anios/skel/.config/fcitx5/profile"
+FCITX_PROFILE="$SKEL/.config/fcitx5/profile"
 [[ -s "$FCITX_PROFILE" ]] || fail "the fcitx5 profile for the live user is missing"
 grep -qxF 'DefaultIM=unikey' "$FCITX_PROFILE" || fail "Unikey must be the default input method"
 grep -qxF 'Name=unikey' "$FCITX_PROFILE" || fail "the Unikey input method is not registered in fcitx5"
@@ -821,7 +819,7 @@ done
 [[ -s "$AIROOTFS/usr/share/applications/anios-setup.desktop" ]] || fail "the Immaterial Impulse shortcut is missing"
 [[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-imi.desktop" ]] || fail "the Immaterial Impulse Wayland session is missing"
 [[ -s "$AIROOTFS/usr/share/wayland-sessions/anios-minimal.desktop" ]] || fail "the Minimal Wayland session is missing"
-[[ -s "$AIROOTFS/usr/share/anios/skel/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
+[[ -s "$SKEL/Desktop/README.txt" ]] || fail "the live desktop readme is missing"
 
 # --- Overlay không được đè lên file do gói pacman sở hữu ------------------
 # mkarchiso chép profile/airootfs vào work/<arch>/airootfs TRƯỚC khi pacstrap cài
@@ -1187,14 +1185,14 @@ for required in (
 PY
 grep -qF 'command -v qml6' "$BOOT_CHOICE" ||
   fail "Live/Install chooser must launch the packaged Qt 6 QML runtime"
-grep -qF '^(AniOS - Welcome)$' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" ||
+grep -qF '^(AniOS - Welcome)$' "$SKEL/.config/hypr/hyprland.lua" ||
   fail "Minimal Hyprland session must center the Live/Install chooser"
-grep -qF '^(AniOS - Welcome)$' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland/rules.lua" ||
+grep -qF '^(AniOS - Welcome)$' "$SKEL/.config/hypr/hyprland/rules.lua" ||
   fail "Immaterial Impulse session must center the Live/Install chooser"
 [[ -x "$INSTALLER_SELFTEST" ]] || fail "installer self-test is missing or not executable"
 grep -qF 'selftest-installer.sh' "$ROOT_DIR/.github/workflows/profile-check.yml" ||
   fail "the profile workflow must run scripts/selftest-installer.sh"
-grep -qF 'anios-boot-choice' "$AIROOTFS/usr/share/anios/skel/.config/hypr/hyprland.lua" ||
+grep -qF 'anios-boot-choice' "$SKEL/.config/hypr/hyprland.lua" ||
   fail "the AniOS graphical session must open the Live ISO / installer choice"
 grep -qF 'ANIOS_LIVE' "$AIROOTFS/usr/local/bin/anios-session" ||
   fail "anios-session must gate the welcome chooser to the Live ISO only"
@@ -1313,6 +1311,11 @@ for edition_id in anios aniterals anix; do
 
   # remove.paths phải là đường dẫn tuyệt đối của ảnh và phải thật sự có trong
   # profile nền, nếu không build-iso.sh sẽ dừng giữa lượt dựng hàng chục phút.
+  #
+  # Đường dẫn trong ảnh được đối chiếu với CÂY DỰNG, mà cây dựng gồm overlay
+  # nền (profile/airootfs) CỘNG bộ dotfile đã stage (profile/shared/skel →
+  # /usr/share/anios/skel). Vì vậy /usr/share/anios/skel/... phải được tra
+  # trong cây dotfile nguồn, còn phần còn lại tra trong profile/airootfs.
   remove_paths="$EDITIONS_DIR/$edition_id/remove.paths"
   if [[ -s "$remove_paths" ]]; then
     while IFS= read -r remove_line; do
@@ -1321,8 +1324,12 @@ for edition_id in anios aniterals anix; do
       [[ -n "$remove_line" ]] || continue
       [[ "$remove_line" == /* ]] ||
         fail "remove.paths of $edition_id must list absolute image paths: $remove_line"
-      [[ -e "$AIROOTFS$remove_line" || -L "$AIROOTFS$remove_line" ]] ||
-        fail "remove.paths of $edition_id names $remove_line, which profile/airootfs does not provide"
+      remove_probe="$AIROOTFS$remove_line"
+      if [[ "$remove_line" == /usr/share/anios/skel/* ]]; then
+        remove_probe="$SKEL/${remove_line#/usr/share/anios/skel/}"
+      fi
+      [[ -e "$remove_probe" || -L "$remove_probe" ]] ||
+        fail "remove.paths of $edition_id names $remove_line, which the base profile does not provide"
     done <"$remove_paths"
   fi
 

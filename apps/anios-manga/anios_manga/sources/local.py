@@ -17,8 +17,8 @@ import os
 import shutil
 import time
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Optional
 
 from ..util import natural_key, safe_name, sorted_images
 from .base import Chapter, Listing, Manga, MangaSource
@@ -36,14 +36,14 @@ class LocalSource(MangaSource):
         self.extract_root = Path(extract_root)
 
     # ------------------------------------------------------------------ quét
-    def _entries(self) -> List[Path]:
+    def _entries(self) -> list[Path]:
         if not self.root.is_dir():
             return []
         entries = [p for p in self.root.iterdir() if not p.name.startswith(".")]
         entries.sort(key=lambda p: natural_key(p.name))
         return entries
 
-    def _archives(self, folder: Path) -> List[Path]:
+    def _archives(self, folder: Path) -> list[Path]:
         try:
             files = [
                 p for p in folder.iterdir()
@@ -54,15 +54,15 @@ class LocalSource(MangaSource):
         files.sort(key=lambda p: natural_key(p.name))
         return files
 
-    def _images_here(self, folder: Path) -> List[Path]:
+    def _images_here(self, folder: Path) -> list[Path]:
         try:
             return sorted_images(p for p in folder.iterdir() if p.is_file())
         except OSError:
             return []
 
-    def _images_in_tree(self, folder: Path) -> List[Path]:
+    def _images_in_tree(self, folder: Path) -> list[Path]:
         """Anh trong ca cay thu muc (file nen co the co thu muc con)."""
-        images: List[Path] = []
+        images: list[Path] = []
         for dirpath, _dirnames, filenames in os.walk(folder):
             for name in filenames:
                 path = Path(dirpath) / name
@@ -72,9 +72,9 @@ class LocalSource(MangaSource):
         images.sort(key=lambda p: natural_key(str(p.relative_to(folder))))
         return images
 
-    def list_all(self) -> List[Manga]:
+    def list_all(self) -> list[Manga]:
         """Quét thư mục gốc, trả về mọi bộ truyện tìm thấy."""
-        out: List[Manga] = []
+        out: list[Manga] = []
         for entry in self._entries():
             if entry.is_dir():
                 if self._archives(entry) or self._images_here(entry):
@@ -139,7 +139,7 @@ class LocalSource(MangaSource):
             return self._manga_from_dir(path)
         return self._manga_from_archive(path)
 
-    def chapters(self, manga_id: str, languages: Optional[List[str]] = None) -> List[Chapter]:
+    def chapters(self, manga_id: str, languages: list[str] | None = None) -> list[Chapter]:
         path = self._abs(manga_id)
         if path.is_dir():
             archives = self._archives(path)
@@ -165,14 +165,14 @@ class LocalSource(MangaSource):
             pages=count,
         )
 
-    def _chapter_from_images(self, folder: Path, manga_id: str, images: List[Path]) -> Chapter:
+    def _chapter_from_images(self, folder: Path, manga_id: str, images: list[Path]) -> Chapter:
         return Chapter(id=str(folder), number="", volume="", title=folder.name, pages=len(images))
 
-    def page_urls(self, chapter: Chapter, *, data_saver: bool = False) -> List[str]:
+    def page_urls(self, chapter: Chapter, *, data_saver: bool = False) -> list[str]:
         # Nguồn cục bộ không có "URL"; các đường dẫn file do prepare_pages trả về.
         return self.prepare_pages(chapter, data_saver=data_saver)
 
-    def prepare_pages(self, chapter: Chapter, *, data_saver: bool = False) -> List[str]:
+    def prepare_pages(self, chapter: Chapter, *, data_saver: bool = False) -> list[str]:
         """Giải nén chương (nếu là file nén) rồi trả về đường dẫn `file://` từng trang."""
         path = Path(chapter.id)
         if path.is_dir():
@@ -199,7 +199,7 @@ class LocalSource(MangaSource):
         parts = [p for p in (parent, archive.stem, stamp) if p]
         return self.extract_root.joinpath(*[safe_name(p) for p in parts])
 
-    def _extract(self, archive: Path, dest: Path) -> List[Path]:
+    def _extract(self, archive: Path, dest: Path) -> list[Path]:
         marker = dest / ".extracted"
         if dest.is_dir() and marker.is_file() and self._images_in_tree(dest):
             return self._images_in_tree(dest)
@@ -231,7 +231,7 @@ def _is_image_name(name: str) -> bool:
     return Path(name).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif"}
 
 
-def _safe_join(root: Path, name: str) -> Optional[Path]:
+def _safe_join(root: Path, name: str) -> Path | None:
     candidate = (root / name).resolve()
     try:
         candidate.relative_to(root.resolve())
